@@ -1,0 +1,14 @@
+# Property-test report
+- Ownership: only `tests/property/` created/edited.
+- Normal: 21,000 moves (1,500 × 14 levels); 53/53 tests passed; 2.47s.
+- LONG=1: 84,000 moves (6,000 × 14 levels); 53/53 tests passed; 8.50 s.
+- Including two earlier normal runs: 147,000 random moves executed in this session.
+- Offered moves/fills rejected by checker: 0.
+- False accepted facts found by oracle: 0; no bug repro required.
+- Invalid proofs accepted/invalid goals filled: 0 across 39 hand-written cases.
+- Coverage: starts, span/gap rewrites, inverse interiors, lifts, swaps, theorem applications, nested rooms, press, clashes/discharges (3 in LONG).
+- Every successful move rechecks the complete graph; oracle exhausts all groups ≤8 for each distinct fact/hypothesis obligation and reuses identical results.
+- Fixed level seeds; LONG uses different seeds. Episodes reset every 24 moves or above 65 nodes to bound growth.
+- Lift has no address in KERNEL.md; its invalid side, undeclared multiplier and disabled-tool cases replace the requested nonexistent lift path case.
+- Standalone strict TypeScript check of both tests: exit 0 (`tsc --ignoreConfig`, no config/package edits).
+- Raw evidence: `run-normal.log`, `run-long.log`. Campaign solving and unbounded graph stress are outside these properties.

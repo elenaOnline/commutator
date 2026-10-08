@@ -1,0 +1,69 @@
+// LEMMA WORKS v3 — factory public API (contract). Bodies live in the files named
+// below; owners per ARCHITECTURE.md. Keep every signature; add freely.
+import type { KernelCtx } from '../kernel';
+import type { LevelManifest } from '../kernel/types';
+import type {
+  Belt, Canvas, Compiled, Endpoint, FactoryMetrics, Machine, MachineConfig, MachineKind,
+  MachineSpec, Port, Rect, Room, Rot, RunState, Tile,
+} from './types';
+
+export * from './types';
+
+const todo = (n: string): never => { throw new Error(`factory: ${n} not implemented yet`); };
+
+// ───────────── catalog.ts + geometry.ts  (owner: EDITOR builder) ─────────────
+
+/** Static catalogue: name, family ink, glyph, blurb, hotkey, placeable. */
+export { SPECS, defaultConfig, HOTBAR, DRAWER, usableSchemas, schemaMachineName, schemaPremises } from './catalog';
+/** footprint(m, ctx): occupied cells (rotation applied). portsOf(m, ctx): ports in world space (depend on config). */
+export {
+  footprint, portsOf, portOf, layoutOf, sizeOf, rectOf, frontOf, rotateFace, rotFacing,
+  FACES, FACE_DELTA, OPPOSITE, tileKey, tileEq, addTile, inRect,
+} from './geometry';
+
+// ───────────── editor.ts  (owner: EDITOR builder). Pure: return a new Canvas or a reason. ─────────────
+
+/** ok: `note` explains belts an edit left broken (ids in `broken`, drawn dashed). Refusal: `blockers` = ids to flash. */
+export type Edit =
+  | { ok: true; canvas: Canvas; ids?: string[]; note?: string; broken?: string[] }
+  | { ok: false; reason: string; blockers?: string[] };
+
+/** The level's starting floor: given inlets in a column on the west, sockets on the east, pre-start spools, generous empty floor between. */
+export { initialCanvas, INITIAL_GAP } from './editor';
+/** Place a machine (fails on overlap or straddling a room wall). */
+/** Move / rotate machines; attached belts are re-routed (or removed if no route). */
+/** Remove machines (unlocked only), belts, rooms (with their desk/gate and nothing else). */
+/** Manhattan route from an output port to an input port avoiding footprints and other belts; null if none. */
+/** Connect output → input with an explicit path (or auto-route). Refuses only impossible endpoints. */
+/** Branch: a new belt from the same output as `belt` (free copy) to `to`. */
+/** Paint a room rectangle; creates its desk (inside) and gate (on the boundary). Rooms nest, never partially overlap. */
+/** Machine/belt at a tile (top-most), for picking. */
+export {
+  place, moveMachines, rotateMachine, remove, setConfig, setConfigCtx, route, routeOrWhy, connect, connectVia, branch, branchAt, autoLinks, spliceCandidates,
+  paintRoom, resizeRoom, hit, portFacing, roomAt, roomOfMachine, freshId, copySelection, paste,
+} from './editor';
+
+export type { Splice, Why } from './editor';
+export interface Blueprint { machines: Machine[]; belts: Belt[]; origin: Tile }
+
+// ───────────── compile.ts + targeting.ts  (owner: COMPILER builder) ─────────────
+
+/** Canvas → kernel ProofGraph + per-machine results. Pure; the kernel's check is the only authority.
+ *  compile(c, ctx): Compiled (actually CompiledX: + cause, plan). JAMS = the jam message catalogue. */
+export { compile, rootCause, bindingsOn, sortSubsts, JAMS, LK } from './compile';
+export type { CompiledX, RunPlan, PlanMachine } from './compile';
+/** Lens helpers: first-match candidate order, structural pins and their re-resolution. */
+export {
+  pinFromAddr, pinFromGap, resolveSpanPin, resolveGapPin, spanCandidates, gapCandidates, spanLocOf, gapLocOf,
+  spanAddr, gapAddr, spanKey, gapKey, RAIL_ORDER,
+} from './targeting';
+export type { SpanLoc, GapLoc, Resolved } from './targeting';
+
+// ───────────── runtime.ts  (owner: COMPILER builder) ─────────────
+
+/** initRun(c, comp) · stepRun(s, c, comp) (Sol §9 phases, pure) · factoryMetrics(c, s, comp). */
+export { initRun, stepRun, factoryMetrics, queued, EMIT_PERIOD, MAX_IN_FLIGHT } from './runtime';
+export type { RunStateX } from './runtime';
+
+/** Ticks per second at 1× speed (rendering interpolates between ticks). */
+export const TICKS_PER_SECOND = 8;

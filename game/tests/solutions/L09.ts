@@ -1,0 +1,3 @@
+import {A,E,I,P,Builder,rw,ax,schema} from '../helpers';
+export function solution(){const b=new Builder(),a=A('a'),v=A('b'),negative=b.given('n');let n=b.room('suppose',P(a,v),v);n=b.steps(n,[{k:'lift',side:'right',term:I(v)}]);n=b.steps(n,[rw(ax('invR'),{x:v},'l',[1,3]),rw(ax('unitR'),{x:a},'l')]);n=b.steps(n,[rw(ax('invR'),{x:v})]);b.clash(n,negative);return b.g;}
+export function shortcut(){const b=new Builder(),a=A('a'),v=A('b'),negative=b.given('n');let n=b.room('suppose',P(a,v),v);n=b.steps(n,[{k:'insertE',at:{side:'r',path:[],gap:0}}]);n=b.apply(n,schema('cancel',true),{u:v,v:a,w:E});b.clash(n,negative);return b.g;}

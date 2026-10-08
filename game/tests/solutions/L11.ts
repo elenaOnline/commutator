@@ -1,0 +1,3 @@
+import {A,E,rep,Builder,rw,ax,node} from '../helpers';
+export function solution(){const b=new Builder(),a=A('a');const press=b.press(b.given('s'));b.given('h');let n=b.start(a);n=b.steps(n,[{k:'insertE',at:{side:'r',path:[],gap:1}},rw(node(press),{x:a},'r',[1,2],'rev')]);n=b.steps(n,[rw(node('g-h'),{},'r',[0,3]),rw(ax('unitL'),{x:a},'r',[0,2])]);b.steps(n,[rw(node('g-h'))]);return b.g;}
+export function shortRoute(){const b=new Builder(),a=A('a');const press=b.press(b.given('s')),h=b.given('h');let q=b.steps(b.start(rep(a,5)),[rw(node(press),{x:a})]);q=b.steps(q,[rw(node(h),{},'l',[0,3]),rw(ax('unitL'),{x:a},'l',[0,2])]);b.steps(h,[rw(node(q),{},'l',[0,2]),rw(ax('unitL'),{x:a},'l')]);return b.g;}

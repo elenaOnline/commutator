@@ -1,0 +1,84 @@
+// LEMMA WORKS v3 floor — statement typesetting as SVG <tspan>s, in the SAME 'stmt' convention as the
+// order chip (shell/util.ts typeset): runs of ≥ 2 compress to powers (a², (ab)⁵), so the dock, the inlet
+// and the chip always print one statement the same way. HTML (tooltips) uses shell/util fH directly.
+import type { Fact, PatFact, Term } from '../kernel/types';
+import { fH, tH } from '../shell/util';
+
+export type Labels = Record<string, string>;
+const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
+const it = (s: string) => `<tspan font-style="italic">${esc(s)}</tspan>`;
+const up = (s: string) => `<tspan font-style="normal">${esc(s)}</tspan>`;
+const sup = (s: string) => `<tspan font-style="normal" font-size="68%" baseline-shift="38%">${esc(s)}</tspan>`;
+const rel = (s: string) => up(` ${s} `);
+
+const same = (a: Term, b: Term) => JSON.stringify(a) === JSON.stringify(b);
+const simple = (x: Term) => x.k === 'atom' || x.k === 'meta' || x.k === 'e';
+
+function tokens(fs: Term[]): { block: Term[]; k: number }[] {
+  const out: { block: Term[]; k: number }[] = [];
+  for (let i = 0; i < fs.length;) {
+    let best = { p: 1, k: 1 };
+    for (let p = 1; p <= Math.min(4, Math.floor((fs.length - i) / 2)); p++) {
+      if (p === 1 && !(simple(fs[i]!) || (fs[i]!.k === 'inv' && simple((fs[i] as { arg: Term }).arg)))) continue;
+      let k = 1;
+      while (i + (k + 1) * p <= fs.length && fs.slice(i + k * p, i + (k + 1) * p).every((f, j) => same(f, fs[i + j]!))) k++;
+      if (k >= 2 && p * k > best.p * best.k) best = { p, k };
+    }
+    out.push({ block: fs.slice(i, i + best.p), k: best.k });
+    i += best.p * best.k;
+  }
+  return out;
+}
+
+export function termSVG(t: Term, L: Labels): string {
+  const word = (fs: Term[]): string => tokens(fs).map((tk) => {
+    if (tk.k === 1) return tk.block.map(one).join('');
+    if (tk.block.length === 1) {
+      const f = tk.block[0]!;
+      if (f.k === 'inv') return one(f.arg) + sup(`−${tk.k}`);
+      return one(f) + sup(String(tk.k));
+    }
+    return up('(') + word(tk.block) + up(')') + sup(String(tk.k));
+  }).join('');
+  const one = (x: Term): string => {
+    switch (x.k) {
+      case 'atom': return it(L[x.id] ?? x.id);
+      case 'meta': return it(x.id);
+      case 'e': return it('e');
+      case 'inv': return simple(x.arg) ? one(x.arg) + sup('−1') : up('(') + termSVG(x.arg, L) + up(')') + sup('−1');
+      case 'mul': return word(x.fs);
+    }
+  };
+  return t.k === 'mul' ? word(t.fs) : one(t);
+}
+
+export function factSVG(f: Fact | PatFact, L: Labels): string {
+  const q = (ms: string[]) => (ms.length ? up('∀') + ms.map(it).join(up(', ')) + up('. ') : '');
+  switch (f.k) {
+    case 'eq': return termSVG(f.l, L) + rel('=') + termSVG(f.r, L);
+    case 'neq': return termSVG(f.l, L) + rel('≠') + termSVG(f.r, L);
+    case 'bot': return up('⊥');
+    case 'size': return up('|') + it('G') + up('|') + rel('=') + up(String(f.n));
+    case 'law': return q(f.metas) + termSVG(f.l, L) + rel('=') + termSVG(f.r, L);
+    case 'cond': return q(f.metas) + f.premises.map((p) => factSVG(p, L)).join(up(', ')) + rel('⇒') + factSVG(f.concl, L);
+  }
+}
+
+/** Rough rendered width in px at font-size 1 (for collision boxes). */
+export function factWidth(f: Fact | PatFact | { k: 'term'; t: Term }, L: Labels): number {
+  const tw = (t: Term): number => {
+    const one = (x: Term): number => (x.k === 'mul' ? x.fs.reduce((s, y) => s + one(y), 0) : x.k === 'inv' ? (simple(x.arg) ? 0.5 + 0.55 : 1 + one(x.arg) + 0.55) : (L[(x as { id?: string }).id ?? ''] ?? 'x').length * 0.5);
+    return one(t);
+  };
+  switch (f.k) {
+    case 'term': return tw(f.t);
+    case 'eq': case 'neq': return tw(f.l) + tw(f.r) + 1.3;
+    case 'law': return tw(f.l) + tw(f.r) + 1.3 + f.metas.length * 0.8 + 0.6;
+    case 'cond': return f.premises.reduce((s, p) => s + factWidth(p, L), 0) + factWidth(f.concl, L) + 1.6;
+    case 'size': return 3.2;
+    default: return 0.8;
+  }
+}
+
+export const factHTML = (f: Fact | PatFact, L: Labels) => fH(f, L, 'stmt');
+export const termHTML = (t: Term, L: Labels) => tH(t, L, 'stmt');

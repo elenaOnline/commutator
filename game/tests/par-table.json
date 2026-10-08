@@ -1,0 +1,178 @@
+[
+  {
+    "level": "L01",
+    "route": "solution",
+    "parts": 1,
+    "parParts": 1,
+    "axioms": 2,
+    "parAxioms": 2
+  },
+  {
+    "level": "L02",
+    "route": "solution",
+    "parts": 2,
+    "parParts": 2,
+    "axioms": 2,
+    "parAxioms": 2
+  },
+  {
+    "level": "L02",
+    "route": "intermediate",
+    "parts": 2,
+    "parParts": 2,
+    "axioms": 2,
+    "parAxioms": 2
+  },
+  {
+    "level": "L03",
+    "route": "solution",
+    "parts": 2,
+    "parParts": 2,
+    "axioms": 4,
+    "parAxioms": 4
+  },
+  {
+    "level": "L03",
+    "route": "intermediate",
+    "parts": 2,
+    "parParts": 2,
+    "axioms": 4,
+    "parAxioms": 4
+  },
+  {
+    "level": "L03",
+    "route": "liftedGiven",
+    "parts": null,
+    "parParts": 2,
+    "axioms": null,
+    "parAxioms": 4
+  },
+  {
+    "level": "L04",
+    "route": "solution",
+    "parts": 3,
+    "parParts": 3,
+    "axioms": 5,
+    "parAxioms": 5
+  },
+  {
+    "level": "L05",
+    "route": "solution",
+    "parts": 3,
+    "parParts": 3,
+    "axioms": 5,
+    "parAxioms": 5
+  },
+  {
+    "level": "L06",
+    "route": "solution",
+    "parts": 3,
+    "parParts": 3,
+    "axioms": 8,
+    "parAxioms": 8
+  },
+  {
+    "level": "L06",
+    "route": "bench",
+    "parts": 3,
+    "parParts": 3,
+    "axioms": 6,
+    "parAxioms": 8
+  },
+  {
+    "level": "L07",
+    "route": "solution",
+    "parts": 2,
+    "parParts": 2,
+    "axioms": 11,
+    "parAxioms": 11
+  },
+  {
+    "level": "L08",
+    "route": "solution",
+    "parts": 3,
+    "parParts": 3,
+    "axioms": 6,
+    "parAxioms": 7
+  },
+  {
+    "level": "L08",
+    "route": "inverseRoute",
+    "parts": 9,
+    "parParts": 3,
+    "axioms": 25,
+    "parAxioms": 7
+  },
+  {
+    "level": "L09",
+    "route": "solution",
+    "parts": 4,
+    "parParts": 3,
+    "axioms": 6,
+    "parAxioms": 8
+  },
+  {
+    "level": "L09",
+    "route": "shortcut",
+    "parts": 3,
+    "parParts": 3,
+    "axioms": 8,
+    "parAxioms": 8
+  },
+  {
+    "level": "L10",
+    "route": "solution",
+    "parts": 4,
+    "parParts": 4,
+    "axioms": 9,
+    "parAxioms": 9
+  },
+  {
+    "level": "L11",
+    "route": "solution",
+    "parts": 4,
+    "parParts": 4,
+    "axioms": 6,
+    "parAxioms": 7
+  },
+  {
+    "level": "L11",
+    "route": "shortRoute",
+    "parts": 4,
+    "parParts": 4,
+    "axioms": 6,
+    "parAxioms": 7
+  },
+  {
+    "level": "L12",
+    "route": "solution",
+    "parts": 8,
+    "parParts": 8,
+    "axioms": 14,
+    "parAxioms": 18
+  },
+  {
+    "level": "S01",
+    "route": "solution",
+    "parts": 2,
+    "parParts": 2,
+    "axioms": 6,
+    "parAxioms": 6
+  },
+  {
+    "level": "S01",
+    "route": "bench",
+    "parts": 2,
+    "parParts": 2,
+    "axioms": 4,
+    "parAxioms": 6
+  },
+  {
+    "level": "S02",
+    "route": "solution",
+    "parts": 4,
+    "parParts": 4,
+    "axioms": 7,
+    "parAxioms": 7
+  }
+]

@@ -1,0 +1,22 @@
+/* LEMMA WORKS — base. Architect-owned; builders add their own CSS files in their folders. */
+@font-face { font-family: 'Latin Modern'; src: url('/fonts/lmroman10-regular.otf') format('opentype'); font-style: normal; font-weight: 400; font-display: block; }
+@font-face { font-family: 'Latin Modern'; src: url('/fonts/lmroman10-italic.otf') format('opentype'); font-style: italic; font-weight: 400; font-display: block; }
+@font-face { font-family: 'Latin Modern'; src: url('/fonts/lmroman10-bold.otf') format('opentype'); font-style: normal; font-weight: 700; font-display: block; }
+@font-face { font-family: 'Latin Modern Math'; src: url('/fonts/latinmodern-math.otf') format('opentype'); font-display: block; }
+:root {
+  --paper: #FFFFFF; --paper-warm: #FBFAF7; --grid: #D5D8E0;
+  --navy: #1B2340; --navy-2: #545B73; --navy-3: #8A90A3; --gold: #C99A2E;
+  --identity: #FFB81C; --identity-text: #8A5A00;
+  --inverse: #C9246E; --inverse-text: #A61C5A;
+  --structure: #2F6BFF; --structure-text: #1F4FD1;
+  --equation: #3CC7AE; --equation-text: #11806C;
+  --scope: #5528C2; --contradiction: #FF6A3D; --contradiction-text: #C2410C;
+  --font-math: 'Latin Modern', Georgia, serif;
+  --font-ui: 'Space Grotesk', system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--paper); color: var(--navy); font-family: var(--font-ui); -webkit-font-smoothing: antialiased; }
+#app { height: 100%; }
+.math { font-family: var(--font-math); }
+.math i, .math .v { font-style: italic; }
+button { font: inherit; color: inherit; }

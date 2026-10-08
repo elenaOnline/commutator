@@ -1,0 +1,21 @@
+{
+  "name": "commutator",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 8790 --strictPort",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "playwright": "1.56",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.2",
+    "vitest": "^5.0.3"
+  },
+  "dependencies": {
+    "@fontsource/space-grotesk": "^5.3.0"
+  }
+}

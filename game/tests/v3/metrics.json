@@ -1,0 +1,44 @@
+[
+  {
+    "level": "L01",
+    "machines": 1,
+    "area": 30,
+    "cycles": 32
+  },
+  {
+    "level": "L02",
+    "machines": 3,
+    "area": 56,
+    "cycles": 47
+  },
+  {
+    "level": "L03",
+    "machines": 3,
+    "area": 48,
+    "cycles": 50
+  },
+  {
+    "level": "L05",
+    "machines": 3,
+    "area": 46,
+    "cycles": 49
+  },
+  {
+    "level": "L06",
+    "machines": 4,
+    "area": 41,
+    "cycles": 43
+  },
+  {
+    "level": "L04",
+    "machines": 5,
+    "area": 66,
+    "cycles": 68
+  },
+  {
+    "level": "L07",
+    "machines": 2,
+    "area": 36,
+    "cycles": 39
+  }
+]

@@ -1,0 +1,3 @@
+import {A,I,P,Builder,rw,ax,schema} from '../helpers';
+export function solution(){const b=new Builder(),a=A('a'),v=A('b');let n=b.start(P(a,v,I(v),I(a)));n=b.steps(n,[rw(ax('invR'),{x:v},'r',[1,3]),rw(ax('unitL'),{x:I(a)},'r',[1,3])]);n=b.steps(n,[rw(ax('invR'),{x:a})]);n=b.apply(n,schema('witness'),{u:P(a,v),v:P(I(v),I(a))});b.swap(n);return b.g;}
+export function bench(){const b=new Builder(),a=A('a'),v=A('b');let n=b.start(I(P(a,v)));n=b.steps(n,[{k:'insertE',at:{side:'r',path:[],gap:1}},rw(ax('invR'),{x:a},'r',[1,2],'rev')]);n=b.steps(n,[{k:'insertE',at:{side:'r',path:[],gap:2}},rw(ax('invR'),{x:v},'r',[2,3],'rev')]);b.steps(n,[rw(ax('invL'),{x:P(a,v)},'r',[0,3]),rw(ax('unitL'),{x:I(v)},'r',[0,2])]);return b.g;}

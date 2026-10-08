@@ -1,0 +1,2 @@
+import {A,I,P,rep,Builder,rw,ax,node} from '../helpers';
+export function solution(){const b=new Builder(),a=A('a'),v=A('b');b.given('h');let n=b.start(rep(P(v,a,I(v)),3));n=b.steps(n,[rw(ax('invL'),{x:v},'r',[2,4]),rw(ax('unitL'),{x:a},'r',[2,4])]);n=b.steps(n,[rw(ax('invL'),{x:v},'r',[3,5]),rw(ax('unitL'),{x:a},'r',[3,5])]);n=b.steps(n,[rw(node('g-h'),{},'r',[1,4]),rw(ax('unitL'),{x:I(v)},'r',[1,3])]);b.steps(n,[rw(ax('invR'),{x:v})]);return b.g;}

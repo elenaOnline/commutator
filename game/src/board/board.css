@@ -1,0 +1,56 @@
+/* LEMMA WORKS board — Overprint. Owner: board builder. */
+.lw-board-host { position: relative; }
+.lw-board { position: absolute; inset: 0; overflow: hidden; background: var(--paper, #fff); cursor: grab; user-select: none; -webkit-user-select: none; touch-action: none; }
+.lw-board.is-panning { cursor: grabbing; }
+.lw-svg { display: block; width: 100%; height: 100%; }
+.lw-svg .mul { mix-blend-mode: multiply; }
+.lw-svg text { pointer-events: none; }
+.lw-sz { transform: scale(var(--lk, 1)); }
+.lw-psz { transform: scale(min(var(--lk, 1), 1.8)); }
+
+/* stations */
+.lw-st { cursor: pointer; }
+.lw-st:not(.lw-gate) { transition: transform 120ms cubic-bezier(.2,.8,.2,1); }
+.lw-st.is-hover:not(.lw-gate), .lw-st.is-active:not(.lw-gate) { transform: translateY(-2px); }
+.lw-gate { cursor: pointer; }
+.lw-inlab { cursor: pointer; }
+.lw-inlab text { pointer-events: auto; }
+
+/* hover / active marks printed under the tile */
+.lw-mark { opacity: 0; transition: opacity 120ms; pointer-events: none; }
+.lw-mark .lw-mk-ring { stroke-dasharray: 3 4; }
+.lw-mark.is-hover { opacity: .9; }
+.lw-mark.is-active { opacity: 1; }
+.lw-mark.is-active .lw-mk-ring { stroke-dasharray: none; stroke-width: 2; }
+
+/* replay is a clean loop: no selection furniture */
+.lw-board.is-replaying .lw-mark { opacity: 0 !important; }
+.lw-board.is-replaying .lw-st { transform: none !important; }
+
+/* ribbons */
+.lw-rib { pointer-events: none; }
+.lw-rib .lw-rib-ink { transition: stroke-width 160ms, opacity 160ms; }
+.lw-rib.is-lit .lw-rib-ink { stroke-width: 3.4; opacity: 1; }
+.lw-board.has-hover .lw-rib:not(.is-lit) { opacity: .55; }
+.lw-rib.is-pulse .lw-rib-ink { animation: lw-pulse 560ms cubic-bezier(.2,.8,.2,1) 1; }
+@keyframes lw-pulse { 0% { stroke-width: 2.2; opacity: .78; } 35% { stroke-width: 5.2; opacity: 1; } 100% { stroke-width: 2.2; opacity: .78; } }
+
+/* the active belt end breathes */
+.lw-pulse { transform-box: fill-box; transform-origin: center; animation: lw-ring 1.6s cubic-bezier(.2,.8,.2,1) infinite; pointer-events: none; }
+@keyframes lw-ring { 0% { transform: scale(.85); opacity: .75; } 70% { transform: scale(1.35); opacity: 0; } 100% { transform: scale(1.35); opacity: 0; } }
+.lw-pal.is-active { animation: lw-breathe 1.6s ease-in-out infinite; }
+@keyframes lw-breathe { 0%, 100% { opacity: 1; } 50% { opacity: .78; } }
+.lw-hint { pointer-events: none; }
+.lw-fx .halo-t { paint-order: stroke; stroke: #fff; stroke-width: 4px; stroke-linejoin: round; }
+
+/* pallets / cards */
+.lw-pallets { pointer-events: none; }
+.lw-del { cursor: pointer; pointer-events: auto; }
+.lw-del:hover circle { fill: #FFEDE6; }
+.lw-labels text, .lw-fields text, .lw-card .halo { paint-order: stroke; stroke: #fff; stroke-width: 4.5px; stroke-linejoin: round; }
+.lw-seal { transition: opacity 160ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  .lw-st, .lw-mark, .lw-rib .lw-rib-ink, .lw-seal { transition: none !important; }
+  .lw-rib.is-pulse .lw-rib-ink, .lw-pulse, .lw-pal.is-active { animation: none; }
+}

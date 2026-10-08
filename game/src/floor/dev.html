@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Lemma Works — floor harness</title>
+    <style>
+      html, body { height: 100%; margin: 0; }
+      #floor { position: fixed; inset: 0; }
+      #bar { position: fixed; left: 12px; bottom: 10px; z-index: 9; display: flex; gap: 6px; font: 12px 'Space Grotesk', sans-serif; }
+      #bar button { border: 0; background: #EEF0F5; color: #1B2340; border-radius: 14px; padding: 5px 11px; cursor: pointer; }
+      #bar button.on { background: #1B2340; color: #fff; }
+      body.shot #bar { display: none; }
+    </style>
+  </head>
+  <body>
+    <div id="floor"></div>
+    <div id="bar"></div>
+    <script type="module" src="./dev.ts"></script>
+  </body>
+</html>

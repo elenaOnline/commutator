@@ -1,0 +1,2 @@
+import * as L01 from './L01'; import * as L02 from './L02'; import * as L03 from './L03'; import * as L04 from './L04'; import * as L05 from './L05'; import * as L06 from './L06'; import * as L07 from './L07'; import * as L08 from './L08'; import * as L09 from './L09'; import * as L10 from './L10'; import * as L11 from './L11'; import * as L12 from './L12'; import * as S01 from './S01'; import * as S02 from './S02';
+export const SOLUTIONS={L01,L02,L03,L04,L05,L06,L07,L08,L09,L10,L11,L12,S01,S02};
