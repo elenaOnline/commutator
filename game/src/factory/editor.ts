@@ -10,9 +10,10 @@
 // Type mismatches between ports are allowed (the compiler jams them with a reason).
 import type { KernelCtx } from '../kernel';
 import type { LevelManifest } from '../kernel/types';
-import type { Belt, Canvas, Endpoint, Face, Machine, MachineConfig, MachineKind, Port, Rect, Room, Rot, Tile } from './types';
+import type { Belt, Canvas, Endpoint, Face, LibRef, Machine, MachineConfig, MachineKind, Port, Rect, Room, Rot, Tile } from './types';
 import type { Blueprint, Edit } from './index';
-import { SPECS, defaultConfig } from './catalog';
+import { SORT_SEQ, SPECS, defaultConfig, libName, schemaOf, sortBase, splitLabel, subscript, varLabel } from './catalog';
+import { POWER_LITERAL_FAMILY } from '../kernel';
 import { LEVEL_BY_ID, REGISTRY } from '../levels/levels';
 import { FACE_DELTA, FACES, OPPOSITE, addTile, footprint, frontOf, inRect, portsOf, rectOf, sizeOf, tileEq, tileKey } from './geometry';
 
@@ -86,7 +87,35 @@ function fitReason(c: Canvas, ms: Machine[], ctx: KernelCtx, skip: Set<string>, 
     const rr = roomReason(m, cells, rooms, ctx);
     if (rr) return why(rr, roomBlockers(m, cells, rooms));
   }
+  return doorstepReason(c, ms, ctx, skip);
+}
+
+/**
+ * Every port's doorstep (the cell its belt attaches to — work, rule, card, premise and param ports alike) is
+ * kept free: a machine may not sit on another machine's doorstep, except to link to it directly (its own port
+ * on that cell faces the other port back). Also the placement preview's warning.
+ */
+function doorstepReason(c: Canvas, ms: Machine[], ctx: KernelCtx, skip: Set<string>): Why | null {
+  const moving = new Set(ms.map((m) => m.id));
+  const others = [...c.machines.filter((m) => !skip.has(m.id) && !moving.has(m.id)), ...ms];
+  const doors = new Map<string, { m: Machine; p: Port }[]>();
+  for (const o of others) for (const p of portsOf(o, ctx)) {
+    const k = tileKey(frontOf(p)); doors.set(k, [...(doors.get(k) ?? []), { m: o, p }]);
+  }
+  for (const m of ms) {
+    const mine = portsOf(m, ctx);
+    for (const t of footprint(m, ctx)) for (const d of doors.get(tileKey(t)) ?? []) {
+      if (d.m.id === m.id) continue;
+      const direct = mine.some((q) => tileEq(q.tile, t) && q.dir !== d.p.dir && tileEq(frontOf(q), d.p.tile));
+      if (!direct) return why(`That would block ${portName(d.m, d.p, ctx)}.`, [d.m.id]);
+    }
+  }
   return null;
+}
+
+/** Placement preview: why this machine cannot stand here (overlap, room wall, someone's doorstep), or null. */
+export function placementWhy(c: Canvas, m: Machine, ctx: KernelCtx): Why | null {
+  return fitReason(c, [m], ctx, new Set([m.id]));
 }
 
 /** Rooms whose wall a machine would straddle (for flashing). */
@@ -280,9 +309,32 @@ function portName(m: Machine, p: Port, ctx: KernelCtx): string {
   const plain = p.label === 'in' || p.label === 'out' ? '' : `${p.label} `;
   return `${who(m, ctx)}’s ${plain}${p.dir === 'in' ? 'input' : 'output'}`;
 }
+/** The plate a machine shows (its recipe), e.g. 'CANCEL', 'CLASH', 'Witness Stamp'; '' when it has none. */
+function plate(m: Machine, ctx: KernelCtx): string {
+  const c = m.config;
+  switch (c.kind) {
+    case 'rewriter': {
+      const r = c.recipe;
+      if (!r) return '';
+      return r.k === 'law' ? libName(ctx, r.ref) : { cancel: 'CANCEL', pop: 'POP', insertE: 'INSERT e', insertPair: 'INSERT PAIR', routed: 'ROUTED' }[r.k];
+    }
+    case 'operator': return c.recipe ? c.recipe.k.toUpperCase() : '';
+    case 'joiner': return c.recipe ? c.recipe.k.toUpperCase() : '';
+    case 'theorem': return c.recipe?.k === 'library' ? libName(ctx, c.recipe.ref) : c.recipe ? 'ROUTED' : '';
+    case 'carddock': return c.ref ? libName(ctx, c.ref) : '';
+    case 'tower': return c.label;
+    default: return '';
+  }
+}
+/** Unambiguous name for blame: 'the CANCEL Rewriter at (12,4)', 'h₄', 'the Hopper at (0,0)'. */
+function whoAt(m: Machine, ctx: KernelCtx): string {
+  if (m.config.kind === 'given') return who(m, ctx);
+  const p = plate(m, ctx);
+  return `the ${p ? `${p} ` : ''}${nameOf(m)} at (${m.at.x},${m.at.y})`;
+}
 function beltName(c: Canvas, b: Belt, ctx: KernelCtx): string {
   const m = c.machines.find((x) => x.id === b.from.m);
-  return m ? `the belt from ${who(m, ctx)}` : 'a belt';
+  return m ? `the belt from ${whoAt(m, ctx)}` : 'a belt';
 }
 const at = (t: Tile) => `(${t.x},${t.y})`;
 
@@ -553,7 +605,7 @@ function routeWhy(B: BeltCtx, belts: Belt[], from: Endpoint, to: Endpoint, via: 
         let cost = hug.has(k) ? WRAP : 0;
         if (approach.has(k)) cost += APPROACH;
         if (occ.has(k) || isOtherDoorstep(k)) { if (w.machine === null) return null; cost += w.machine; }
-        if (layer.own(t, net)) return null;                // never rejoin the own tree
+        if (layer.own(t, net)) { if (w.belt === null) return null; cost += w.belt; } // never rejoin the own tree (relaxed: blame it)
         const os = layer.others(t, net);
         if (os.length) {
           const crossable = !target.has(k) && os.length === 1 && os[0]!.mode !== 'X' && os[0]!.mode !== axisOf(d);
@@ -561,7 +613,7 @@ function routeWhy(B: BeltCtx, belts: Belt[], from: Endpoint, to: Endpoint, via: 
         }
         return cost;
       };
-      const straight = (t: Tile) => { const os = layer.others(t, net); return os.length === 1 && os[0]!.mode !== 'X'; };
+      const straight = (t: Tile) => { if (w.belt !== null) return false; const os = layer.others(t, net); return os.length === 1 && os[0]!.mode !== 'X'; };
       const r = astar(sd, target, bounds, enter, straight);
       if (!r) return null;
       acc = r.path;
@@ -622,12 +674,19 @@ function routeWhy(B: BeltCtx, belts: Belt[], from: Endpoint, to: Endpoint, via: 
     const beltIds: string[] = [];
     const machineIds: string[] = [];
     const modes = cellModes(relaxed);
+    const doors: { m: Machine; p: Port }[] = [];
     relaxed.forEach((t, i) => {
       const k = tileKey(t);
-      const mid = occ.get(k) ?? (isOtherDoorstep(k) ? fronts.get(k)!.m.id : undefined);
+      const mid = occ.get(k);
       if (mid !== undefined && !machineIds.includes(mid)) machineIds.push(mid);
+      if (mid === undefined && isOtherDoorstep(k)) { const f = fronts.get(k)!; if (!doors.some((d) => d.m.id === f.m.id && d.p.id === f.p.id)) doors.push(f); }
       for (const id of layer.clash(t, net, modes[i]!)) if (!beltIds.includes(id)) beltIds.push(id);
+      for (const id of layer.own(t, net)?.belts ?? []) if (!beltIds.includes(id) && !seeds.some((x) => tileEq(x.tile, t))) beltIds.push(id);
     });
+    if (!machineIds.length && doors.length) {
+      const names = doors.slice(0, 2).map((d) => portName(d.m, d.p, ctx));
+      return why(`no route: the only way runs over the doorstep of ${names.join(' and ')} — move one of them a tile.`, [...doors.map((d) => d.m.id), ...beltIds]);
+    }
     if (machineIds.length) {
       const names = [...new Set(machineIds.map((id) => who(c.machines.find((x) => x.id === id)!, ctx)))];
       const list = names.length > 2 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names.join(' and ');
@@ -680,6 +739,11 @@ function settle(c: Canvas, ctx: KernelCtx, suspects: Set<string>): { canvas: Can
   const belts = c.belts.map((b) => out.get(b.id)!);
   const broken = belts.filter((b) => b.broken && !c.belts.find((x) => x.id === b.id)!.broken);
   return { canvas: { ...c, belts }, broken };
+}
+
+/** Re-validate every belt of a canvas (re-route, or keep broken with a reason). Used by migrateCanvas. */
+export function repairBelts(c: Canvas, ctx: KernelCtx): Canvas {
+  return settle(c, ctx, new Set(c.belts.map((b) => b.id))).canvas;
 }
 
 /** settle, then turn newly broken belts into an Edit note. */
@@ -735,12 +799,14 @@ export function spliceCandidates(c: Canvas, m: Machine, ctx: KernelCtx): Splice[
   const res: Splice[] = [];
   for (const b of c.belts) {
     if (b.broken || b.from.m === m.id || b.to.m === m.id) continue;
-    const keys = b.path.map(tileKey);
-    const i = keys.indexOf(fq), j = keys.indexOf(fo);
-    if (i < 0 || j < 0 || j - i < 2) continue;
-    if (!keys.slice(i + 1, j).every((k) => fp.has(k))) continue;
     const e = resolveEnds(c, b.from, b.to, ctx);
     if (typeof e === 'string') continue;
+    // The line includes its end ports' cells, so a short belt (1–2 cells, or a direct link's gap) that the
+    // machine covers completely splices too: it then touches the source and the target directly.
+    const keys = [tileKey(e.fromP.tile), ...b.path.map(tileKey), tileKey(e.toP.tile)];
+    const i = keys.indexOf(fq), j = keys.lastIndexOf(fo);
+    if (i < 0 || j < 0 || j - i < 2) continue;
+    if (!keys.slice(i + 1, j).every((k) => fp.has(k))) continue;
     if (!e.fromP.accepts.some((k) => q.accepts.includes(k)) || !out.accepts.some((k) => e.toP.accepts.includes(k))) continue;
     res.push({ belt: b.id, from: b.from, to: b.to, into: { m: m.id, port: 'q' }, outOf: { m: m.id, port: 'out' } });
   }
@@ -791,7 +857,7 @@ function placeUnsafe(c: Canvas, kind: MachineKind, at: Tile, rot: Rot, ctx: Kern
   const bad = configReason(cfg, ctx);
   if (bad) return no(bad);
   const id = freshId(allIds(c), kind);
-  const m: Machine = { id, kind, at: { x: at.x, y: at.y }, rot: (((rot % 4) + 4) % 4) as Rot, config: clone(cfg) };
+  const m: Machine = uniqueTowers(c, [{ id, kind, at: { x: at.x, y: at.y }, rot: (((rot % 4) + 4) % 4) as Rot, config: clone(cfg) }], ctx)[0]!;
   const w = fitReason(c, [m], ctx, new Set());
   if (w) return noWhy(w);
   const cells = new Set(footprint(m, ctx).map(tileKey));
@@ -946,26 +1012,115 @@ function malformedReason(x: unknown): string | null {
   return walk(x, 0);
 }
 
+/** Why a library reference cannot be used at all (unknown id, no mirror), or null. Legality is the compiler's. */
+function refReason(ref: LibRef | null | undefined, ctx: KernelCtx): string | null {
+  if (!ref) return null;
+  switch (ref.k) {
+    case 'schema': {
+      if (ref.id === POWER_LITERAL_FAMILY) return null; // the family entry: the lens still has to choose r
+      const sc = schemaOf(ctx, ref.id);
+      if (!sc) return ref.id ? `No theorem called “${ref.id}”.` : 'No earned theorem to build yet.';
+      if (ref.mirror && !sc.mirrorable) return `${sc.name} has no mirror image.`;
+      return null;
+    }
+    case 'given': return ctx.level.givens.some((g) => g.id === ref.givenId) ? null : `This order has no hypothesis “${ref.givenId}”.`;
+    case 'axiom': return ['unitL', 'unitR', 'invL', 'invR'].includes(ref.id) ? null : 'No such axiom.';
+    case 'lagrange': return null;
+  }
+}
+
 /** Static validation of a configuration (not legality — the compiler/kernel decide that). */
 function configReason(cfg: MachineConfig, ctx: KernelCtx): string | null {
   const bad = malformedReason(cfg);
   if (bad) return bad;
   switch (cfg.kind) {
-    case 'apply':
-      if (!Number.isInteger(cfg.premises) || cfg.premises < 0 || cfg.premises > 8) return 'Apply takes 0 to 8 premises.';
+    case 'rewriter': return cfg.recipe?.k === 'law' ? refReason(cfg.recipe.ref, ctx) : null;
+    case 'theorem':
       if (!Number.isInteger(cfg.choice) || cfg.choice < 0) return 'Choose a binding.';
-      return null;
-    case 'stamp': case 'carddock': {
-      const s = ctx.registry[cfg.schema];
-      if (!s) return cfg.schema ? `No theorem called “${cfg.schema}”.` : 'No earned theorem to build yet.';
-      if (cfg.kind === 'stamp' && s.card.k !== 'cond') return `${s.name} is a law — use a Card Dock for it.`;
-      if (cfg.kind === 'carddock' && s.card.k !== 'law') return `${s.name} has premises — use its stamp.`;
-      if (cfg.mirror && !s.mirrorable) return `${s.name} has no mirror image.`;
-      if (cfg.kind === 'stamp' && (!Number.isInteger(cfg.choice) || cfg.choice < 0)) return 'Choose a binding.';
-      return null;
-    }
+      return cfg.recipe?.k === 'library' ? refReason(cfg.recipe.ref, ctx) : null;
+    case 'carddock': return refReason(cfg.ref, ctx);
+    case 'tower': return cfg.label.trim() ? null : 'A tower needs a name, like x₁.';
     default: return null;
   }
+}
+
+/** Every atom id a term anywhere on the floor refers to (machine configs, room statements). */
+function referencedAtoms(c: Canvas, skip?: Set<string>): Set<string> {
+  const out = new Set<string>();
+  const walk = (v: unknown) => {
+    if (!v || typeof v !== 'object') return;
+    if (Array.isArray(v)) { v.forEach(walk); return; }
+    const o = v as Record<string, unknown>;
+    if (o.k === 'atom' && typeof o.id === 'string') out.add(o.id);
+    for (const k of Object.keys(o)) walk(o[k]);
+  };
+  for (const m of c.machines) if (!skip?.has(m.id) && m.config.kind !== 'tower') walk(m.config);
+  for (const r of c.rooms) { walk(r.l); walk(r.r); }
+  return out;
+}
+
+/**
+ * Tower identity. Labels are unique on the floor and a variable id is never silently re-bound: a new tower
+ * (placed, pasted, pipetted) whose label or varId collides with another tower — or whose varId is a level
+ * constant or is still referenced by machines whose tower was deleted — is renumbered to the next free
+ * subscript of its base letter (x₁ → x₂). Re-labelling an existing tower keeps its varId (its uses follow it).
+ */
+function uniqueTowers(c: Canvas, ms: Machine[], ctx: KernelCtx): Machine[] {
+  const mine = new Set(ms.map((m) => m.id));
+  const consts = new Set(ctx.level.atoms.map((a) => a.id));
+  const used = referencedAtoms(c, mine);
+  const labels = new Set<string>();
+  const ids = new Set<string>([...consts, ...used]);
+  const towerIds = new Set<string>();
+  for (const m of c.machines) if (m.config.kind === 'tower') {
+    towerIds.add(m.config.varId);
+    if (!mine.has(m.id)) { labels.add(m.config.label); ids.add(m.config.varId); }
+  }
+  // Orphans: variables still used on the floor whose Tower was deleted. Their labels stay reserved, so a new
+  // Tower never shows a name that old machines also show; renaming a Tower to one of them rebinds those uses.
+  const orphans = new Map<string, string>(); // label → varId
+  for (const id of used) if (!towerIds.has(id) && !consts.has(id)) orphans.set(varLabel(id), id);
+  return ms.map((m) => {
+    if (m.config.kind !== 'tower') return m;
+    const prev = c.machines.find((x) => x.id === m.id);
+    const existing = prev?.config.kind === 'tower' ? prev.config : null;
+    const keepId = existing?.varId === m.config.varId;
+    let { label, varId } = m.config;
+    const sort = m.config.sort;
+    const base = sortBase(label, sort);
+    if (base !== splitLabel(label).base) label = `${base}${subscript(Math.max(1, splitLabel(label).n))}`;
+    const cfg = m.config;
+    const done = () => { labels.add(label); ids.add(varId); return label === cfg.label && varId === cfg.varId ? m : { ...m, config: { ...cfg, label, varId } }; };
+    // Explicit remap: an existing Tower renamed to an orphaned label takes over that variable.
+    if (existing && label !== existing.label && orphans.has(label) && !labels.has(label)) {
+      varId = orphans.get(label)!; orphans.delete(label);
+      return done();
+    }
+    const taken = (l: string) => labels.has(l) || orphans.has(l);
+    const labelBad = taken(label), idBad = !keepId && ids.has(varId);
+    if (labelBad || idBad) {
+      const seq = labelBad && SORT_SEQ[sort].includes(base) ? SORT_SEQ[sort] : [base];
+      search: for (let n = 1; n < 10_000; n++) for (const b of seq) {
+        const l = `${b}${subscript(n)}`, i = `${b}${n}`;
+        if (labelBad && taken(l)) continue;
+        if (!keepId && (idBad || labelBad)) { if (ids.has(i)) continue; varId = i; }
+        if (labelBad) label = l;
+        break search;
+      }
+    }
+    return done();
+  });
+}
+
+/** Replace atom ids inside a config (pasting a tower together with its users remaps them to the new variable). */
+function remapAtoms<T>(v: T, map: Map<string, string>): T {
+  if (!map.size || !v || typeof v !== 'object') return v;
+  if (Array.isArray(v)) return v.map((x) => remapAtoms(x, map)) as T;
+  const o = v as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const k of Object.keys(o)) out[k] = remapAtoms(o[k], map);
+  if (o.k === 'atom' && typeof o.id === 'string' && map.has(o.id)) out.id = map.get(o.id);
+  return out as T;
 }
 
 /** Reconfigure a machine. Ports may appear/disappear; a bigger footprint needs space (refused otherwise). */
@@ -1002,7 +1157,7 @@ function setConfigCtxUnsafe(c: Canvas, id: string, config: MachineConfig, ctx: K
   if (!ctx) return no('The editor has no level context yet.');
   const bad = configReason(config, ctx);
   if (bad) return no(bad);
-  const n: Machine = { ...m, config: clone(config) };
+  const n: Machine = uniqueTowers(c, [{ ...m, config: clone(config) }], ctx)[0]!;
   const w = fitReason(c, [n], ctx, new Set());
   if (w) {
     const grew = footprint(n, ctx).length > footprint(m, ctx).length;
@@ -1225,13 +1380,13 @@ function seatRoom(c: Canvas, room: Room, rooms: Room[], ctx: KernelCtx, skip: Se
 }
 
 /** Paint a room rectangle; creates its desk (inside) and gate (on the boundary). Rooms nest, never partially overlap. */
-export function paintRoom(c: Canvas, rect: Rect, kind: Room['kind'], l: Room['l'], r: Room['r'], ctx: KernelCtx): Edit {
+export function paintRoom(c: Canvas, rect: Rect, kind: Room['kind'], l: Room['l'], r: Room['r'], ctx: KernelCtx, rel?: Room['rel']): Edit {
   rememberCtx(ctx);
   const R = normRect(rect);
   if (R.w < MIN_ROOM.w || R.h < MIN_ROOM.h) return no(`A room needs at least ${MIN_ROOM.w}×${MIN_ROOM.h} tiles.`);
   const taken = allIds(c);
   const id = freshId(taken, 'room');
-  const room: Room = { id, kind, l: clone(l), r: clone(r), rect: R };
+  const room: Room = { id, kind, l: clone(l), r: clone(r), rect: R, ...(kind === 'assume' ? { rel: rel ?? 'eq' } : {}) };
   const rooms = [...c.rooms, room];
   const rr = roomSetReason(rooms);
   if (rr) return no(rr);
@@ -1334,6 +1489,11 @@ function pasteUnsafe(c: Canvas, bp: Blueprint, at: Tile, ctx: KernelCtx): Edit {
     ms.push({ id, kind: m.kind, at: addTile(m.at, delta), rot: m.rot, config: clone(m.config) });
   }
   if (!ms.length) return no('Nothing to paste.');
+  // Pasted towers are NEW variables; machines pasted with their tower follow it, others keep the original.
+  const fresh = uniqueTowers(c, ms, ctx);
+  const varMap = new Map<string, string>();
+  fresh.forEach((m, i) => { const o = ms[i]!.config; if (m.config.kind === 'tower' && o.kind === 'tower' && o.varId !== m.config.varId) varMap.set(o.varId, m.config.varId); });
+  ms.splice(0, ms.length, ...fresh.map((m) => (m.config.kind === 'tower' ? m : { ...m, config: remapAtoms(m.config, varMap) })));
   const w = fitReason(c, ms, ctx, new Set());
   if (w) return noWhy(w);
   const nb: Belt[] = [];

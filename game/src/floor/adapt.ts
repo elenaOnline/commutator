@@ -8,7 +8,7 @@
 import type { KernelCtx } from '../kernel';
 import * as F from '../factory';
 import type {
-  Canvas, Edit, Endpoint, Face, ItemKind, Machine, MachineConfig, MachineKind, MachineSpec, Port, Rot, Tile,
+  Canvas, Edit, Endpoint, Face, ItemKind, Machine, MachineConfig, MachineKind, MachineSpec, Param, Port, Rot, Tile,
 } from '../factory';
 import type { Family } from '../kernel/types';
 
@@ -23,53 +23,29 @@ function soft<T>(name: string, fn: () => T, fb: () => T): T {
 /** Is the real editor geometry available? (Re-checked on every call; cheap.) */
 export const hasEditor = (): boolean => !!F.SPECS && Object.keys(F.SPECS).length > 0;
 
-// ───────────── fallback catalogue (presentation only) ─────────────
+// ───────────── fallback catalogue (presentation only; v4 verbs) ─────────────
 
-type In = { id: string; accepts: ItemKind[]; role: Port['role']; label: string };
-interface FB { name: string; family: Family; glyph: string; out?: ItemKind[]; ins: (m: Machine) => In[]; src?: boolean }
-const q = (accepts: ItemKind[] = ['eq']): In => ({ id: 'q', accepts, role: 'work', label: 'q' });
+interface FB { name: string; family: Family; glyph: string; placeable: boolean }
 const FALLBACK: Record<MachineKind, FB> = {
-  spool: { name: 'Spool', family: 'equation', glyph: '=', out: ['eq'], src: true, ins: (m) => (m.config.kind === 'spool' && m.config.t.k === 'port' ? [{ id: 't', accepts: ['term'], role: 'param', label: 't' }] : []) },
-  canceller: { name: 'Canceller', family: 'inverse', glyph: '⁻¹', out: ['eq'], ins: () => [q()] },
-  expander: {
-    name: 'Expander', family: 'identity', glyph: '+e', out: ['eq'], ins: (m) => {
-      const c = m.config; const r: In[] = [q()];
-      if (c.kind === 'expander' && c.insert === 'rule') r.push({ id: 'rule', accepts: ['eq', 'law'], role: 'rule', label: 'rule' });
-      if (c.kind === 'expander' && c.x.k === 'port') r.push({ id: 'x', accepts: ['term'], role: 'param', label: 'x' });
-      return r;
-    },
-  },
-  popper: { name: 'Popper', family: 'identity', glyph: 'e', out: ['eq'], ins: () => [q()] },
-  rewriter: { name: 'Rewriter', family: 'given', glyph: '⇄', out: ['eq'], ins: () => [q(), { id: 'rule', accepts: ['eq', 'law'], role: 'rule', label: 'rule' }] },
-  multiplier: {
-    name: 'Multiplier', family: 'structure', glyph: '·t', out: ['eq'],
-    ins: (m) => (m.config.kind === 'multiplier' && m.config.t.k === 'port' ? [q(), { id: 't', accepts: ['term'], role: 'param', label: 't' }] : [q()]),
-  },
-  swapper: { name: 'Swapper', family: 'equation', glyph: '⇆', out: ['eq', 'neq'], ins: () => [q(['eq', 'neq'])] },
-  meet: { name: 'Meet', family: 'equation', glyph: '∘', out: ['eq'], ins: () => [{ id: 'a', accepts: ['eq'], role: 'work', label: 'a' }, { id: 'b', accepts: ['eq'], role: 'work', label: 'b' }] },
-  apply: {
-    name: 'Apply', family: 'given', glyph: '⇒', out: ['eq', 'neq'], ins: (m) => {
-      const n = m.config.kind === 'apply' ? m.config.premises : 1;
-      return [{ id: 'rule', accepts: ['cond', 'law'], role: 'rule', label: 'card' }, ...Array.from({ length: n }, (_, i): In => ({ id: `p${i}`, accepts: ['eq', 'neq'], role: 'premise', label: `p${i + 1}` }))];
-    },
-  },
-  anvil: { name: 'Anvil', family: 'contradiction', glyph: '⊥', out: ['bot'], ins: () => [{ id: 'a', accepts: ['eq'], role: 'work', label: '=' }, { id: 'b', accepts: ['neq'], role: 'work', label: '≠' }] },
-  press: { name: 'Lagrange Press', family: 'lemma', glyph: '|G|', out: ['law'], ins: () => [q(['size'])] },
-  hopper: { name: 'Hopper', family: 'structure', glyph: 'T', out: ['term'], src: true, ins: () => [] },
-  joiner: { name: 'Joiner', family: 'structure', glyph: '⋅', out: ['term'], ins: () => [{ id: 'a', accepts: ['term'], role: 'param', label: 'a' }, { id: 'b', accepts: ['term'], role: 'param', label: 'b' }] },
-  inverter: { name: 'Inverter', family: 'inverse', glyph: '( )⁻¹', out: ['term'], ins: () => [{ id: 'q', accepts: ['term'], role: 'param', label: 't' }] },
-  stamp: { name: 'Witness Stamp', family: 'lemma', glyph: 'W', out: ['eq'], ins: () => [q(['eq', 'neq'])] },
-  carddock: { name: 'Card Dock', family: 'lemma', glyph: '∀', out: ['law'], src: true, ins: () => [] },
-  given: { name: 'Given', family: 'given', glyph: 'h', out: ['eq'], src: true, ins: () => [] },
-  socket: { name: 'Receiving dock', family: 'lemma', glyph: '∎', ins: () => [q(['eq', 'neq'])] },
-  desk: { name: 'Assumption Desk', family: 'scope', glyph: '⊢', out: ['eq'], src: true, ins: () => [] },
-  gate: { name: 'Exit Gate', family: 'scope', glyph: '⊣', out: ['neq'], ins: () => [q(['bot'])] },
+  spool: { name: 'Spool', family: 'equation', glyph: 't=t', placeable: true },
+  tower: { name: 'Tower', family: 'scope', glyph: '📡', placeable: true },
+  rewriter: { name: 'Rewriter', family: 'given', glyph: 'L→R', placeable: true },
+  operator: { name: 'Operator', family: 'structure', glyph: '·t', placeable: true },
+  joiner: { name: 'Joiner', family: 'equation', glyph: '⋈', placeable: true },
+  theorem: { name: 'Theorem', family: 'lemma', glyph: '⇒', placeable: true },
+  forall: { name: '∀ Generalizer', family: 'scope', glyph: '∀', placeable: true },
+  carddock: { name: 'Card Dock', family: 'lemma', glyph: '∀=', placeable: true },
+  hopper: { name: 'Hopper', family: 'structure', glyph: 't', placeable: true },
+  given: { name: 'Given', family: 'given', glyph: 'h', placeable: false },
+  socket: { name: 'Receiving Dock', family: 'equation', glyph: '∎', placeable: false },
+  desk: { name: 'Assumption Desk', family: 'scope', glyph: '⊢', placeable: false },
+  gate: { name: 'Exit Gate', family: 'scope', glyph: '⊣', placeable: false },
 };
 
-const FALLBACK_SPEC = (k: MachineKind): MachineSpec => ({ kind: k, name: FALLBACK[k].name, family: FALLBACK[k].family, glyph: FALLBACK[k].glyph, blurb: '', placeable: !['given', 'socket', 'desk', 'gate'].includes(k) });
+const FALLBACK_SPEC = (k: MachineKind): MachineSpec => ({ kind: k, name: FALLBACK[k].name, family: FALLBACK[k].family, glyph: FALLBACK[k].glyph, blurb: '', placeable: FALLBACK[k].placeable });
 
 export function spec(kind: MachineKind): MachineSpec {
-  const s = F.SPECS?.[kind];
+  const s = (F.SPECS as Partial<Record<MachineKind, MachineSpec>>)?.[kind];
   return s ?? FALLBACK_SPEC(kind);
 }
 
@@ -85,20 +61,52 @@ function rotCells(cells: [number, number][], r: Rot): [number, number][] {
   return cs.map(([x, y]) => [Math.round(x - 0.5 - mx), Math.round(y - 0.5 - my)]);
 }
 
-function fbLocal(m: Machine): { w: number; h: number; ports: { p: In | { id: 'out'; accepts: ItemKind[]; role: 'out'; label: string }; dir: 'in' | 'out'; cell: [number, number]; face: Face }[] } {
-  const fb = FALLBACK[m.kind];
-  const ins = fb.ins(m);
-  if (m.kind === 'socket') return { w: 1, h: 1, ports: [{ p: ins[0]!, dir: 'in', cell: [0, 0], face: 'W' }] };
-  if (m.kind === 'gate') return { w: 1, h: 1, ports: [{ p: ins[0]!, dir: 'in', cell: [0, 0], face: 'W' }, { p: { id: 'out', accepts: fb.out!, role: 'out', label: 'out' }, dir: 'out', cell: [0, 0], face: 'E' }] };
-  if (fb.src && ins.length === 0) return { w: 1, h: 1, ports: [{ p: { id: 'out', accepts: fb.out!, role: 'out', label: 'out' }, dir: 'out', cell: [0, 0], face: 'E' }] };
-  const h = Math.max(1, ins.length);
-  return {
-    w: 2, h,
-    ports: [
-      ...ins.map((p, i) => ({ p, dir: 'in' as const, cell: [0, i] as [number, number], face: 'W' as Face })),
-      { p: { id: 'out' as const, accepts: fb.out ?? ['eq'], role: 'out' as const, label: 'out' }, dir: 'out' as const, cell: [1, 0] as [number, number], face: 'E' as Face },
-    ],
-  };
+interface LP { id: string; dir: 'in' | 'out'; role: Port['role']; accepts: ItemKind[]; label: string; cell: [number, number]; face: Face }
+/** v4 port conventions (editor): work 'q' W (0,0) · 'out' E (w−1,0) · rule/card N (0,0) · params S (i,h−1) · premises W (0,i) · a/b W (0,0),(0,1). */
+function fbLocal(m: Machine): { w: number; h: number; ports: LP[] } {
+  const c = m.config;
+  const ports: LP[] = [];
+  const add = (id: string, dir: 'in' | 'out', role: Port['role'], accepts: ItemKind[], label: string, x: number, y: number, face: Face) => ports.push({ id, dir, role, accepts, label, cell: [x, y], face });
+  const params = (h: number, ids: string[]) => ids.forEach((id, i) => add(id, 'in', 'param', ['term'], id.replace(/^meta:/, ''), i, h - 1, 'S'));
+  const portParams = (vals: Record<string, Param>) => Object.keys(vals).filter((k) => vals[k]?.k === 'port').sort().map((k) => `meta:${k}`);
+  switch (c.kind) {
+    case 'spool': {
+      if (c.t.k === 'port') { add('out', 'out', 'out', ['eq'], 'out', 1, 0, 'E'); params(1, ['t']); return { w: 2, h: 1, ports }; }
+      add('out', 'out', 'out', ['eq'], 'out', 0, 0, 'E'); return { w: 1, h: 1, ports };
+    }
+    case 'tower': return { w: 1, h: 1, ports };
+    case 'rewriter': {
+      add('q', 'in', 'work', ['eq'], 'in', 0, 0, 'W'); add('out', 'out', 'out', ['eq'], 'out', 1, 0, 'E');
+      if (c.recipe?.k === 'routed') add('rule', 'in', 'rule', ['eq', 'law'], 'rule', 0, 0, 'N');
+      const ps = portParams(c.values);
+      if (c.recipe?.k === 'insertPair' && c.recipe.x.k === 'port') ps.unshift('x');
+      params(1, ps.slice(0, 2));
+      return { w: 2, h: 1, ports };
+    }
+    case 'operator': {
+      add('q', 'in', 'work', ['eq', 'neq'], 'in', 0, 0, 'W'); add('out', 'out', 'out', ['eq', 'neq'], 'out', 1, 0, 'E');
+      if (c.recipe?.k === 'multiply' && c.recipe.t.k === 'port') params(1, ['t']);
+      return { w: 2, h: 1, ports };
+    }
+    case 'joiner': {
+      const clash = c.recipe?.k === 'clash';
+      add('a', 'in', 'work', ['eq'], clash ? '=' : 'a', 0, 0, 'W'); add('b', 'in', 'work', [clash ? 'neq' : 'eq'], clash ? '≠' : 'b', 0, 1, 'W');
+      add('out', 'out', 'out', [clash ? 'bot' : 'eq'], 'out', 1, 0, 'E');
+      return { w: 2, h: 2, ports };
+    }
+    case 'theorem': {
+      add('p0', 'in', 'premise', ['eq', 'neq'], 'p₁', 0, 0, 'W'); add('out', 'out', 'out', ['eq', 'neq'], 'out', 1, 0, 'E');
+      if (c.recipe?.k === 'routed') add('rule', 'in', 'rule', ['cond', 'law'], 'card', 0, 0, 'N');
+      return { w: 2, h: 1, ports };
+    }
+    case 'forall': add('q', 'in', 'work', ['eq', 'neq', 'law', 'cond'], 'in', 0, 0, 'W'); add('out', 'out', 'out', ['law', 'cond'], 'out', 1, 0, 'E'); return { w: 2, h: 1, ports };
+    case 'carddock': add('out', 'out', 'out', ['law', 'cond'], 'out', 0, 0, 'E'); return { w: 1, h: 1, ports };
+    case 'hopper': add('out', 'out', 'out', ['term'], 'out', 0, 0, 'E'); return { w: 1, h: 1, ports };
+    case 'given': add('out', 'out', 'out', ['eq', 'neq', 'size', 'law', 'cond'], 'out', 0, 0, 'E'); return { w: 1, h: 1, ports };
+    case 'socket': add('q', 'in', 'work', ['eq', 'neq', 'law', 'cond'], 'goal', 0, 0, 'W'); return { w: 2, h: 1, ports };
+    case 'desk': add('out', 'out', 'out', ['eq', 'neq'], 'out', 0, 0, 'E'); return { w: 1, h: 1, ports };
+    case 'gate': add('q', 'in', 'work', ['bot', 'eq', 'neq'], 'in', 0, 0, 'W'); add('out', 'out', 'out', ['eq', 'neq', 'cond'], 'out', 0, 0, 'E'); return { w: 1, h: 1, ports };
+  }
 }
 
 function fbFootprint(m: Machine): Tile[] {
@@ -113,9 +121,9 @@ function fbPorts(m: Machine): Port[] {
   for (let x = 0; x < L.w; x++) for (let y = 0; y < L.h; y++) cells.push([x, y]);
   const rc = rotCells(cells, m.rot);
   const idx = (c: [number, number]) => cells.findIndex((d) => d[0] === c[0] && d[1] === c[1]);
-  return L.ports.map(({ p, dir, cell, face }) => {
+  return L.ports.map(({ id, dir, role, accepts, label, cell, face }) => {
     const r = rc[idx(cell)]!;
-    return { id: p.id, dir, accepts: p.accepts, role: p.role, label: p.label, tile: { x: r[0] + m.at.x, y: r[1] + m.at.y }, face: rotFace(face, m.rot) };
+    return { id, dir, accepts, role, label, tile: { x: r[0] + m.at.x, y: r[1] + m.at.y }, face: rotFace(face, m.rot) };
   });
 }
 
@@ -124,28 +132,26 @@ function fbPorts(m: Machine): Port[] {
 export function footprint(m: Machine, ctx: KernelCtx): Tile[] { return soft('footprint', () => F.footprint(m, ctx), () => fbFootprint(m)); }
 export function portsOf(m: Machine, ctx: KernelCtx): Port[] { return soft('portsOf', () => F.portsOf(m, ctx), () => fbPorts(m)); }
 
-export function fallbackConfig(kind: MachineKind, opts: { schema?: string; mirror?: boolean } = {}): MachineConfig {
+export function fallbackConfig(kind: MachineKind): MachineConfig {
   const first = { k: 'first' } as const;
   switch (kind) {
     case 'spool': return { kind, t: { k: 'knob', term: null } };
-    case 'canceller': return { kind, target: first, tidy: true };
-    case 'expander': return { kind, target: first, insert: 'e', x: { k: 'knob', term: null }, dir: 'fwd' };
-    case 'popper': return { kind, target: first };
-    case 'rewriter': return { kind, target: first, dir: 'fwd', values: {}, tidy: true };
-    case 'multiplier': return { kind, side: 'right', t: { k: 'knob', term: null } };
-    case 'apply': return { kind, premises: 1, choice: 0, values: {} };
+    case 'tower': return { kind, varId: 'v1', label: 'x₁', sort: 'G' };
+    case 'rewriter': return { kind, recipe: null, dir: 'fwd', target: first, gap: first, values: {}, tidy: true };
+    case 'operator': return { kind, recipe: null };
+    case 'joiner': return { kind, recipe: null };
+    case 'theorem': return { kind, recipe: null, choice: 0, values: {} };
+    case 'forall': return { kind };
+    case 'carddock': return { kind, ref: null };
     case 'hopper': return { kind, t: null };
-    case 'stamp': return { kind, schema: opts.schema ?? 'witness', mirror: !!opts.mirror, choice: 0, values: {} };
-    case 'carddock': return { kind, schema: opts.schema ?? 'socks', mirror: !!opts.mirror };
     case 'given': return { kind, givenId: '' };
     case 'socket': return { kind, socketId: '' };
     case 'desk': return { kind, room: '' };
     case 'gate': return { kind, room: '' };
-    default: return { kind } as MachineConfig;
   }
 }
 export function defaultConfig(kind: MachineKind, ctx: KernelCtx, opts: { schema?: string; mirror?: boolean } = {}): MachineConfig {
-  return soft('defaultConfig', () => F.defaultConfig(kind, ctx, opts), () => fallbackConfig(kind, opts));
+  return soft('defaultConfig', () => F.defaultConfig(kind, ctx, opts), () => fallbackConfig(kind));
 }
 
 /** The editor's verdict on a placement (null = editor not available yet; the floor shows neutral). */

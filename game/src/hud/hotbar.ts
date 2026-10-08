@@ -1,4 +1,5 @@
-// LEMMA WORKS v3 — the hotbar (bottom-centre, floating), the All-machines drawer, hover cards, room popover.
+// COMMUTATOR v4 — the hotbar (bottom-centre, floating): Select, Belt, the verbs and sources, recipe presets,
+// Room; the All-machines drawer, hover cards, room popover (Suppose / Classical / Assume).
 // A slot is always a thing to place, never an instruction. Sorted by family, never by "legal right now".
 import * as F from '../factory';
 import * as K from '../kernel';
@@ -7,9 +8,12 @@ import type { MachineKind } from '../factory/types';
 import type { Tool } from '../state/factoryStore';
 import { FAMILY } from '../ui/tokens';
 import {
-  FAMILY_ORDER, IO, KIND_WORD, MIRROR_NAMES, REGISTRY, drawerKinds, esc, fH, h, hotbarKinds, labels, richHTML, safe, spec, tH,
+  FAMILY_ORDER, IO, KIND_WORD, atomsAll, drawerKinds, esc, fH, h, hotbarKinds, labelsAll, richHTML, safe, spec, tH,
   type S, type Store,
 } from './util';
+import { libCard } from './library';
+import { hasDistinctMirror } from '../factory/catalog';
+import { armPreset, earnedPresets, pending, pinned, presetKey, type Preset } from './presets';
 
 export interface HotbarApi {
   render: (s: S) => void;
@@ -18,15 +22,15 @@ export interface HotbarApi {
   /** Close any popover/drawer; true if something was open. */
   closePopovers: () => boolean;
   /** Arm the room tool with an assumption (order chip preset). */
-  armRoom: (kind: 'suppose' | 'classical', l: Term, r: Term) => void;
+  armRoom: (kind: 'suppose' | 'classical' | 'assume', l: Term, r: Term, rel?: 'eq' | 'neq') => void;
   openRoomPopover: () => void;
 }
 
-type Entry = { key: string; tool: Tool; name: string; glyph: string; family: Family; blurb: string; hotkey?: string; earned?: boolean; kind?: MachineKind; schema?: string; mirror?: boolean };
+type Entry = { key: string; tool: Tool; name: string; glyph: string; family: Family; blurb: string; hotkey?: string; earned?: boolean; kind?: MachineKind; schema?: string; mirror?: boolean; preset?: Preset };
 
 const sameTool = (a: Tool, b: Tool) => {
   if (a.k !== b.k) return false;
-  if (a.k === 'place' && b.k === 'place') return a.kind === b.kind && (a.schema ?? '') === (b.schema ?? '') && !!a.mirror === !!b.mirror;
+  if (a.k === 'place' && b.k === 'place') return a.kind === b.kind;
   return true;
 };
 
@@ -45,20 +49,27 @@ export function mountHotbar(layer: HTMLElement, store: Store): HotbarApi {
     const sp = spec(kind);
     return { key: kind, tool: { k: 'place', kind }, name: sp.name, glyph: sp.glyph, family: sp.family, blurb: sp.blurb, hotkey: sp.hotkey, kind };
   };
-  const SHORT: Record<string, string> = { witness: 'Witness', cancel: 'Lathe', socks: 'Socks', nofix: 'Gate', dbl: 'Flip' };
-  /** Hotbar: one slot per earned theorem, short name (the ᵒᵖ hand is a toggle in its lens). Drawer: both hands, full names. */
-  const earnedEntries = (s: S, both = true): Entry[] => {
-    const out: Entry[] = [];
-    for (const id of s.ctx.level.tools.schemas) {
-      const sc = REGISTRY[id];
-      if (!sc) continue;
-      const kind: MachineKind = sc.card.k === 'cond' ? 'stamp' : 'carddock';
-      out.push({ key: `${kind}:${id}`, tool: { k: 'place', kind, schema: id }, name: both ? sc.name : (SHORT[id] ?? sc.name.split(' ')[0]!), glyph: sc.card.k === 'cond' ? '⇒' : '∀', family: 'lemma', blurb: sc.textbook, earned: true, kind, schema: id });
-      if (sc.mirrorable && both) out.push({ key: `${kind}:${id}:op`, tool: { k: 'place', kind, schema: id, mirror: true }, name: MIRROR_NAMES[id]?.name ?? `${sc.name} ᵒᵖ`, glyph: '⇒ᵒᵖ', family: 'lemma', blurb: MIRROR_NAMES[id]?.textbook ?? sc.textbook, earned: true, kind, schema: id, mirror: true });
+  /** Presets: earned theorems / Lemma Book entries (automatic) and pinned recipes. `both` adds ᵒᵖ hands (drawer). */
+  const presetEntries = (s: S, both = false): Entry[] => {
+    const ps: Preset[] = [...earnedPresets(s)];
+    for (const p of pinned()) if (!ps.some((q) => q.key === p.key)) ps.push(p);
+    if (both) for (const p of earnedPresets(s)) {
+      const ref = (p.recipe as { ref?: { k: string; id?: string } }).ref;
+      const sc = ref?.k === 'schema' && ref.id ? s.ctx.registry[ref.id] : undefined;
+      if (p.kind === 'theorem' && sc?.mirrorable && safe(() => hasDistinctMirror(sc.card), true)) {
+        const r = { k: 'library' as const, ref: { k: 'schema' as const, id: ref!.id!, mirror: true } };
+        ps.push({ key: presetKey('theorem', r), kind: 'theorem', recipe: r, label: `${p.label} ᵒᵖ`, earned: true });
+      }
     }
-    return out;
+    return ps.map((p) => {
+      const sp = spec(p.kind);
+      const ref = (p.recipe as { ref?: import('../factory/types').LibRef }).ref;
+      const card = ref ? libCard(s, ref) : null;
+      return { key: p.key, tool: { k: 'place', kind: p.kind } as Tool, name: p.label, glyph: p.kind === 'theorem' ? '⇒' : sp.glyph, family: p.earned ? 'lemma' : sp.family,
+        blurb: card ? `${sp.name} with ${p.label}` : `${sp.name} · ${p.label}`, earned: p.earned, kind: p.kind, preset: p };
+    });
   };
-  const roomEntry: Entry = { key: 'room', tool: { k: 'room', kind: 'suppose' }, name: 'Room', glyph: '∃', family: 'scope', blurb: 'paint a region that assumes a statement; ⊥ through its gate exports the negation', hotkey: 'G' };
+  const roomEntry: Entry = { key: 'room', tool: { k: 'room', kind: 'suppose' }, name: 'Room', glyph: '∃', family: 'scope', blurb: 'paint a region with an assumption: Suppose and Classical rooms export a contradiction’s verdict; an Assume room exports P ⇒ Q', hotkey: 'G' };
 
   // ───────── slots ─────────
   const slotEls = new Map<string, HTMLButtonElement>();
@@ -68,7 +79,11 @@ export function mountHotbar(layer: HTMLElement, store: Store): HotbarApi {
       e.hotkey && e.hotkey.length === 1 ? h('span', { class: 'h3-hk' }, e.hotkey) : null,
       e.earned ? h('span', { class: 'h3-band' }) : null,
       glyph(e), h('span', { class: 'h3-name' }, e.name));
-    b.addEventListener('click', () => { if (onClick) onClick(); else { store.setTool(e.tool); closePopovers(); } });
+    b.addEventListener('click', () => {
+      if (onClick) { onClick(); return; }
+      if (e.preset) armPreset(store, e.preset); else { pending.preset = null; store.setTool(e.tool); }
+      closePopovers();
+    });
     b.addEventListener('pointerenter', () => showCard(e, b));
     b.addEventListener('pointerleave', hideCard);
     b.addEventListener('focus', () => showCard(e, b));
@@ -93,7 +108,7 @@ export function mountHotbar(layer: HTMLElement, store: Store): HotbarApi {
       lastFam = e.family;
       put(slot(e));
     }
-    const earned = earnedEntries(s, false);
+    const earned = presetEntries(s, false);
     const earnedWrap = h('span', { class: 'h3-earned', 'data-count': earned.length });
     if (earned.length) { put(sep()); for (const e of earned) earnedWrap.append(slot(e)); }
     put(earnedWrap);
@@ -112,11 +127,11 @@ export function mountHotbar(layer: HTMLElement, store: Store): HotbarApi {
     if (!drawer.hidden || !roomPop.hidden) return;
     const s = store.get();
     cardFor = e.key;
-    const L = labels(s.level);
+    const L = labelsAll(s);
     let ports = '';
     let fp = '';
     if (e.kind) {
-      const lay = safe(() => F.layoutOf(F.defaultConfig(e.kind!, s.ctx, { schema: e.schema, mirror: e.mirror }), s.ctx), null);
+      const lay = safe(() => F.layoutOf(F.defaultConfig(e.kind!, s.ctx, {}), s.ctx), null);
       if (lay) {
         const ins = lay.ports.filter((p) => p.dir === 'in');
         const outs = lay.ports.filter((p) => p.dir === 'out');
@@ -129,8 +144,9 @@ export function mountHotbar(layer: HTMLElement, store: Store): HotbarApi {
         ports = `<div class="h3-io"><span class="h3-io-k">in</span>${esc(i)}</div><div class="h3-io"><span class="h3-io-k">out</span>${esc(o)}</div>`;
       }
     }
-    const sc = e.schema ? REGISTRY[e.schema] : null;
-    const stmt = sc ? `<div class="h3-card-stmt math">${fH(e.mirror && sc.card ? (safe(() => K.mirrorCard(sc.card), sc.card)) : sc.card, L)}</div>` : '';
+    const pref = (e.preset?.recipe as { ref?: import('../factory/types').LibRef } | undefined)?.ref;
+    const pc = pref ? libCard(s, pref) : null;
+    const stmt = pc ? `<div class="h3-card-stmt math">${fH(pc, L)}</div>` : '';
     card.innerHTML = `<div class="h3-card-top"><span class="h3-card-name">${esc(e.name)}</span><span class="h3-card-fam" style="color:${FAMILY[e.family].text}">${e.earned ? 'Earned theorem' : FAMILY[e.family].label}</span>${e.hotkey ? `<kbd>${esc(e.hotkey)}</kbd>` : ''}</div>
       ${stmt}<p class="h3-card-blurb">${richHTML(e.blurb, s.level)}</p>
       ${ports || fp ? `<div class="h3-card-grid"><div>${ports}</div>${fp ? `<div class="h3-fp" title="footprint">${fp}</div>` : ''}</div>` : ''}`;
@@ -148,8 +164,8 @@ export function mountHotbar(layer: HTMLElement, store: Store): HotbarApi {
   const list = h('div', { class: 'h3-drawer-list' });
   drawer.append(h('div', { class: 'h3-drawer-head' }, h('span', { class: 'h3-label' }, 'All machines'), h('span', { class: 'h3-dim' }, 'every machine, always · grouped by family')), search, list);
   const allEntries = (s: S): Entry[] => {
-    const kinds = [...hotbarKinds(), ...drawerKinds().filter((k) => k !== 'stamp' && k !== 'carddock')];
-    return [...tools, ...kinds.map(machineEntry), ...earnedEntries(s), roomEntry];
+    const kinds = [...hotbarKinds(), ...drawerKinds()];
+    return [...tools, ...kinds.map(machineEntry), ...presetEntries(s, true), roomEntry];
   };
   const renderDrawer = () => {
     const s = store.get();
@@ -186,40 +202,48 @@ export function mountHotbar(layer: HTMLElement, store: Store): HotbarApi {
     slotEls.get('all')?.setAttribute('aria-expanded', String(on));
   };
 
-  // ───────── room popover ─────────
-  let roomKind: 'suppose' | 'classical' = 'suppose';
+  // ───────── room popover: Suppose / Classical / Assume ─────────
+  type RK = 'suppose' | 'classical' | 'assume';
+  let roomKind: RK = 'suppose';
+  let assumeRel: 'eq' | 'neq' = 'eq';
   const inL = h('input', { class: 'h3-term', placeholder: 'l', 'aria-label': 'left side', autocomplete: 'off', spellcheck: 'false' });
   const inR = h('input', { class: 'h3-term', placeholder: 'r', 'aria-label': 'right side', autocomplete: 'off', spellcheck: 'false' });
-  const rel = h('span', { class: 'h3-rel math' }, '=');
-  const kSup = h('button', { class: 'h3-seg on' }, 'Suppose');
-  const kCls = h('button', { class: 'h3-seg' }, 'Classical');
+  const rel = h('button', { class: 'h3-rel math', title: 'For an Assume room: assume = or ≠' }, '=');
+  const kSup = h('button', { class: 'h3-seg on', title: 'assume P; a contradiction (⊥) at the gate exports ¬P' }, 'Suppose');
+  const kCls = h('button', { class: 'h3-seg', title: 'assume ¬P; a contradiction at the gate exports P (classical)' }, 'Classical');
+  const kAsm = h('button', { class: 'h3-seg', title: 'assume P; any fact Q at the gate exports the theorem P ⇒ Q' }, 'Assume');
   const roomMsg = h('div', { class: 'h3-roommsg' });
   const arm = h('button', { class: 'lw-key primary small' }, 'Paint the room');
   const presetRow = h('div', { class: 'h3-presets' });
   roomPop.append(
     h('div', { class: 'h3-drawer-head' }, h('span', { class: 'h3-label', style: 'color:var(--scope)' }, 'Room'), h('span', { class: 'h3-dim' }, 'a region with an assumption desk and an exit gate')),
-    h('div', { class: 'h3-segs' }, kSup, kCls),
+    h('div', { class: 'h3-segs' }, kSup, kCls, kAsm),
     h('div', { class: 'h3-roomrow' }, h('span', { class: 'h3-dim' }, 'assume'), inL, rel, inR),
     roomMsg, presetRow, h('div', { class: 'h3-roomfoot' }, arm, h('span', { class: 'h3-dim' }, 'then drag a rectangle on the floor')));
   const parse = (src: string): Term | null => {
-    const atoms = store.get().level.atoms;
-    const r = safe(() => K.parseTerm(src, atoms), { ok: false as const, error: '' });
+    const r = safe(() => K.parseTerm(src, atomsAll(store.get())), { ok: false as const, error: '' });
     return r.ok ? r.term : null;
   };
+  const assumedRel = () => (roomKind === 'suppose' ? 'eq' : roomKind === 'classical' ? 'neq' : assumeRel);
   const updateRoom = () => {
-    rel.textContent = roomKind === 'suppose' ? '=' : '≠';
-    kSup.classList.toggle('on', roomKind === 'suppose'); kCls.classList.toggle('on', roomKind === 'classical');
+    rel.textContent = assumedRel() === 'eq' ? '=' : '≠';
+    rel.classList.toggle('live', roomKind === 'assume');
+    kSup.classList.toggle('on', roomKind === 'suppose'); kCls.classList.toggle('on', roomKind === 'classical'); kAsm.classList.toggle('on', roomKind === 'assume');
     const l = parse(inL.value.trim()), r = parse(inR.value.trim());
-    const L = labels(store.get().level);
+    const L = labelsAll(store.get());
     inL.classList.toggle('bad', !!inL.value.trim() && !l); inR.classList.toggle('bad', !!inR.value.trim() && !r);
     if (l && r) {
-      const out = roomKind === 'suppose' ? `${tH(l, L)} <span class="m-rel">≠</span> ${tH(r, L)}` : `${tH(l, L)} <span class="m-rel">=</span> ${tH(r, L)}`;
-      roomMsg.innerHTML = `⊥ through the gate exports <span class="math">${out}</span>${roomKind === 'classical' ? ' <span class="t-classical">classical</span>' : ''}`;
-    } else roomMsg.innerHTML = '<span class="h3-dim">type both sides, e.g. <i class="math">ab</i> and <i class="math">e</i></span>';
+      const P = `${tH(l, L)} <span class="m-rel">${assumedRel() === 'eq' ? '=' : '≠'}</span> ${tH(r, L)}`;
+      roomMsg.innerHTML = roomKind === 'assume'
+        ? `any fact <i class="math">Q</i> made inside leaves the gate as <span class="math">${P} <span class="m-rel">⇒</span> <i>Q</i></span>`
+        : `⊥ through the gate exports <span class="math">${tH(l, L)} <span class="m-rel">${roomKind === 'suppose' ? '≠' : '='}</span> ${tH(r, L)}</span>${roomKind === 'classical' ? ' <span class="t-classical">classical</span>' : ''}`;
+    } else roomMsg.innerHTML = '<span class="h3-dim">type both sides, e.g. <i class="math">ab</i> and <i class="math">e</i> (Tower variables too: x₁ as x_1)</span>';
     arm.disabled = !(l && r);
   };
   kSup.addEventListener('click', () => { roomKind = 'suppose'; updateRoom(); });
   kCls.addEventListener('click', () => { roomKind = 'classical'; updateRoom(); });
+  kAsm.addEventListener('click', () => { roomKind = 'assume'; updateRoom(); });
+  rel.addEventListener('click', () => { if (roomKind === 'assume') { assumeRel = assumeRel === 'eq' ? 'neq' : 'eq'; updateRoom(); } });
   for (const i of [inL, inR]) {
     i.addEventListener('input', updateRoom);
     i.addEventListener('keydown', (ev) => { ev.stopPropagation(); if (ev.key === 'Enter') arm.click(); if (ev.key === 'Escape') closePopovers(); });
@@ -227,16 +251,18 @@ export function mountHotbar(layer: HTMLElement, store: Store): HotbarApi {
   arm.addEventListener('click', () => {
     const l = parse(inL.value.trim()), r = parse(inR.value.trim());
     if (!l || !r) return;
-    armRoom(roomKind, l, r);
+    armRoom(roomKind, l, r, roomKind === 'assume' ? assumeRel : undefined);
   });
-  const armRoom = (kind: 'suppose' | 'classical', l: Term, r: Term) => {
+  const armRoom = (kind: RK, l: Term, r: Term, relv?: 'eq' | 'neq') => {
     roomPop.hidden = true;
-    store.setTool({ k: 'room', kind, l, r });
+    store.setTool({ k: 'room', kind, l, r, ...(relv ? { rel: relv } : {}) });
+    const st = store as unknown as { setRoomSpec?: (x: { l: Term; r: Term; rel?: 'eq' | 'neq' } | null) => void };
+    st.setRoomSpec?.({ l, r, ...(relv ? { rel: relv } : {}) });
   };
   const openRoomPopover = () => {
     const s = store.get();
     drawer.hidden = true; hideCard();
-    const L = labels(s.level);
+    const L = labelsAll(s);
     const t = s.ui.tool;
     if (t.k === 'room' && t.l && t.r) { roomKind = t.kind; inL.value = safe(() => K.termText(t.l!, L), ''); inR.value = safe(() => K.termText(t.r!, L), ''); }
     presetRow.innerHTML = '';
@@ -277,10 +303,10 @@ export function mountHotbar(layer: HTMLElement, store: Store): HotbarApi {
   // ───────── render ─────────
   let lastActive = '';
   const render = (s: S) => {
-    const ek = JSON.stringify(s.ctx.level.tools.schemas) + s.level.id;
+    const ek = JSON.stringify(s.ctx.level.tools.schemas) + s.level.id + JSON.stringify(pinned().map((p) => p.key));
     if (ek !== lastEarnedKey) { lastEarnedKey = ek; build(s); }
     const t = s.ui.tool;
-    const key = JSON.stringify(t) + s.ui.rot;
+    const key = JSON.stringify(t) + s.ui.rot + (pending.preset?.key ?? '');
     if (key === lastActive) return;
     bar.querySelectorAll('.h3-rotb').forEach((x) => x.remove());
     lastActive = key;
@@ -290,8 +316,12 @@ export function mountHotbar(layer: HTMLElement, store: Store): HotbarApi {
       else if (k === 'select') on = t.k === 'select' || t.k === 'erase';
       else if (k === 'belt') on = t.k === 'belt';
       else if (k !== 'all') {
-        const e = [...tools, roomEntry].find((x) => x.key === k) ?? (k.includes(':') ? earnedEntries(s, false).find((x) => x.key === k) : machineEntry(k as MachineKind));
-        on = !!e && (sameTool(e.tool, t) || (!!e.schema && t.k === 'place' && t.schema === e.schema && t.kind === e.kind));
+        const pre = presetEntries(s, false).find((x) => x.key === k);
+        if (pre) on = t.k === 'place' && pending.preset?.key === pre.key && t.kind === pre.kind;
+        else {
+          const e = [...tools, roomEntry].find((x) => x.key === k) ?? machineEntry(k as MachineKind);
+          on = sameTool(e.tool, t) && !(t.k === 'place' && pending.preset);
+        }
       }
       b.classList.toggle('on', on);
       b.setAttribute('aria-pressed', String(on));

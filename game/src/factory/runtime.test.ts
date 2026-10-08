@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import * as F from './index';
 import { mkCtx } from '../kernel/testkit';
 import { LEVEL_BY_ID, REGISTRY } from '../levels/levels';
-import { Floor, P, a, b, eq, neq, knob, order } from './compiler.testkit';
+import { Floor, P, a, b, eq, neq, knob, order, cancel, routed, op } from './compiler.testkit';
 
 /** Hand-built canvas with exact one-tile belts (Sol §9 example). */
 function mouldReflectorSocket() {
@@ -58,7 +58,7 @@ describe('tick runtime (§9)', () => {
     const lv = order(eq(a, a));
     const f = new Floor(lv);
     const sp = f.add({ kind: 'spool', t: knob(a) });
-    const can = f.add({ kind: 'canceller', target: { k: 'first' }, tidy: true });
+    const can = f.add(cancel());
     f.wire(sp, can);
     const comp = f.compile();
     let s = F.initRun(f.c, comp);
@@ -72,8 +72,8 @@ describe('tick runtime (§9)', () => {
     const lv = order(eq(P(a, b), P(a, b)), [{ id: 'h', fact: eq(a, b) }]);
     const f = new Floor(lv);
     const sp = f.add({ kind: 'spool', t: knob(P(a, b)) });
-    const r1 = f.add({ kind: 'rewriter', target: { k: 'first' }, dir: 'fwd', values: {}, tidy: false });
-    const sw = f.add({ kind: 'swapper' });
+    const r1 = f.add(routed({ tidy: false }));
+    const sw = f.add(op({ k: 'swap' }));
     f.wire(sp, r1); f.wire(f.given('h'), r1, 'rule');
     const belt = f.c.belts.find((x) => x.to.m === r1 && x.to.port === 'q')!;
     const br = F.branch(f.c, belt.id, { m: sw, port: 'q' }, f.ctx);
@@ -106,7 +106,7 @@ describe('tick runtime (§9)', () => {
   it('First Light runs to QED with stable metrics', () => {
     const f = new Floor(LEVEL_BY_ID.L01!);
     const spool = f.c.machines.find((m) => m.kind === 'spool')!.id;
-    const can = f.add({ kind: 'canceller', target: { k: 'first' }, tidy: true });
+    const can = f.add(cancel());
     f.wire(spool, can); f.wire(can, f.socket());
     const { s, metrics } = f.run();
     expect(s.delivered.s).toBe(metrics.cycles);
@@ -167,7 +167,7 @@ describe('tick runtime (§9)', () => {
   it('a kept-but-broken belt carries nothing; downstream starves with a link to the belt', () => {
     const f = new Floor(LEVEL_BY_ID.L01!);
     const spool = f.c.machines.find((m) => m.kind === 'spool')!.id;
-    const can = f.add({ kind: 'canceller', target: { k: 'first' }, tidy: true });
+    const can = f.add(cancel());
     f.wire(spool, can);
     const bid = f.wire(can, f.socket());
     f.c = { ...f.c, belts: f.c.belts.map((x) => (x.id === bid ? { ...x, broken: 'cut by the Swapper' } : x)) };
@@ -186,7 +186,7 @@ describe('tick runtime (§9)', () => {
     const lv = order(eq(a, a));
     const f = new Floor(lv);
     const sp = f.add({ kind: 'spool', t: knob(a) }, { x: 4, y: 20 });
-    const can = f.add({ kind: 'canceller', target: { k: 'first' }, tidy: true }, { x: 24, y: 20 });
+    const can = f.add(cancel(), { x: 24, y: 20 });
     const bid = f.wire(sp, can);
     const comp = f.compile();
     let s = F.initRun(f.c, comp);
@@ -203,7 +203,7 @@ describe('tick runtime (§9)', () => {
   it('status honesty: a compiled-ok machine is never "starved" between packets', () => {
     const f = new Floor(LEVEL_BY_ID.L01!);
     const spool = f.c.machines.find((m) => m.kind === 'spool')!.id;
-    const can = f.add({ kind: 'canceller', target: { k: 'first' }, tidy: true });
+    const can = f.add(cancel());
     f.wire(spool, can); f.wire(can, f.socket());
     const comp = f.compile();
     let s = F.initRun(f.c, comp);
@@ -223,7 +223,7 @@ describe('tick runtime (§9)', () => {
       machines: [
         { id: 'n', kind: 'given', at: { x: 0, y: 2 }, rot: 0, config: { kind: 'given', givenId: 'n' }, locked: true },
         { id: 'desk', kind: 'desk', at: { x: 11, y: 1 }, rot: 0, config: { kind: 'desk', room: 'R' }, locked: true },
-        { id: 'anvil', kind: 'anvil', at: { x: 13, y: 1 }, rot: 0, config: { kind: 'anvil' } },
+        { id: 'anvil', kind: 'joiner', at: { x: 13, y: 1 }, rot: 0, config: { kind: 'joiner', recipe: { k: 'clash' } } },
         { id: 'gate', kind: 'gate', at: { x: 17, y: 2 }, rot: 0, config: { kind: 'gate', room: 'R' }, locked: true },
         { id: 'sock', kind: 'socket', at: { x: 20, y: 2 }, rot: 0, config: { kind: 'socket', socketId: 's' }, locked: true },
       ],

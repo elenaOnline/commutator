@@ -1,6 +1,7 @@
 // LEMMA WORKS kernel — printing (Unicode + TeX) and term entry parsing. Pure.
-import type { AtomDecl, Fact, PatFact, Subst, Term } from './types';
+import type { AtomDecl, Fact, PatFact, Poly, Subst, Term, ZRef } from './types';
 import { inv, mul, norm, same } from './terms';
+import { polyAdd, polyConst, polyMul, polyNeg, polyNorm, polyPowNat, polySub, polyText, polyZvar } from './poly';
 
 export type Labels = Record<string, string>; // AtomId → display label
 export function labelsOf(atoms: AtomDecl[]): Labels {
@@ -24,9 +25,14 @@ const TEXT: Style = {
   paren: (s) => `(${s})`,
 };
 
+const SUBD = '₀₁₂₃₄₅₆₇₈₉';
 const texLabel = (s: string) => {
   const t = s.replace(/′/g, "'");
-  return /^[A-Za-z]'*$/.test(t) ? t : `\\mathit{${t}}`;
+  if (/^[A-Za-z]'*$/.test(t)) return t;
+  // x₁, y₂′ → x_{1}, y_{2}'
+  const m = /^([A-Za-z])([₀-₉]+)('*)$/u.exec(t);
+  if (m) return `${m[1]}_{${[...m[2]!].map((c) => SUBD.indexOf(c)).join('')}}${m[3]}`;
+  return `\\mathit{${t}}`;
 };
 const TEX: Style = {
   base: (t, L) => (t.k === 'atom' ? texLabel(L[t.id] ?? t.id) : t.k === 'e' ? 'e' : t.k === 'meta' ? t.id : '?'),
@@ -34,8 +40,28 @@ const TEX: Style = {
   paren: (s) => `(${s})`,
 };
 
+/** The exponent polynomial alone, e.g. "5k₁", "n₁k₁", "-3" (TeX: "5k_{1}"). */
+export function exponentText(p: Poly, L: Labels, tex = false): string {
+  return polyText(p, (r: ZRef) => (r.k === 'zvar' ? (tex ? texLabel(L[r.id] ?? r.id) : (L[r.id] ?? r.id)) : r.id), tex);
+}
+
+/** Exponent text: bare when a single literal or a single name, bracketed otherwise. */
+function expStr(p: Poly, L: Labels, tex: boolean): string {
+  const name = (r: ZRef) => (r.k === 'zvar' ? (tex ? texLabel(L[r.id] ?? r.id) : (L[r.id] ?? r.id)) : r.id);
+  const body = polyText(p, name, tex);
+  if (tex) return `^{${body}}`;
+  const single = p.length <= 1 && (p.length === 0 || p[0]!.monomial.length === 0 || (p[0]!.coefficient === '1' && p[0]!.monomial.length === 1 && p[0]!.monomial[0]!.degree === 1));
+  return single ? `^${body}` : `^(${body})`;
+}
+
 function factorStr(f: Term, L: Labels, st: Style): string {
   if (isSimple(f)) return st.base(f, L);
+  if (f.k === 'pow') {
+    const b = f.base;
+    const bs = isSimple(b) ? st.base(b, L) : st.paren(b.k === 'inv' && isSimple(b.arg) ? factorStr(b, L, st) : termStr(b, L, st));
+    return `${bs}${expStr(f.exp, L, st === TEX)}`;
+  }
+  if (f.k === 'int') return polyText(f.val, (r) => (r.k === 'zvar' ? (st === TEX ? texLabel(L[r.id] ?? r.id) : (L[r.id] ?? r.id)) : r.id), st === TEX);
   if (f.k === 'inv') {
     const a = f.arg;
     if (isSimple(a)) return st.pow(st.base(a, L), -1);
@@ -107,95 +133,221 @@ export function substText(s: Subst, L: Labels): string {
 const SUP_MAP: Record<string, string> = { '⁰': '0', '¹': '1', '²': '2', '³': '3', '⁴': '4', '⁵': '5', '⁶': '6', '⁷': '7', '⁸': '8', '⁹': '9' };
 const MAX_POW = 99;
 
+type Name = { name: string; id: string | null; sort: 'G' | 'Z' };
+
+function nameTable(atoms: AtomDecl[]): Name[] {
+  // label (and its ASCII-prime spelling) → atom id; 'e' → identity unless a label claims it
+  const names: Name[] = [];
+  for (const a of atoms) {
+    const sort = a.sort === 'Z' ? 'Z' : 'G';
+    names.push({ name: a.label, id: a.id, sort });
+    const ascii = a.label.replace(/′/g, "'");
+    if (ascii !== a.label) names.push({ name: ascii, id: a.id, sort });
+    // subscripted variable labels also accept x1 and x_1
+    if (/[₀-₉]/u.test(a.label)) {
+      const digits = a.label.replace(/[₀-₉]/gu, (c) => String('₀₁₂₃₄₅₆₇₈₉'.indexOf(c)));
+      const m = /^(\D+)(\d+)(.*)$/.exec(digits);
+      names.push({ name: digits, id: a.id, sort });
+      if (m) names.push({ name: `${m[1]}_${m[2]}${m[3]}`, id: a.id, sort });
+    }
+  }
+  if (!names.some((n) => n.name === 'e')) names.push({ name: 'e', id: null, sort: 'G' });
+  names.sort((x, y) => y.name.length - x.name.length);
+  return names;
+}
+
+class PErr extends Error {}
+
+/** A tiny cursor over the source shared by the term and integer grammars. */
+class Cursor {
+  i = 0;
+  constructor(readonly s: string, readonly names: Name[]) {}
+  peek() { return this.s[this.i]; }
+  ws() { while (this.i < this.s.length && /\s/.test(this.s[this.i]!)) this.i++; }
+  nameAt(): Name | undefined { return this.names.find((n) => this.s.startsWith(n.name, this.i)); }
+  /** An identifier-looking run at the cursor (for messages). */
+  word(): string | null { const m = /^[A-Za-z0-9_′'₀-₉]+/u.exec(this.s.slice(this.i)); return m ? m[0] : null; }
+}
+
 /**
- * Parse player term entry against the level's atoms. Grammar:
- *   term := factor+ ; factor := base ('^' ('-1' | INT))* ; base := label | 'e' | '(' term ')'
- * Also accepts '⁻¹' and superscript powers, "'" for a prime in labels (e' ↔ e′), whitespace, '·', '*'.
+ * Integer expressions (exponents and ℤ knobs): signed literals, ℤ Tower names, + − *, juxtaposition
+ * (5k₁ = 5*k₁), parentheses, natural literal powers (n^2, n²). No division, fractions or |G|.
+ * `bare` = an unbracketed exponent after ^: a signed product of literals/names only.
+ */
+function parseIntExpr(c: Cursor, bare: boolean): Poly {
+  const s = c.s;
+  const isPrimaryStart = (): boolean => {
+    const ch = c.peek();
+    if (ch === undefined) return false;
+    if (/\d/.test(ch) || ch === '(') return true;
+    const n = c.nameAt();
+    return !!n && n.sort === 'Z';
+  };
+  const primary = (): Poly => {
+    c.ws();
+    const ch = c.peek();
+    if (ch === '(') {
+      c.i++;
+      const v = expr();
+      c.ws();
+      if (c.peek() !== ')') throw new PErr('a bracket in the exponent is not closed');
+      c.i++;
+      return v;
+    }
+    const lit = /^\d+/.exec(s.slice(c.i));
+    if (lit) {
+      c.i += lit[0].length;
+      if (s[c.i] === '.' || s[c.i] === '/') throw new PErr('an exponent is a whole number: no fractions or decimals');
+      return polyConst(BigInt(lit[0]));
+    }
+    const n = c.nameAt();
+    if (n && n.sort === 'Z' && n.id) { c.i += n.name.length; return polyZvar(n.id); }
+    if (n) throw new PErr(`${n.name} is a group element, not an integer`);
+    const w = c.word();
+    if (w) throw new PErr(`there is no integer variable called “${w}” here`);
+    throw new PErr(ch === undefined ? 'the exponent is missing' : `unexpected “${ch}” in an exponent`);
+  };
+  const powered = (): Poly => {
+    let v = primary();
+    for (;;) {
+      if (!bare && s[c.i] === '^') {
+        c.i++;
+        const d = /^\d+/.exec(s.slice(c.i));
+        if (!d) throw new PErr('an integer power must be a natural number literal');
+        c.i += d[0].length;
+        v = polyPowNat(v, Number(d[0]));
+        continue;
+      }
+      if (SUP_MAP[s[c.i] ?? ''] !== undefined) {
+        let d = '';
+        while (SUP_MAP[s[c.i] ?? ''] !== undefined) { d += SUP_MAP[s[c.i]!]; c.i++; }
+        v = polyPowNat(v, Number(d));
+        continue;
+      }
+      return v;
+    }
+  };
+  const unary = (): Poly => {
+    c.ws();
+    if (c.peek() === '-' || c.peek() === '−') { c.i++; return polyNeg(unary()); }
+    if (c.peek() === '+' && !bare) { c.i++; return unary(); }
+    return powered();
+  };
+  const term = (): Poly => {
+    let v = unary();
+    for (;;) {
+      if (!bare) c.ws();
+      const ch = c.peek();
+      if (!bare && (ch === '*' || ch === '·' || ch === '⋅')) { c.i++; v = polyMul(v, unary()); continue; }
+      if (ch !== undefined && ch !== '-' && ch !== '−' && isPrimaryStart() && !(bare && ch === '(')) { v = polyMul(v, powered()); continue; }
+      return v;
+    }
+  };
+  const expr = (): Poly => {
+    let v = term();
+    for (;;) {
+      c.ws();
+      const ch = c.peek();
+      if (ch === '+') { c.i++; v = polyAdd(v, term()); continue; }
+      if (ch === '-' || ch === '−') { c.i++; v = polySub(v, term()); continue; }
+      return v;
+    }
+  };
+  return bare ? term() : expr();
+}
+
+/**
+ * Parse player term entry against the level's atoms (and Towers). Grammar:
+ *   term := factor+ ; factor := base ('^' exponent)* ; base := label | 'e' | '(' term ')'
+ *   exponent := '-1' (inverse) | INT (the legacy WORD of INT copies) | '0' | '-INT' | ℤ-expression
+ * A positive bare literal keeps the old meaning: `a^5` is the five-factor word aaaaa. Anything else is a
+ * power node: `a^(5)`, `a^0`, `a^-3`, `a^n₁`, `(ab)^(5k₁)`, `x^-n₁`, `a^{2n+1}`.
+ * Also accepts '⁻¹', superscript digits (words), "'" for a prime (e' ↔ e′), whitespace, '·', '*'.
  */
 export function parseTerm(src: string, atoms: AtomDecl[]):
   { ok: true; term: Term } | { ok: false; error: string } {
-  // name table: label (and its ASCII-prime spelling) → atom id; 'e' → identity unless a label claims it
-  const names: { name: string; id: string | null }[] = [];
-  for (const a of atoms) {
-    names.push({ name: a.label, id: a.id });
-    const ascii = a.label.replace(/′/g, "'");
-    if (ascii !== a.label) names.push({ name: ascii, id: a.id });
-  }
-  if (!names.some((n) => n.name === 'e')) names.push({ name: 'e', id: null });
-  names.sort((x, y) => y.name.length - x.name.length);
-
+  const c = new Cursor(src, nameTable(atoms));
   const s = src;
-  let i = 0;
-  const skip = () => { while (i < s.length && /[\s·*⋅]/.test(s[i]!)) i++; };
-  class PErr extends Error {}
+  const skip = () => { while (c.i < s.length && /[\s·*⋅]/.test(s[c.i]!)) c.i++; };
 
-  const readInt = (): number => {
-    const m = /^\d+/.exec(s.slice(i));
-    if (!m) throw new PErr('expected a whole number after ^');
-    i += m[0].length;
-    return parseInt(m[0], 10);
-  };
   const readSup = (): number | null => {
     let d = '';
-    while (i < s.length && SUP_MAP[s[i]!] !== undefined) { d += SUP_MAP[s[i]!]; i++; }
+    while (c.i < s.length && SUP_MAP[s[c.i]!] !== undefined) { d += SUP_MAP[s[c.i]!]; c.i++; }
     return d ? parseInt(d, 10) : null;
   };
-  const power = (t: Term, n: number): Term => {
-    if (n === 0) throw new PErr('a power must be at least 1 (write e for the identity)');
-    if (Math.abs(n) > MAX_POW) throw new PErr(`powers above ${MAX_POW} are not supported`);
-    const b = n < 0 ? inv(t) : t;
-    return mul(Array.from({ length: Math.abs(n) }, () => b));
+  /** Legacy literal semantics: n > 0 → word of n copies; -1 → inverse; else a power node. */
+  const literal = (t: Term, n: number): Term => {
+    if (n === -1) return inv(t);
+    if (n <= 0) return norm({ k: 'pow', base: t, exp: polyConst(n) });
+    if (n > MAX_POW) throw new PErr(`powers above ${MAX_POW} are not supported as words; write a^(${n}) for the power`);
+    return mul(Array.from({ length: n }, () => t));
   };
+  const powerNode = (t: Term, p: Poly): Term => norm({ k: 'pow', base: t, exp: p });
 
   const parseFactor = (): Term => {
     skip();
     let base: Term;
-    if (s[i] === '(') {
-      i++;
+    if (s[c.i] === '(') {
+      c.i++;
       base = parseTermInner();
       skip();
-      if (s[i] !== ')') throw new PErr('a bracket is not closed');
-      i++;
+      if (s[c.i] !== ')') throw new PErr('a bracket is not closed');
+      c.i++;
     } else {
-      const hit = names.find((n) => s.startsWith(n.name, i));
+      const hit = c.nameAt();
       if (!hit) {
-        const m = /^[A-Za-z0-9_′']+/.exec(s.slice(i));
-        if (m) throw new PErr(`there is no element called “${m[0]}” here`);
-        if (s[i] === ')') throw new PErr('there is a closing bracket without an opening one');
-        throw new PErr(`unexpected “${s[i]}”`);
+        const w = c.word();
+        if (w && /^\d/.test(w)) throw new PErr(`${w} is a number, not a group element`);
+        if (w) throw new PErr(`there is no element called “${w}” here`);
+        if (s[c.i] === ')') throw new PErr('there is a closing bracket without an opening one');
+        throw new PErr(`unexpected “${s[c.i]}”`);
       }
-      i += hit.name.length;
+      if (hit.sort === 'Z') throw new PErr(`${hit.name} is an integer, not a group element`);
+      c.i += hit.name.length;
       base = hit.id === null ? { k: 'e' } : { k: 'atom', id: hit.id };
     }
     // postfix powers
     for (;;) {
       skip();
-      if (s[i] === '^') {
-        i++;
-        skip();
-        let neg = false;
-        if (s[i] === '{') { // tolerate TeX-ish ^{-1}
-          i++;
-          if (s[i] === '-') { neg = true; i++; }
-          const n = readInt();
-          if (s[i] !== '}') throw new PErr('a brace is not closed');
-          i++;
-          base = power(base, neg ? -n : n);
+      if (s[c.i] === '^') {
+        c.i++;
+        c.ws();
+        const rest = s.slice(c.i);
+        const lit = /^([-−]?)(\d+)/u.exec(rest);
+        if (lit) {
+          const save = c.i;
+          c.i += lit[0].length;
+          const z = c.nameAt();
+          if (!(z && z.sort === 'Z')) { // legacy literal (a ℤ name right after it means 5k₁)
+            base = literal(base, (lit[1] ? -1 : 1) * Number(lit[2]));
+            continue;
+          }
+          c.i = save;
+        }
+        if (s[c.i] === '{' || s[c.i] === '(') {
+          const close = s[c.i] === '{' ? '}' : ')';
+          const brace = s[c.i] === '{';
+          c.i++;
+          const p = parseIntExpr(c, false);
+          c.ws();
+          if (s[c.i] !== close) throw new PErr(brace ? 'a brace is not closed' : 'a bracket in the exponent is not closed');
+          c.i++;
+          // TeX-ish ^{-1} and ^{n} keep the legacy literal meaning; ^(…) is always a power node
+          const v = p.length === 0 ? 0n : p.length === 1 && p[0]!.monomial.length === 0 ? BigInt(p[0]!.coefficient) : null;
+          base = brace && v !== null ? literal(base, Number(v)) : powerNode(base, p);
           continue;
         }
-        if (s[i] === '-' || s[i] === '−') { neg = true; i++; }
-        const n = readInt();
-        base = power(base, neg ? -n : n);
+        base = powerNode(base, parseIntExpr(c, true));
         continue;
       }
-      if (s[i] === '⁻') {
-        i++;
+      if (s[c.i] === '⁻') {
+        c.i++;
         const n = readSup();
         if (n === null) throw new PErr('expected ¹ after ⁻');
-        base = power(base, -n);
+        base = literal(base, -n);
         continue;
       }
-      if (SUP_MAP[s[i] ?? ''] !== undefined) { base = power(base, readSup()!); continue; }
+      if (SUP_MAP[s[c.i] ?? ''] !== undefined) { base = literal(base, readSup()!); continue; }
       break;
     }
     return base;
@@ -205,7 +357,7 @@ export function parseTerm(src: string, atoms: AtomDecl[]):
     const fs: Term[] = [];
     for (;;) {
       skip();
-      if (i >= s.length || s[i] === ')') break;
+      if (c.i >= s.length || s[c.i] === ')') break;
       fs.push(parseFactor());
     }
     if (!fs.length) throw new PErr('the term is empty');
@@ -215,8 +367,30 @@ export function parseTerm(src: string, atoms: AtomDecl[]):
   try {
     const t = parseTermInner();
     skip();
-    if (i < s.length) throw new PErr('there is a closing bracket without an opening one');
+    if (c.i < s.length) throw new PErr('there is a closing bracket without an opening one');
     return { ok: true, term: norm(t) };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/**
+ * Parse an integer knob value (a ℤ meta's value): `5`, `-3`, `5k₁`, `n₁*(k₁+1)`, `n1^2 - 1`.
+ * Returns the `{ k: 'int' }` Subst value. Group elements, fractions and unknown names are errors.
+ */
+export function parseInteger(src: string, atoms: AtomDecl[]):
+  { ok: true; term: Term } | { ok: false; error: string } {
+  const c = new Cursor(src, nameTable(atoms));
+  try {
+    c.ws();
+    if (c.i >= src.length) throw new PErr('the integer is empty');
+    const p = parseIntExpr(c, false);
+    c.ws();
+    if (c.i < src.length) {
+      const ch = src[c.i]!;
+      throw new PErr(ch === '/' || ch === '.' ? 'an integer has no fractions or decimals' : `unexpected “${ch}” in an integer`);
+    }
+    return { ok: true, term: { k: 'int', val: polyNorm(p) } };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }

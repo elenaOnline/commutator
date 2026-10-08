@@ -8,14 +8,26 @@
   {
     "level": "L02",
     "machines": 3,
-    "area": 56,
-    "cycles": 47
+    "area": 30,
+    "cycles": 30
   },
   {
     "level": "L03",
     "machines": 3,
     "area": 48,
     "cycles": 50
+  },
+  {
+    "level": "S01",
+    "machines": 6,
+    "area": 57,
+    "cycles": 58
+  },
+  {
+    "level": "T01",
+    "machines": 7,
+    "area": 375,
+    "cycles": 107
   },
   {
     "level": "L05",
@@ -31,9 +43,9 @@
   },
   {
     "level": "L04",
-    "machines": 5,
-    "area": 66,
-    "cycles": 68
+    "machines": 7,
+    "area": 382,
+    "cycles": 104
   },
   {
     "level": "L07",

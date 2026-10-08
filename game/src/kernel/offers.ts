@@ -3,22 +3,26 @@
 // Every offer is built from kernel primitives and pre-evaluated with the same
 // code check() runs (stepCore / applyCore), so an offer never contains a move
 // the kernel would reject. Offers with `needs` are completed by fillOffer.
+import type { Sort } from './types';
 import type {
   Addr, CheckResult, Fact, Family, GapAddr, MetaId, NodeId, Offer, OfferKind, Pallet, ProofGraph,
   ProofNode, Room, RuleRef, ScopeId, StepOp, Subst, Term,
 } from './types';
 import type { KernelCtx } from './index';
 import {
-  E, KErr, beads, instantiate, instantiatePartial, locate, locateGap, match, metasOf, norm, same,
+  E, KErr, beads, instantiate, instantiatePartial, locate, locateGap, match, matchOpen, metasOf, norm, same,
   substKey, termKey, type Loc,
 } from './terms';
 import {
-  AXIOM_IDS, applyCore, axiomCard, checkGround, resolveCond, schemaCard, scopeWithin, stepCore,
+  AXIOM_IDS, withVars, applyCore, schemaInfo, checkInt, resolveLaw, axiomCard, checkGround, resolveCond, schemaCard, scopeWithin, stepCore,
   sameCardUpToRenaming, type CondCard,
 } from './logic';
 import { factTex, factText, labelsOf, substText, termTex, termText, type Labels } from './print';
 import { ruleFamily, schemaTitle } from './describe';
 import { MIRROR_NAMES } from '../levels/levels';
+import { powerAllowed } from './powers';
+import { POLY_LIMITS, polyLiteral } from './poly';
+const K_word = (t: Term): Term[] => (t.k === 'mul' ? t.fs : [t]);
 
 // ───────────── environment ─────────────
 
@@ -38,7 +42,8 @@ interface Env {
 
 const texName = (s: string) => (/^[A-Za-z]'*$/.test(s) ? s : `\\text{${s.replace(/[{}\\]/g, '')}}`);
 
-function envOf(g: ProofGraph, res: CheckResult, nodeId: NodeId, ctx: KernelCtx): Env | null {
+function envOf(g: ProofGraph, res: CheckResult, nodeId: NodeId, ctx0: KernelCtx): Env | null {
+  const ctx = withVars(ctx0, g).ctx;
   const byId = new Map(g.nodes.map((n) => [n.id, n] as const));
   const node = byId.get(nodeId);
   if (!node) return null;
@@ -62,8 +67,8 @@ function envOf(g: ProofGraph, res: CheckResult, nodeId: NodeId, ctx: KernelCtx):
     } else if (n.k === 'apply') {
       for (const i of n.inputs) addUser(i, n.id);
       if (n.rule.k === 'node') addUser(n.rule.id, n.id);
-    } else if (n.k === 'merge' || n.k === 'clash') for (const i of n.inputs) addUser(i, n.id);
-    else if (n.k === 'exit' || n.k === 'press') addUser(n.input, n.id);
+    } else if (n.k === 'merge' || n.k === 'clash' || n.k === 'product') for (const i of n.inputs) addUser(i, n.id);
+    else if (n.k === 'exit' || n.k === 'press' || n.k === 'generalize') addUser(n.input, n.id);
   }
   // own belt
   let head: ProofNode = node;
@@ -146,7 +151,7 @@ function rulesOf(env: Env): RuleE[] {
       try { c = schemaCard(id, mirror, env.ctx); } catch { continue; }
       if (c.k !== 'law') continue;
       if (mirror && sameCardUpToRenaming(c, schemaCard(id, false, env.ctx))) continue;
-      const sc = env.ctx.registry[id]!;
+      const sc = schemaInfo(id, env.ctx)!;
       const name = mirror ? (MIRROR_NAMES[id]?.name ?? `${sc.name} ᵒᵖ`) : sc.name;
       out.push({
         ref: mirror ? { k: 'schema', id, mirror: true } : { k: 'schema', id }, l: norm(c.l), r: norm(c.r),
@@ -215,7 +220,7 @@ function ruleInfo(env: Env, ref: RuleRef): { name: string; nameTex: string; fami
     return { name: unit ? 'identity' : 'inverse', nameTex: unit ? '\\text{identity}' : '\\text{inverse}', family: unit ? 'identity' : 'inverse', law: c };
   }
   if (ref.k === 'schema') {
-    const sc = env.ctx.registry[ref.id];
+    const sc = schemaInfo(ref.id, env.ctx);
     const name = ref.mirror ? (MIRROR_NAMES[ref.id]?.name ?? `${sc?.name ?? ref.id} ᵒᵖ`) : (sc?.name ?? ref.id);
     let law: { l: Term; r: Term } | undefined;
     try { const c = schemaCard(ref.id, ref.mirror, env.ctx); if (c.k === 'law') law = c; } catch { /* unavailable */ }
@@ -255,6 +260,7 @@ function describeSteps(env: Env, ops: StepOp[]): Desc {
     const by = op1.rule.k === 'schema' ? info.name : info.family === 'lemma' && info.name === 'Lagrange' ? 'Lagrange' : `by ${info.name}`;
     return { label: `insert ${T(dst)} (${by}${atText(op1.subst, metas)})`, why: info.nameTex.startsWith('\\text{') ? info.nameTex : `\\text{by } ${info.nameTex}`, family: info.family };
   }
+  if (op0.k === 'invert') return { label: 'invert both sides', why: '\\text{invert both sides}', family: 'structure' };
   // rewrite
   const info = ruleInfo(env, op0.rule);
   const loc = locate(env.fact, op0.at);
@@ -289,7 +295,18 @@ function stepsOffer(env: Env, key: string, ops: StepOp[], needs: MetaId[]): Offe
   }
   const d = describeSteps(env, ops);
   const kind: OfferKind = { k: 'steps', ops };
-  return { key, family: d.family, label: d.label, why: d.why, needs, ...(preview ? { preview } : {}), kind };
+  const needSorts = needs.length ? stepNeedSorts(env, ops, needs) : undefined;
+  return { key, family: d.family, label: d.label, why: d.why, needs, ...(preview ? { preview } : {}), kind, ...(needSorts ? { needSorts } : {}) };
+}
+
+/** Sorts of an offer's needed metas: ℤ if the rule uses the meta inside an exponent, else G. */
+function stepNeedSorts(env: Env, ops: StepOp[], needs: MetaId[]): Record<MetaId, Sort> {
+  const z = new Set<MetaId>();
+  for (const op of ops) {
+    if (op.k !== 'rewrite') continue;
+    try { for (const m of resolveLaw(op.rule, env.ctx, ruleFactOf(env, op.rule), env.L).zmetas) z.add(m); } catch { /* unresolvable: G */ }
+  }
+  return Object.fromEntries(needs.map((m) => [m, z.has(m) ? 'Z' : 'G'])) as Record<MetaId, Sort>;
 }
 
 // ───────────── span offers ─────────────
@@ -315,11 +332,34 @@ function spanOffers(env: Env, sel: Addr): Offer[] {
     if (t) push(stepsOffer(env, `pop|${addrKey(at)}`, [t], []), 0);
   }
 
+  // power.literal family: unfold x^r (literal r > 0) into its word; fold k ≥ 2 repeats of a block
+  if (powerAllowed('power.literal:1', env.ctx.level.tools.schemas)) {
+    const lit = (r: number, dir: 'fwd' | 'rev', x: Term) => {
+      if (r < 1 || r > POLY_LIMITS.literalPower) return;
+      const ref: RuleRef = { k: 'schema', id: `power.literal:${r}` };
+      const op: StepOp = { k: 'rewrite', rule: ref, dir, at, subst: { x } };
+      push(stepsOffer(env, `rw|${refKey(ref)}|${dir}|${addrKey(at)}|${substKey({ x })}`, [op], []), 1);
+    };
+    if (redex.k === 'pow') {
+      const v = polyLiteral(redex.exp);
+      if (v !== null && v >= 1n && v <= BigInt(POLY_LIMITS.literalPower)) lit(Number(v), 'fwd', redex.base);
+    }
+    const w = K_word(redex);
+    for (let p = 1; p <= w.length / 2; p++) {
+      if (w.length % p) continue;
+      let ok = true;
+      for (let q = p; q < w.length && ok; q++) if (!same(w[q]!, w[q - p]!)) ok = false;
+      if (ok) lit(w.length / p, 'rev', p === 1 ? w[0]! : { k: 'mul', fs: w.slice(0, p) });
+    }
+  }
+
   for (const rule of rulesOf(env)) {
     for (const dir of ['fwd', 'rev'] as const) {
       if (rule.kind === 'axiom' && (rule.axiom === 'unitL' || rule.axiom === 'unitR') && dir === 'rev') continue;
+      // x → x¹ matches every span (like x → ex): not offered; the kernel still accepts it
+      if (rule.kind === 'schema' && rule.ref.k === 'schema' && rule.ref.id === 'power.one' && dir === 'rev') continue;
       const [src, dst] = dir === 'fwd' ? [rule.l, rule.r] : [rule.r, rule.l];
-      for (const s of match(src, redex)) {
+      for (const s of matchOpen(src, redex)) {
         const needs = rule.metas.filter((m) => !s[m]);
         const op: StepOp = { k: 'rewrite', rule: rule.ref, dir, at, subst: s };
         const ops: StepOp[] = [op];
@@ -387,7 +427,7 @@ function condCards(env: Env): CardE[] {
       if (c.k !== 'cond') continue;
       if (mirror && sameCardUpToRenaming(c, schemaCard(id, false, env.ctx))) continue;
       const ref: RuleRef = mirror ? { k: 'schema', id, mirror: true } : { k: 'schema', id };
-      const sc = env.ctx.registry[id]!;
+      const sc = schemaInfo(id, env.ctx)!;
       const name = mirror ? (MIRROR_NAMES[id]?.name ?? `${sc.name} ᵒᵖ`) : sc.name;
       out.push({ ref, card: resolveCond(ref, env.ctx, undefined, env.L), name, nameTex: `\\text{${name}}`, family: 'lemma' });
     }
@@ -485,6 +525,7 @@ function applyOffers(env: Env): Ranked[] {
             offer: {
               key, family: d.family, label: d.label, why: d.why, needs, ...(preview ? { preview } : {}),
               kind: { k: 'apply', rule: ce.ref, inputs, subst: s, ...(preSwap ? { preSwap: true } : {}) },
+              ...(needs.length ? { needSorts: Object.fromEntries(needs.map((m) => [m, ce.card.zmetas.has(m) ? 'Z' : 'G'])) as Record<MetaId, Sort> } : {}),
               group: groupOf(ce.ref), bindings,
             },
             rank: needs.length ? 5 : 1, size: palletBeads(preview), order: order++,
@@ -500,9 +541,11 @@ function wholeOffers(env: Env): Offer[] {
   const out: Ranked[] = [];
   const f = env.fact;
   let order = 1000;
-  // contradiction
+  // contradiction (the store closes the room on a clash; an assume room exports only = / ≠, never ⊥,
+  // and a ⊥ sitting directly in an assume room can go nowhere — so no clash is offered there)
   const seenClash = new Set<string>();
-  for (const c of env.cands) {
+  const inAssume = env.g.rooms.some((r) => r.id === env.node.scope && r.kind === 'assume');
+  for (const c of inAssume ? [] : env.cands) {
     const other = c.fact;
     if (other.k !== (f.k === 'eq' ? 'neq' : 'eq')) continue;
     const hit = (same(norm(other.l), f.l) && same(norm(other.r), f.r)) || (same(norm(other.l), f.r) && same(norm(other.r), f.l));
@@ -526,6 +569,8 @@ function wholeOffers(env: Env): Offer[] {
     }
   }
   out.push(...applyOffers(env));
+  const iv = stepsOffer(env, 'invert', [{ k: 'invert' }], []);
+  if (iv) out.push({ offer: { ...iv, group: 'invert' }, rank: 3, size: 0, order: order++ });
   const sw = stepsOffer(env, 'swap', [{ k: 'swap' }], []);
   if (sw) out.push({ offer: { ...sw, group: 'swap' }, rank: 3, size: 0, order: order++ });
   if (env.ctx.level.tools.lift && f.k === 'eq') {
@@ -602,7 +647,7 @@ const palletSame = (x: Pallet, y: Pallet): boolean => {
 function useless(env: Env, o: Offer): boolean {
   const p = o.preview;
   if (!p || o.needs.length) return false;
-  if (env.ctx.level.sockets.some((sk) => palletSame(sk.target, p))) return false;
+  if (env.ctx.level.sockets.some((sk) => sk.target.k !== 'law' && sk.target.k !== 'cond' && palletSame(sk.target, p))) return false;
   if (palletSame(p, env.fact)) return true;
   return p.k === 'eq' && same(norm(p.l), norm(p.r));
 }
@@ -616,17 +661,35 @@ export function offersAt(g: ProofGraph, res: CheckResult, nodeId: NodeId, sel: A
   return all.filter((o) => !useless(env, o));
 }
 
-export function fillOffer(o: Offer, values: Subst, g: ProofGraph, res: CheckResult, nodeId: NodeId, ctx: KernelCtx):
+export function fillOffer(o: Offer, values: Subst, g: ProofGraph, res: CheckResult, nodeId: NodeId, ctx0: KernelCtx):
   { ok: true; offer: Offer } | { ok: false; error: string } {
-  const env = envOf(g, res, nodeId, ctx);
+  const env = envOf(g, res, nodeId, ctx0);
   if (!env) return { ok: false, error: 'there is no equation here to work on' };
+  const ctx = env.ctx;
   try {
     const vals: Subst = {};
     for (const m of o.needs) {
       const v = values?.[m];
-      if (!v) throw new KErr(`choose an element for ${m}`);
-      vals[m] = checkGround(v, ctx, `the value for ${m}`);
+      if (!v) continue;
+      vals[m] = v.k === 'int' ? checkInt(v, ctx, `the value for ${m}`) : checkGround(v, ctx, `the value for ${m}`);
     }
+    // bounded inference (§4.2): once some knobs are given, remaining ℤ needs of a rewrite may follow
+    // from the selected redex, e.g. e² → (e^m)^n with m = 2 gives n = 1
+    const kind0 = o.kind;
+    const missing = o.needs.filter((m) => !vals[m]);
+    if (missing.length && kind0.k === 'steps') {
+      const op = kind0.ops.find((x) => x.k === 'rewrite');
+      if (op && op.k === 'rewrite') {
+        const info = ruleInfo(env, op.rule);
+        const loc = locate(env.fact, op.at);
+        if (info.law && loc) {
+          const src = op.dir === 'fwd' ? info.law.l : info.law.r;
+          const [s1] = match(src, loc.redex, { ...op.subst, ...vals });
+          if (s1) for (const m of missing) if (s1[m]) vals[m] = s1[m]!;
+        }
+      }
+    }
+    for (const m of o.needs) if (!vals[m]) throw new KErr(o.needSorts?.[m] === 'Z' ? `choose an integer for ${m}` : `choose an element for ${m}`);
     const suffix = o.needs.length ? `|${substKey(vals)}` : '';
     const kind = o.kind;
     if (kind.k === 'steps') {
@@ -656,7 +719,8 @@ export function fillOffer(o: Offer, values: Subst, g: ProofGraph, res: CheckResu
       }
       const preview = runOps(env, ops);
       const d = describeSteps(env, ops);
-      return { ok: true, offer: { ...o, key: o.key + suffix, needs: [], preview, kind: { k: 'steps', ops }, label: d.label, why: d.why, family: d.family } };
+      const { needSorts: _ns, ...rest } = o; void _ns;
+      return { ok: true, offer: { ...rest, key: o.key + suffix, needs: [], preview, kind: { k: 'steps', ops }, label: d.label, why: d.why, family: d.family } };
     }
     if (kind.k === 'apply') {
       const s = { ...kind.subst, ...vals };
@@ -671,7 +735,8 @@ export function fillOffer(o: Offer, values: Subst, g: ProofGraph, res: CheckResu
       const info = ruleInfo(env, kind.rule);
       const ce: CardE = { ref: kind.rule, card, name: info.name, nameTex: info.nameTex, family: o.family };
       const d = applyLabel(env, ce, s, preview);
-      return { ok: true, offer: { ...o, key: o.key + suffix, needs: [], preview, kind: { ...kind, subst: s }, label: d.label, why: d.why } };
+      const { needSorts: _ns, ...rest } = o; void _ns;
+      return { ok: true, offer: { ...rest, key: o.key + suffix, needs: [], preview, kind: { ...kind, subst: s }, label: d.label, why: d.why } };
     }
     return { ok: true, offer: o };
   } catch (e) {

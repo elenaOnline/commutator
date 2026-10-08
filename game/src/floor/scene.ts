@@ -1,11 +1,12 @@
 // LEMMA WORKS v3 floor — the static scene for one epoch (rooms, belts, ports,
 // machines, sockets, labels) as SVG strings. Hover/selection/status are toggled
 // by class afterwards, so this only re-runs on edits.
-import type { Fact, Pallet } from '../kernel/types';
+import type { Card, Fact, Pallet } from '../kernel/types';
 import type { Compiled, LiveStatus, Machine, Room, RunState } from '../factory/types';
 import type { LevelManifest } from '../kernel/types';
 import { FAMILY, FONT, INK } from '../ui/tokens';
-import { P, f1, isoEllipse, roundGrid, gridRect, pts, type G2 } from '../board/geom';
+import { P, f1, isoEllipse, roundGrid, gridRect, pts, shade, type G2 } from '../board/geom';
+import { FORALL_INK } from './look';
 import { factSVG, termSVG, type Labels } from './math';
 import type { BGeo, Crossing, Geo, MGeo, PortGeo } from './geo';
 import { faceVec } from './adapt';
@@ -22,7 +23,9 @@ export function heightOf(m: Machine): number {
     case 'given': case 'spool': case 'hopper': case 'carddock': return 0.24;
     case 'desk': return 0.26;
     case 'gate': return 0.16;
-    case 'stamp': case 'press': return 0.36;
+    case 'theorem': return 0.34;
+    case 'forall': return 0.32;
+    case 'tower': return 0.1;
     default: return 0.3;
   }
 }
@@ -34,7 +37,14 @@ export function roomPoly(r: Room['rect']): G2[] {
   return roundGrid(gridRect(r.x + 0.06, r.y + 0.06, r.x + r.w - 0.06, r.y + r.h - 0.06), Math.min(0.9, r.w / 2.4, r.h / 2.4), 8);
 }
 
-export function roomHeading(kind: Room['kind'], l: Room['l'] | null, r: Room['r'] | null, L: Labels): { tag: string; math: string } {
+export function roomHeading(kind: Room['kind'], l: Room['l'] | null, r: Room['r'] | null, L: Labels, rel?: Room['rel'], q?: Fact): { tag: string; math: string } {
+  const exportsWord = `<tspan font-family="${FONT.ui}" font-size="10" font-weight="600" letter-spacing=".1em" dx="10" fill-opacity=".72">EXPORTS </tspan>`;
+  if (kind === 'assume') {
+    if (!l || !r) return { tag: 'ASSUME', math: `<tspan font-style="italic" fill-opacity=".6">choose P</tspan>` };
+    const P0: Pallet = rel === 'neq' ? { k: 'neq', l, r } : { k: 'eq', l, r };
+    const Q = q ? factSVG(q, L) : `<tspan font-style="italic" fill-opacity=".55">Q</tspan>`;
+    return { tag: 'ASSUME', math: `${factSVG(P0, L)}${exportsWord}${factSVG(P0, L)}<tspan> ⇒ </tspan>${Q}` };
+  }
   if (!l || !r) return { tag: kind === 'classical' ? 'SUPPOSE NOT' : 'SUPPOSE', math: `<tspan font-style="italic" fill-opacity=".6">choose l and r</tspan>` };
   const assumed: Pallet = kind === 'suppose' ? { k: 'eq', l, r } : { k: 'neq', l, r };
   const exported: Pallet = kind === 'suppose' ? { k: 'neq', l, r } : { k: 'eq', l, r };
@@ -44,14 +54,14 @@ export function roomHeading(kind: Room['kind'], l: Room['l'] | null, r: Room['r'
   };
 }
 
-export function roomSVG(room: { id: string; kind: Room['kind']; l: Room['l'] | null; r: Room['r'] | null; rect: Room['rect'] }, L: Labels, ghost = false): string {
+export function roomSVG(room: { id: string; kind: Room['kind']; rel?: Room['rel']; l: Room['l'] | null; r: Room['r'] | null; rect: Room['rect'] }, L: Labels, ghost = false, q?: Fact): string {
   const poly = roomPoly(room.rect).map(([x, y]) => P(x, y));
-  const { tag, math } = roomHeading(room.kind, room.l, room.r, L);
+  const { tag, math } = roomHeading(room.kind, room.l, room.r, L, room.rel, q);
   const a = P(room.rect.x, room.rect.y + room.rect.h * 0.5);
   const ax = a[0] - 16, ay = a[1] - 30;
-  return `<g class="fl-room${ghost ? ' is-ghost' : ''}" data-r="${esc(room.id)}">` +
+  return `<g class="fl-room${ghost ? ' is-ghost' : ''}${room.kind === 'assume' ? ' is-assume' : ''}" data-r="${esc(room.id)}">` +
     `<polygon class="fl-room-fill" points="${pts(poly)}" fill="${VIOLET}" opacity="${ghost ? 0.12 : 0.085}"/>` +
-    `<polygon class="fl-room-edge" points="${pts(poly)}" fill="none" stroke="${VIOLET}" stroke-width="1.4"${ghost ? ' stroke-dasharray="5 4"' : ''}/>` +
+    `<polygon class="fl-room-edge" points="${pts(poly)}" fill="none" stroke="${VIOLET}" stroke-width="${room.kind === 'assume' ? 2.2 : 1.4}"${ghost ? ' stroke-dasharray="5 4"' : room.kind === 'assume' ? ' stroke-dasharray="0.5 6.5" stroke-linecap="round"' : ''}/>` +
     `<g class="fl-room-head fl-rhead-out" data-rhead="${esc(room.id)}"><g class="fl-sz fl-sz-f" style="transform-origin:${f1(ax)}px ${f1(ay + 10)}px"><text x="${f1(ax)}" y="${f1(ay - 4)}" text-anchor="end" font-family="${FONT.ui}" font-size="10.5" font-weight="600" letter-spacing=".12em" fill="${VIOLET}">${tag}</text>` +
     `<text x="${f1(ax)}" y="${f1(ay + 15)}" text-anchor="end" font-family="${FONT.math}" font-size="17" fill="${VIOLET}">${math}</text></g></g>` +
     // inside variant (used when the outside heading would clip the floor's edge): centred under the top corner
@@ -147,66 +157,138 @@ export function portSVG(pg: PortGeo, g: MGeo): string {
       o += `<g class="fl-ghost-kind">${kindGhost(pg.kind, s[0], s[1] - 2, p.role === 'rule' ? ink : INK.navy3, p.role)}</g>`;
     }
   }
-  const h = P(pg.edge[0] + d[0] * 0.2, pg.edge[1] + d[1] * 0.2);
-  o += `<circle class="fl-hit" data-p="${esc(g.m.id)}|${esc(p.id)}" cx="${f1(h[0])}" cy="${f1(h[1])}" r="15" fill="transparent"/>`;
+  const h = P(pg.edge[0] + d[0] * 0.3, pg.edge[1] + d[1] * 0.3);
+  o += `<circle class="fl-hit" data-p="${esc(g.m.id)}|${esc(p.id)}" cx="${f1(h[0])}" cy="${f1(h[1])}" r="12" fill="transparent"/>`;
   return o + `</g>`;
 }
 
 // ───────────── machines ─────────────
 
+/** Plate title in at most two lines, split where the two halves are most even in length. */
 function lemmaLines(name: string): string[] {
-  const words = name.replace(/\s*ᵒᵖ\s*/g, ' ').trim().toUpperCase().split(/\s+/);
-  return words.length > 1 ? [words.slice(0, Math.ceil(words.length / 2)).join(' '), words.slice(Math.ceil(words.length / 2)).join(' ')] : words;
+  const words = name.replace(/\s*ᵒᵖ\s*/g, ' OP ').trim().toUpperCase().split(/\s+/);
+  if (words.length < 2) return words;
+  let best = 1, bd = Infinity;
+  for (let i = 1; i < words.length; i++) {
+    const a = words.slice(0, i).join(' ').length, b = words.slice(i).join(' ').length;
+    if (Math.max(a, b) < bd) { bd = Math.max(a, b); best = i; }
+  }
+  return [words.slice(0, best).join(' '), words.slice(best).join(' ')];
 }
 
 export interface Ctx { L: Labels; level: LevelManifest; comp: Compiled | null; schemaName: (id: string, mirror: boolean) => string }
 
 export function machineName(g: MGeo, cx: Ctx): string {
   const m = g.m;
-  if (m.config.kind === 'stamp' || m.config.kind === 'carddock') return cx.schemaName(m.config.schema, m.config.mirror);
   if (m.config.kind === 'given') return cx.level.givens.find((x) => x.id === (m.config as { givenId: string }).givenId)?.name ?? 'Given';
-  return g.spec.name;
+  if (m.config.kind === 'tower') return `Tower ${m.config.label}`;
+  if (g.look.plate && g.look.title) return `${g.spec.name} · ${g.look.title}`;
+  if (g.look.neutral) return `${g.spec.name} (no recipe yet)`;
+  return `${g.spec.name} · ${g.look.label.toLowerCase()}`;
 }
 
 function givenFact(m: Machine, lv: LevelManifest): Fact | undefined {
   return m.config.kind === 'given' ? lv.givens.find((x) => x.id === (m.config as { givenId: string }).givenId)?.fact : undefined;
 }
 
-export function machineSVG(g: MGeo, cx: Ctx): string {
+export function machineSVG(g: MGeo, cx: Ctx, varLabels?: Map<string, string>): string {
   const m = g.m;
   if (m.kind === 'socket') return socketSVG(g, cx, false);
+  if (m.kind === 'tower') return towerSVG(g, varLabels);
   const h = heightOf(m);
   const B = box(g.x0, g.y0, g.x1, g.y1, h);
-  const ink = famInk(g.fam);
-  const lemma = g.fam === 'lemma';
+  const L = g.look;
+  const plate = !!L.plate;
   const c = P((g.x0 + g.x1) / 2, (g.y0 + g.y1) / 2, h);
-  let o = `<g class="fl-m${m.locked ? ' is-locked' : ''}" data-m="${esc(m.id)}" data-machine="${esc(m.id)}" data-kind="${m.kind}">`;
+  let o = `<g class="fl-m${m.locked ? ' is-locked' : ''}${L.neutral ? ' is-neutral' : ''}" data-m="${esc(m.id)}" data-machine="${esc(m.id)}" data-kind="${m.kind}">`;
   o += `<path class="fl-m-mark" d="${groundRect(g.x0 - 0.1, g.y0 - 0.1, g.x1 + 0.1, g.y1 + 0.1, 0, 0.3)}"/>`;
-  o += `<path class="fl-m-shadow mul" d="${B.shadow}" fill="${ink}" opacity="${lemma ? 0.14 : 0.2}"/>`;
-  if (lemma) {
-    o += `<path d="${B.hull}" fill="${INK.navy}"/><path d="${B.band}" fill="${m.kind === 'press' ? 'url(#fl-hatch)' : INK.gold}"/><path d="${B.upper}" fill="${INK.navy}"/>`;
-  } else {
-    o += `<path d="${B.hull}" fill="${hullFill(g.fam)}"/>`;
-  }
-  o += `<g class="fl-top"><path d="${B.top}" fill="${lemma ? INK.navy : ink}"/><path class="fl-inset" d="${B.inset}" fill="#fff" opacity="${lemma ? 0.07 : isSource(m) ? 0.26 : 0.16}"/>`;
-  if (isSource(m) && !lemma) {
+  o += `<path class="fl-m-shadow mul" d="${B.shadow}" fill="${plate ? INK.navy : L.ink}" opacity="${plate ? 0.14 : L.neutral ? 0.1 : 0.2}"/>`;
+  o += `<g class="fl-body">`;
+  if (plate) o += `<path d="${B.hull}" fill="${INK.navy}"/><path d="${B.band}" fill="${L.plate === 'hatch' ? 'url(#fl-hatch)' : INK.gold}"/><path d="${B.upper}" fill="${INK.navy}"/>`;
+  else o += `<path d="${B.hull}" fill="${L.hull}"/>`;
+  o += `<g class="fl-top"><path d="${B.top}" fill="${L.ink}"/><path class="fl-inset" d="${B.inset}" fill="#fff" opacity="${plate ? 0.07 : L.neutral ? 0.5 : isSource(m) ? 0.26 : 0.16}"/>`;
+  if (isSource(m) && !plate) {
     const el = isoEllipse(Math.min(g.x1 - g.x0, g.y1 - g.y0) * 0.24);
     o += `<ellipse cx="${f1(c[0])}" cy="${f1(c[1])}" rx="${f1(el.rx)}" ry="${f1(el.ry)}" fill="#fff" opacity=".4"/>`;
   }
-  if (lemma) {
-    const name = m.kind === 'press' ? 'LAGRANGE PRESS' : machineName(g, cx);
-    const lines = lemmaLines(name);
-    const mirror = (m.config.kind === 'stamp' || m.config.kind === 'carddock') && m.config.mirror;
+  if (plate) {
+    const lines = lemmaLines(L.title ?? '');
+    const longest = Math.max(...lines.map((l) => l.length));
+    const fs = Math.max(7, Math.min(9.4, ((g.x1 - g.x0 + g.y1 - g.y0) * 30) / Math.max(1, longest * 0.74)));
+    const halo = `paint-order="stroke" stroke="${INK.navy}" stroke-width="3" stroke-linejoin="round"`;
+    const lift = L.tag ? -4 : 0;
     lines.forEach((ln, i) => {
-      o += `<text x="${f1(c[0])}" y="${f1(c[1] + 3.5 + (i - (lines.length - 1) / 2) * 11.5)}" text-anchor="middle" font-family="${FONT.ui}" font-weight="600" font-size="9.4" letter-spacing=".08em" fill="#fff">${esc(ln)}${mirror && i === lines.length - 1 ? `<tspan font-size="7.5" baseline-shift="35%" fill="${INK.gold}"> OP</tspan>` : ''}</text>`;
+      o += `<text x="${f1(c[0])}" y="${f1(c[1] + 3.5 + lift + (i - (lines.length - 1) / 2) * (fs + 2))}" text-anchor="middle" font-family="${FONT.ui}" font-weight="600" font-size="${f1(fs)}" letter-spacing=".08em" fill="#fff" ${halo}>${esc(ln.replace(/ OP$/, ''))}${/ OP$/.test(ln) ? `<tspan font-size="7.5" baseline-shift="35%" fill="${INK.gold}"> OP</tspan>` : ''}</text>`;
     });
+    // provenance printed on the plate itself (no external tag to collide with neighbours)
+    if (L.tag) o += `<text x="${f1(c[0])}" y="${f1(c[1] + 3.5 + lift + (lines.length + 1) / 2 * (fs + 2) + 1)}" text-anchor="middle" font-family="${FONT.ui}" font-weight="600" font-size="6.8" letter-spacing=".14em" fill="${INK.gold}" ${halo}>${esc(L.tag)}</text>`;
   } else {
-    const glyph = m.kind === 'given' ? machineName(g, cx) : g.spec.glyph;
-    o += `<text x="${f1(c[0])}" y="${f1(c[1] + 6)}" text-anchor="middle" font-family="${FONT.math}" font-size="${glyph.length > 2 ? 16 : 19}" fill="${ON[g.fam]}">${glyphSVG(glyph)}</text>`;
+    const glyph = L.glyph;
+    o += `<text x="${f1(c[0])}" y="${f1(c[1] + 6)}" text-anchor="middle" font-family="${FONT.math}" font-size="${glyph.length > 3 ? 14.5 : glyph.length > 2 ? 16 : 19}" fill="${L.on}"${L.neutral ? ' font-weight="700"' : ''}>${glyphSVG(glyph)}</text>`;
   }
-  o += `</g>`;
+  if (L.dir) {
+    // a persistent direction mark on the chassis: forward → / reversed ←, readable with every lens closed
+    const k = P(g.x1 - 0.14, g.y0 + 0.14, h);
+    const rev = L.dir === 'rev';
+    o += `<g class="fl-dir${rev ? ' is-rev' : ''}"><rect x="${f1(k[0] - 9)}" y="${f1(k[1] - 6.5)}" width="18" height="13" rx="6.5" fill="${rev ? INK.gold : '#fff'}" stroke="${INK.navy}" stroke-width="1"/>` +
+      `<text x="${f1(k[0])}" y="${f1(k[1] + 3.6)}" text-anchor="middle" font-family="${FONT.ui}" font-size="10.5" font-weight="700" fill="${INK.navy}">${rev ? '←' : '→'}</text></g>`;
+  }
+  o += `</g></g></g>`;
+  return o;
+}
+
+/**
+ * A Tower: a slim lattice mast on a small pad, a transmitter dish at the top, the variable's name on a
+ * plaque. Broadcast rings live in the floor's radio layer (they pulse when a machine reads the symbol).
+ */
+export function towerSVG(g: MGeo, varLabels?: Map<string, string>): string {
+  const m = g.m;
+  const label = m.config.kind === 'tower' ? m.config.label : '?';
+  const cx = (g.x0 + g.x1) / 2, cy = (g.y0 + g.y1) / 2;
+  const pad = box(g.x0 + 0.12, g.y0 + 0.12, g.x1 - 0.12, g.y1 - 0.12, 0.1, 0.04, 0.24);
+  const base = P(cx, cy, 0.1), top = P(cx, cy, 1.55);
+  const hw = 4.2; // half width of the mast at its base
+  let o = `<g class="fl-m fl-tower" data-m="${esc(m.id)}" data-machine="${esc(m.id)}" data-kind="tower">`;
+  o += `<path class="fl-m-mark" d="${groundRect(g.x0 - 0.1, g.y0 - 0.1, g.x1 + 0.1, g.y1 + 0.1, 0, 0.3)}"/>`;
+  o += `<path class="fl-m-shadow mul" d="${pad.shadow}" fill="${FORALL_INK}" opacity=".16"/>`;
+  o += `<path d="${pad.hull}" fill="${shade(FORALL_INK, 0.3)}"/><path d="${pad.top}" fill="${FORALL_INK}"/><path d="${pad.inset}" fill="#fff" opacity=".18"/>`;
+  // lattice mast: two rails converging upward, with zig-zag bracing
+  const bl: [number, number] = [base[0] - hw, base[1]], br: [number, number] = [base[0] + hw, base[1]];
+  const tl: [number, number] = [top[0] - 1.3, top[1] + 6], tr: [number, number] = [top[0] + 1.3, top[1] + 6];
+  let truss = `M${f1(bl[0])},${f1(bl[1])}L${f1(tl[0])},${f1(tl[1])}M${f1(br[0])},${f1(br[1])}L${f1(tr[0])},${f1(tr[1])}`;
+  const n = 6;
+  for (let i = 0; i < n; i++) {
+    const t0 = i / n, t1 = (i + 1) / n;
+    const L0: [number, number] = [bl[0] + (tl[0] - bl[0]) * t0, bl[1] + (tl[1] - bl[1]) * t0];
+    const R1: [number, number] = [br[0] + (tr[0] - br[0]) * t1, br[1] + (tr[1] - br[1]) * t1];
+    const L1: [number, number] = [bl[0] + (tl[0] - bl[0]) * t1, bl[1] + (tl[1] - bl[1]) * t1];
+    truss += `M${f1(L0[0])},${f1(L0[1])}L${f1(R1[0])},${f1(R1[1])}L${f1(L1[0])},${f1(L1[1])}`;
+  }
+  o += `<rect class="fl-tower-hit" x="${f1(top[0] - 14)}" y="${f1(top[1] - 12)}" width="28" height="${f1(base[1] - top[1] + 14)}" fill="transparent"/>`;
+  o += `<path class="fl-mast" d="${truss}" fill="none" stroke="${INK.navy}" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round"/>`;
+  // transmitter dish, tilted toward the floor, with its feed
+  const d: [number, number] = [top[0] + 1, top[1] + 1];
+  o += `<g class="fl-dish" transform="translate(${f1(d[0])},${f1(d[1])}) rotate(-24)">` +
+    `<ellipse rx="12.5" ry="5.6" fill="#fff" stroke="${INK.navy}" stroke-width="1.6"/>` +
+    `<ellipse rx="8" ry="3.2" fill="none" stroke="${INK.navy}" stroke-width=".8" opacity=".45"/>` +
+    `<path d="M0,0L6,-9" stroke="${INK.navy}" stroke-width="1.2" stroke-linecap="round"/><circle cx="6.4" cy="-9.6" r="2.1" fill="${VIOLET}"/></g>`;
+  // plaque with the variable's name
+  const px = base[0] + 11, py = base[1] - 30;
+  const w = 12 + label.length * 7.4;
+  o += `<g class="fl-plaque"><path d="M${f1(base[0] + 3)},${f1(py + 2)}L${f1(px)},${f1(py + 2)}" stroke="${INK.navy}" stroke-width="1" opacity=".5"/>` +
+    `<rect x="${f1(px)}" y="${f1(py - 9)}" width="${f1(w + 22)}" height="21" rx="4" fill="#fff" stroke="${FORALL_INK}" stroke-width="1.3"/>` +
+    `<text x="${f1(px + 6)}" y="${f1(py + 6)}" font-family="${FONT.math}" font-size="15" fill="${INK.navy}">${varSVG(label)}<tspan font-style="normal" font-size="12" fill="${INK.navy2}"> ∈ ${m.config.kind === 'tower' && m.config.sort === 'Z' ? 'ℤ' : 'G'}</tspan></text></g>`;
+  void varLabels;
   o += `</g>`;
   return o;
+}
+
+/** A variable label with a REAL subscript (x₁ → x<sub>1</sub>), italic letter. */
+export function varSVG(label: string): string {
+  const m = /^(.*?)([₀-₉0-9]+)$/.exec(label);
+  if (!m) return `<tspan font-style="italic">${esc(label)}</tspan>`;
+  const digits = m[2]!.replace(/[₀-₉]/g, (c) => String(c.charCodeAt(0) - 0x2080));
+  return `<tspan font-style="italic">${esc(m[1]!)}</tspan><tspan font-size="68%" baseline-shift="-24%">${digits}</tspan>`;
 }
 
 /** Short upright label below the front corner (and given formulas to the west). */
@@ -232,19 +314,16 @@ export function machineLabelSVG(g: MGeo, cx: Ctx): string {
         `<text class="fl-name" x="${f1(a[0] - 12)}" y="${f1(a[1] - 16)}" text-anchor="end" font-family="${FONT.ui}" font-size="9" font-weight="600" letter-spacing=".12em" fill="${tagInk}">${tag}</text></g></g>`;
     }
   }
-  if (g.fam === 'lemma') {
-    if (m.kind !== 'press') return '';
-    const a = P(g.x1, (g.y0 + g.y1) / 2);
-    return `<g class="fl-lab fl-sz fl-sz-n" style="transform-origin:${f1(a[0] + 10)}px ${f1(a[1] + 14)}px"><text x="${f1(a[0] + 10)}" y="${f1(a[1] + 18)}" font-family="${FONT.ui}" font-size="9" font-weight="600" letter-spacing=".12em" fill="${INK.navy2}">IMPORTED</text></g>`;
-  }
+  if (m.kind === 'tower') return '';
+  if (g.look.plate) return '';
   const a = P((g.x0 + g.x1) / 2, g.y1);
-  const name = g.spec.name.toUpperCase();
-  return `<g class="fl-lab fl-sz fl-sz-n" style="transform-origin:${f1(a[0] - 6)}px ${f1(a[1] + 4)}px"><text x="${f1(a[0] - 6)}" y="${f1(a[1] + 12)}" text-anchor="middle" font-family="${FONT.ui}" font-size="8.6" font-weight="600" letter-spacing=".12em" fill="${famText(g.fam)}">${esc(name)}</text></g>`;
+  const name = g.look.label.toUpperCase();
+  return `<g class="fl-lab fl-sz fl-sz-n" style="transform-origin:${f1(a[0] - 6)}px ${f1(a[1] + 4)}px"><text x="${f1(a[0] - 6)}" y="${f1(a[1] + 12)}" text-anchor="middle" font-family="${FONT.ui}" font-size="8.6" font-weight="600" letter-spacing=".12em" fill="${g.look.neutral ? INK.navy2 : famText(g.fam)}">${esc(name)}</text></g>`;
 }
 
 // ───────────── sockets ─────────────
 
-export function socketTarget(m: Machine, lv: LevelManifest): Pallet | undefined {
+export function socketTarget(m: Machine, lv: LevelManifest): Pallet | Card | undefined {
   return m.config.kind === 'socket' ? lv.sockets.find((s) => s.id === (m.config as { socketId: string }).socketId)?.target : undefined;
 }
 
@@ -282,7 +361,7 @@ export function pipAnchor(g: MGeo): [number, number] {
 }
 
 export function pipSVG(g: MGeo, st: LiveStatus | 'jammed' | 'starved' | undefined): string {
-  if (!st || g.m.kind === 'socket' || st === 'idle' || st === 'sealed') return '';
+  if (!st || g.m.kind === 'socket' || g.m.kind === 'tower' || st === 'idle' || st === 'sealed') return '';
   const [x, y] = pipAnchor(g);
   const ink = famInk(g.fam === 'lemma' ? 'equation' : g.fam);
   let o = `<g class="fl-pip fl-pip-${st}" data-pip="${esc(g.m.id)}" transform="translate(${f1(x)},${f1(y)})">`;

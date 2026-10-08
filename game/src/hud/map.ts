@@ -2,10 +2,56 @@
 // the Hasse diagram of theorems, earned vs imported, best factories as Machines · Area · Cycles.
 import type { LevelManifest } from '../kernel/types';
 import { makeSaveLink } from '../ui/savelink';
-import { hasseUses, mapLayout } from '../shell/map';
+import { hasseUses, type MapNode } from '../shell/map';
 import { CHAPTERS, LEVELS, LEVEL_BY_ID, REGISTRY, esc, fH, h, ideaOf, isOpen, isSolved, labels, nextLevel, richHTML, schemaNames, type S as State, type Store } from './util';
 
 const IMPORT_ID = 'IMPORT:lagrange';
+
+/** Adapted from shell/map.ts: every chapter in the campaign (v4 adds IV · Powers). */
+export function mapLayout(): { nodes: MapNode[]; rows: number; bands: { chapter: number; from: number; to: number }[] } {
+  const row = new Map<string, number>();
+  const chStart: Record<number, number> = {};
+  let top = -1;
+  const chapters = [...new Set(LEVELS.map((l) => l.chapter as number))].sort((p, q) => p - q);
+  for (const ch of chapters) {
+    chStart[ch] = top + 1;
+    for (const lv of LEVELS.filter((l) => l.chapter === ch && !l.side)) {
+      const r = Math.max(chStart[ch]!, ...lv.uses.filter((u) => !LEVEL_BY_ID[u]?.side).map((u) => (row.get(u) ?? -1) + 1));
+      row.set(lv.id, r);
+      top = Math.max(top, r);
+    }
+  }
+  const bands = chapters.map((ch) => {
+    const rs = LEVELS.filter((l) => l.chapter === ch && !l.side).map((l) => row.get(l.id)!);
+    return { chapter: ch, from: Math.min(...rs), to: Math.max(...rs) };
+  });
+  for (const lv of LEVELS.filter((l) => l.side)) {
+    row.set(lv.id, Math.max(...lv.uses.map((u) => (row.get(u) ?? 0) + 0.5)));
+  }
+  // x: barycentre ordering within rows; main lane spacing 1 unit, centred at 0
+  const xs = new Map<string, number>();
+  const rowsN = top + 1;
+  for (let r = 0; r < rowsN; r++) {
+    const inRow = LEVELS.filter((l) => !l.side && row.get(l.id) === r);
+    const bary = (l: LevelManifest) => {
+      const ps = l.uses.map((u) => xs.get(u)).filter((v): v is number => v !== undefined && !LEVEL_BY_ID[l.id]?.side);
+      return ps.length ? ps.reduce((a, b) => a + b, 0) / ps.length : 0;
+    };
+    // nodes that feed a side order lean toward the side lane, so that edge never crosses a sibling
+    const feedsSide = (l: LevelManifest) => (LEVELS.some((m) => m.side && m.uses.includes(l.id)) ? 0.6 : 0);
+    inRow.sort((a, b) => bary(a) + feedsSide(a) - bary(b) - feedsSide(b) || a.index - b.index);
+    inRow.forEach((l, i) => xs.set(l.id, (i - (inRow.length - 1) / 2) * 1.05));
+  }
+  const nodes: MapNode[] = LEVELS.map((l) => ({ id: l.id, row: row.get(l.id)!, x: l.side ? 2.15 : xs.get(l.id)!, side: !!l.side }));
+  // stack side orders that share a row
+  const sideRows = new Map<number, number>();
+  for (const n of nodes.filter((m) => m.side)) { const k = sideRows.get(n.row) ?? 0; sideRows.set(n.row, k + 1); if (k) n.row += 0.55 * k; }
+  const pressLv = LEVELS.filter((l) => l.tools.press && !l.side);
+  if (pressLv.length) nodes.push({ id: IMPORT_ID, row: Math.min(...pressLv.map((l) => row.get(l.id)!)) - 0.15, x: -2.05, side: true, imported: true });
+  return { nodes, rows: rowsN, bands };
+}
+
+
 type NodeState = 'solved' | 'next' | 'open' | 'locked';
 function nodeState(s: State, lv: LevelManifest, next: string | null): NodeState {
   if (isSolved(s.save, lv.id)) return 'solved';

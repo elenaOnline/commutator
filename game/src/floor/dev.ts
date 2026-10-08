@@ -1,101 +1,72 @@
-// LEMMA WORKS v3 floor — DEV HARNESS ONLY (src/floor/dev.html). Mounts the floor alone on the REAL
-// FactoryStore and builds scenes through real store actions (place/connect/paintRoom…), so what you
-// see is what the editor + compiler + runtime produce. The perf scene adds a synthetic packet driver
-// (60+ packets) to stress the renderer. Exposes window.__lw (store) and window.__dev.
-//
-//   ?scene=l01 | l01-solved | showcase | perf      ?alt=1      ?shot=1 (hide the bar)
+// COMMUTATOR floor — DEV HARNESS ONLY (src/floor/dev.html).
+//   ?scene=v4 (default)   the fixture store: a hand-made v4 floor (towers, recipe verbs, ∀, Assume room)
+//   ?scene=l01 | l01-solved | perf   the REAL FactoryStore, built through real store actions (needs the v4 editor)
+//   ?alt=1   ?shot=1 (hide the bar)
+// Exposes window.__lw (store) and window.__dev.
 import '@fontsource/space-grotesk/400.css';
 import '@fontsource/space-grotesk/500.css';
 import '@fontsource/space-grotesk/600.css';
 import '../ui/base.css';
 import type { Term } from '../kernel/types';
-import type { Packet, RunState, Tile } from '../factory/types';
+import type { Machine, Packet, RunState, Tile } from '../factory/types';
 import { TICKS_PER_SECOND } from '../factory';
+import { mountFloor, type FloorStore } from './index';
+import { FixtureStore } from './fixture';
 
 const qs = new URLSearchParams(location.search);
-const scene = qs.get('scene') ?? 'l01';
+const scene = qs.get('scene') ?? 'v4';
 if (qs.has('shot')) document.body.classList.add('shot');
 
-// fresh save with every theorem earned (so stamps/docks are real hardware)
-localStorage.setItem('lemma-works/v3', JSON.stringify({ version: 3, levels: {}, earned: ['witness', 'cancel', 'socks', 'nofix', 'dbl'], settings: { speed: 1, reducedMotion: false } }));
-
-const [{ FactoryStore }, { mountFloor }] = await Promise.all([import('../state/factoryStore'), import('./index')]);
-const store = new FactoryStore();
-(window as unknown as { __lw: unknown }).__lw = store;
+type Store = FloorStore & { tick(): void; configure?(id: string, c: Machine['config']): unknown; undo?(): void; redo?(): void; setPlaying?(p: boolean): void; openLevel?(id: string): void };
+let store: Store;
 
 const A = (id: string): Term => ({ k: 'atom', id });
 const I = (t: Term): Term => ({ k: 'inv', arg: t });
 const M = (...fs: Term[]): Term => ({ k: 'mul', fs });
-const E: Term = { k: 'e' };
-const idOf = (e: { ok: boolean; ids?: string[]; reason?: string }, what: string): string => {
-  if (!e.ok || !e.ids?.[0]) { console.warn('[dev] refused', what, e); return ''; }
-  return e.ids[0];
-};
-const find = (kind: string) => store.get().canvas.machines.find((m) => m.kind === kind)!;
 const at = (x: number, y: number): Tile => ({ x, y });
+const idOf = (e: { ok: boolean; ids?: string[] }, what: string) => { if (!e.ok || !e.ids?.[0]) { console.warn('[dev] refused', what, e); return ''; } return e.ids[0]; };
 
-function l01Solved() {
-  store.openLevel('L01');
-  const sp = find('spool'), so = find('socket');
-  const c = idOf(store.place('canceller', at(sp.at.x + 4, sp.at.y), { rot: 0 }), 'canceller');
-  store.connect({ m: sp.id, port: 'out' }, { m: c, port: 'q' });
-  store.connect({ m: c, port: 'out' }, { m: so.id, port: 'q' });
+async function realStore(): Promise<Store | null> {
+  try {
+    localStorage.setItem('lemma-works/v3', JSON.stringify({ version: 4, levels: {}, earned: ['witness', 'cancel', 'socks', 'nofix', 'dbl'], lemmas: [], settings: { speed: 1, reducedMotion: false } }));
+    const { FactoryStore } = await import('../state/factoryStore');
+    return new FactoryStore() as unknown as Store;
+  } catch (e) { console.warn('[dev] real store unavailable — using the fixture', e); return null; }
 }
 
-function showcase() {
-  store.openLevel('L12');
-  const giv = store.get().canvas.machines.filter((m) => m.kind === 'given');
-  const gs = giv.find((m) => m.config.kind === 'given' && m.config.givenId === 's')!;
-  const gn = giv.find((m) => m.config.kind === 'given' && m.config.givenId === 'n')!;
-  const so = find('socket');
-  const x0 = Math.min(gs.at.x, gn.at.x) + 4, y0 = Math.min(gs.at.y, gn.at.y);
-  // the press, fed by |G| = 7
-  const press = idOf(store.place('press', at(x0, gs.at.y), { rot: 0 }), 'press');
-  store.connect({ m: gs.id, port: 'out' }, { m: press, port: 'q' });
-  // a suppose room for (ab)^3 = e
-  const ab3 = M(A('a'), A('b'), A('a'), A('b'), A('a'), A('b'));
-  store.paintRoom({ x: x0 - 1, y: y0 + 3, w: 12, h: 7 }, 'suppose', ab3, E);
-  const room = store.get().canvas.rooms[0];
-  const desk = store.get().canvas.machines.find((m) => m.kind === 'desk');
-  const gate = store.get().canvas.machines.find((m) => m.kind === 'gate');
-  // rewriter: desk equation rewritten by the pressed law
-  const rw = idOf(store.place('rewriter', at(x0 + 3, y0 + 5), { rot: 0 }), 'rewriter');
-  if (desk) store.connect({ m: desk.id, port: 'out' }, { m: rw, port: 'q' });
-  store.connect({ m: press, port: 'out' }, { m: rw, port: 'rule' });
-  const stamp = idOf(store.place('stamp', at(x0 + 3, y0 + 8), { rot: 0 }), 'stamp');
-  const anvil = idOf(store.place('anvil', at(x0 + 7, y0 + 5), { rot: 0 }), 'anvil');
-  store.connect({ m: rw, port: 'out' }, { m: anvil, port: 'a' });
-  store.connect({ m: gn.id, port: 'out' }, { m: anvil, port: 'b' });
-  if (gate) { store.connect({ m: anvil, port: 'out' }, { m: gate.id, port: 'q' }); store.connect({ m: gate.id, port: 'out' }, { m: so.id, port: 'q' }); }
-  // a term line outside the room: hopper → inverter
-  const hop = idOf(store.place('hopper', at(x0 + 1, y0 + 12), { rot: 0 }), 'hopper');
-  store.configure(hop, { kind: 'hopper', t: M(A('a'), A('b')) });
-  const inv = idOf(store.place('inverter', at(x0 + 5, y0 + 12), { rot: 0 }), 'inverter');
-  store.connect({ m: hop, port: 'out' }, { m: inv, port: 'q' });
-  const dock = idOf(store.place('carddock', at(x0 + 1, y0 + 14), { rot: 0 }), 'carddock');
-  void dock; void stamp; void room;
-}
-
-function perf() {
-  store.openLevel('L01');
-  const kinds = ['spool', 'canceller', 'popper', 'swapper', 'multiplier'] as const;
-  const term = M(I(A('a')), A('a'), A('b'));
-  for (let r = 0; r < 8; r++) {
-    const y = 6 + r * 3;
-    let x = -6;
-    const ids: string[] = [];
-    for (const k of kinds) {
-      const id = idOf(store.place(k, at(x, y), { rot: 0 }), k);
-      if (id) ids.push(id);
-      x += k === 'spool' ? 5 : 6;
+if (scene === 'v4') store = new FixtureStore() as unknown as Store;
+else {
+  const real = await realStore();
+  store = real ?? (new FixtureStore() as unknown as Store);
+  if (real) {
+    const find = (kind: string) => store.get().canvas.machines.find((m) => m.kind === kind)!;
+    const rw = (recipe: unknown): Machine['config'] => ({ kind: 'rewriter', recipe, dir: 'fwd', target: { k: 'first' }, gap: { k: 'first' }, values: {}, tidy: true } as Machine['config']);
+    real.openLevel?.('L01');
+    if (scene === 'l01-solved') {
+      const sp = find('spool'), so = find('socket');
+      const c = idOf(store.place('rewriter', at(sp.at.x + 4, sp.at.y), { rot: 0, config: rw({ k: 'cancel' }) }), 'rewriter');
+      store.connect({ m: sp.id, port: 'out' }, { m: c, port: 'q' });
+      store.connect({ m: c, port: 'out' }, { m: so.id, port: 'q' });
     }
-    store.configure(ids[0]!, { kind: 'spool', t: { k: 'knob', term } });
-    for (let i = 0; i < ids.length - 1; i++) store.connect({ m: ids[i]!, port: 'out' }, { m: ids[i + 1]!, port: 'q' });
+    if (scene === 'perf') {
+      const recipes = [null, { k: 'cancel' }, { k: 'pop' }, null, null];
+      const term = M(I(A('a')), A('a'), A('b'));
+      for (let r = 0; r < 8; r++) {
+        const y = 6 + r * 3; let x = -6; const ids: string[] = [];
+        recipes.forEach((rc, i) => {
+          const kind = i === 0 ? 'spool' : i < 3 ? 'rewriter' : 'operator';
+          const cfg = i === 0 ? undefined : i < 3 ? rw(rc) : ({ kind: 'operator', recipe: i === 3 ? { k: 'swap' } : { k: 'invert' } } as Machine['config']);
+          const id = idOf(store.place(kind as Machine['kind'], at(x, y), { rot: 0, config: cfg }), kind);
+          if (id) ids.push(id);
+          x += i === 0 ? 5 : 6;
+        });
+        store.configure?.(ids[0]!, { kind: 'spool', t: { k: 'knob', term } });
+        for (let i = 0; i < ids.length - 1; i++) store.connect({ m: ids[i]!, port: 'out' }, { m: ids[i + 1]!, port: 'q' });
+      }
+    }
   }
 }
-
-const SCENES: Record<string, () => void> = { l01: () => store.openLevel('L01'), 'l01-solved': l01Solved, showcase, perf };
-(SCENES[scene] ?? SCENES.l01!)();
+(window as unknown as { __lw: unknown }).__lw = store;
 if (qs.has('alt')) store.toggleAlt(true);
 
 const unmount = mountFloor(document.getElementById('floor')!, store);
@@ -108,13 +79,8 @@ function syntheticRun(t: number): RunState {
   const s = store.get();
   const packets: Packet[] = [];
   s.canvas.belts.forEach((b, bi) => {
-    const v = s.compiled.machines[b.from.m]?.out ?? s.compiled.machines[s.canvas.machines.find((m) => m.kind === 'spool')!.id]?.out;
-    if (!v) return;
-    for (let i = 0; i < b.path.length; i++) {
-      const t0 = t - i;
-      if (t0 % 2 !== 0) continue;
-      packets.push({ id: bi * 100000 + t0 + 50000, value: v, at: { k: 'belt', belt: b.id, i } });
-    }
+    const v = s.compiled.machines[b.from.m]?.out; if (!v) return;
+    for (let i = 0; i < b.path.length; i++) { const t0 = t - i; if (t0 % 2 !== 0) continue; packets.push({ id: bi * 100000 + t0 + 50000, value: v, at: { k: 'belt', belt: b.id, i } }); }
   });
   return { ...s.run, tick: t, packets };
 }
@@ -125,33 +91,23 @@ function frame(now: number) {
   if (!s.ui.playing) { acc = 0; return; }
   acc += dt;
   const step = 1000 / (TICKS_PER_SECOND * (s.ui.speed || 1));
-  while (acc >= step) {
-    acc -= step;
-    if (synthetic) setRun(syntheticRun(++syntheticTick)); else store.tick();
-  }
+  while (acc >= step) { acc -= step; if (synthetic) setRun(syntheticRun(++syntheticTick)); else store.tick(); }
 }
 requestAnimationFrame(frame);
 
-// ───────── bar ─────────
+// ───────── bar + keys (the HUD owns these in the app) ─────────
 const bar = document.getElementById('bar')!;
 const btn = (label: string, fn: () => void) => { const b = document.createElement('button'); b.textContent = label; b.onclick = fn; bar.append(b); return b; };
 btn('select', () => store.setTool({ k: 'select' }));
-btn('canceller', () => store.setTool({ k: 'place', kind: 'canceller' }));
+btn('tower', () => store.setTool({ k: 'place', kind: 'tower' }));
 btn('rewriter', () => store.setTool({ k: 'place', kind: 'rewriter' }));
-btn('meet', () => store.setTool({ k: 'place', kind: 'meet' }));
-btn('room', () => store.setTool({ k: 'room', kind: 'suppose' }));
+btn('∀', () => store.setTool({ k: 'place', kind: 'forall' }));
 btn('alt', () => store.toggleAlt());
-btn('pause', () => store.setPlaying(!store.get().ui.playing));
-btn('undo', () => store.undo());
 addEventListener('keydown', (e) => {
   if (e.defaultPrevented) return;
-  const k = e.key;
-  if (k === 'Escape') { if (store.get().ui.tool.k !== 'select') store.setTool({ k: 'select' }); else { store.select([]); store.openLens(null); } }
-  if ((e.metaKey || e.ctrlKey) && k.toLowerCase() === 'z') { e.preventDefault(); if (e.shiftKey) store.redo(); else store.undo(); }
-  if (/^[0-9]$/.test(k)) {
-    const kinds = ['anvil', 'spool', 'canceller', 'expander', 'popper', 'rewriter', 'multiplier', 'swapper', 'meet', 'apply'] as const;
-    store.setTool({ k: 'place', kind: kinds[+k]! });
-  }
+  if (e.key === 'Escape') { if (store.get().ui.tool.k !== 'select') store.setTool({ k: 'select' }); else { store.select([]); store.openLens(null); } }
+  const kinds: Record<string, Machine['kind']> = { '1': 'spool', '2': 'tower', '3': 'rewriter', '4': 'operator', '5': 'joiner', '6': 'theorem', '7': 'forall' };
+  if (kinds[e.key]) store.setTool({ k: 'place', kind: kinds[e.key]! });
 });
 
 (window as unknown as { __dev: unknown }).__dev = { store, unmount, scene, setSynthetic: (v: boolean) => { synthetic = v; } };

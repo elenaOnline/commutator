@@ -158,7 +158,7 @@ describe('K41–K56 cancellation, witness, socks', () => {
     expect(withGiven(eq(M(I(M(a, b)), c), e), RI, { u: I(M(a, b)), v: c }).ok).toBe(true);
   });
   it('K54 I(a) a = e ⟹ a = I(I(a)); goal still needs swap', () => {
-    const c2 = { ...ctxOf('S01') };
+    const c2 = mkCtx({ atoms: [{ id: 'a', label: 'a', hue: 0 }], sockets: [{ id: 's', target: eq(I(I(a)), a), allowedGivens: [] }], tools: { schemas: ['witness'] } });
     const r = run([S('s', M(I(a), a)), step('1', 's', rw(ax('invL'), 'fwd', at('r', 0, 2), { x: a })), apply('2', RI, ['1'], { u: I(a), v: a })], c2);
     expect(r.nodes['2']!.fact).toEqual(eq(a, I(I(a))));
     expect(r.solved).toBe(false);

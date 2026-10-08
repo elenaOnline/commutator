@@ -30,8 +30,10 @@ function visitWords(rail: Term, cb: (path: number[], w: Term[]) => void): void {
   const go = (t: Term, path: number[]) => {
     const w = word(t);
     cb(path, w);
-    if (t.k === 'mul') t.fs.forEach((f, i) => { if (f.k === 'inv') go(f.arg, [...path, i, 0]); });
+    // descend through child 0 of inverses and of powers (their base; an exponent has no address)
+    if (t.k === 'mul') t.fs.forEach((f, i) => { if (f.k === 'inv') go(f.arg, [...path, i, 0]); else if (f.k === 'pow') go(f.base, [...path, i, 0]); });
     else if (t.k === 'inv') go(t.arg, [...path, 0]);
+    else if (t.k === 'pow') go(t.base, [...path, 0]);
   };
   go(rail, []);
 }
@@ -148,6 +150,11 @@ function framesOf(rail: Term, path: number[], r: number): Anchor[] | null {
       if (i !== 0) return null;
       out.push({ k: 'inv' });
       cur = cur.arg;
+    } else if (cur.k === 'pow') {
+      // a power's base: child 0 like an inverse, marked so the two never stand in for each other
+      if (i !== 0) return null;
+      out.push({ k: 'inv', pow: true } as Anchor);
+      cur = cur.base;
     } else return null;
   }
   return out;
@@ -162,8 +169,11 @@ function framesMatch(stored: Anchor[], rail: Term, path: number[]): boolean {
       if (fr.k !== 'factor' || !neighboursMatch(fr, cur.fs, i, i + 1)) return false;
       cur = cur.fs[i]!;
     } else if (cur.k === 'inv') {
-      if (fr.k !== 'inv') return false;
+      if (fr.k !== 'inv' || (fr as { pow?: boolean }).pow) return false;
       cur = cur.arg;
+    } else if (cur.k === 'pow') {
+      if (fr.k !== 'inv' || !(fr as { pow?: boolean }).pow) return false;
+      cur = cur.base;
     } else return false;
   }
   return true;

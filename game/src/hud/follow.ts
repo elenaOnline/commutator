@@ -70,7 +70,7 @@ export function mountFollow(layer: HTMLElement, store: Store) {
       const r: MachineResult | undefined = s.compiled?.machines?.[id];
       if (!m || !r) continue;
       const sp = spec(m.kind);
-      const fam = m.config.kind === 'stamp' || m.config.kind === 'carddock' ? 'lemma' : sp.family;
+      const fam = m.config.kind === 'theorem' || m.config.kind === 'forall' || m.config.kind === 'carddock' ? 'lemma' : sp.family;
       const inF = factOf(r.inputs['q']) ?? factOf(r.inputs['p0']) ?? factOf(r.inputs['a']);
       const outF = factOf(r.out);
       let body = '';

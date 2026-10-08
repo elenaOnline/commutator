@@ -10,19 +10,22 @@
 import type { KernelCtx } from '../kernel';
 import { evalStep } from '../kernel';
 import type {
-  AxiomId, Card, CheckResult, Fact, GapAddr, MetaId, NodeId, Pallet, PatFact, ProofGraph, ProofNode,
+  AtomDecl, AxiomId, Card, CheckResult, Fact, GapAddr, MetaId, NodeId, Pallet, PatFact, ProofGraph, ProofNode,
   Room as KRoom, RuleRef, ScopeId, StepOp, Subst, Term, Addr,
 } from '../kernel/types';
 import { ROOT } from '../kernel/types';
-import { applyCore, axiomCard, check as kcheck, checkGround, nodeUses, pressCard, resolveCond, resolveLaw, schemaCard } from '../kernel/logic';
-import { E, KErr, instantiate, instantiatePartial, match, metasOf, norm, same, substKey, word } from '../kernel/terms';
+import { applyCore, axiomCard, check as kcheck, checkGround, checkInt, flipConclusion, nodeUses, schemaInfo, stackWordHint, withVars, pressCard, resolveCond, resolveLaw, sameCardUpToRenaming, schemaCard } from '../kernel/logic';
+import { E, KErr, instantiate, instantiatePartial, match, matchOpen, metasOf, norm, same, substKey, word } from '../kernel/terms';
+import { polyRefs } from '../kernel/poly';
 import { factText, labelsOf, substText, termText, type Labels } from '../kernel/print';
 import type {
-  Belt, Canvas, Compiled, ItemKind, ItemValue, Machine, MachineConfig, MachineResult, Param, Port, Rect, Tile,
+  Belt, Canvas, Compiled, ItemKind, ItemValue, LibRef, Machine, MachineResult, Param, Port, Rect, SpanTarget, Tile,
 } from './types';
 import { itemKindOf } from './types';
 import { FACE_DELTA, footprint, portsOf, frontOf, inRect, tileKey } from './geometry';
-import { SPECS, schemaMachineName } from './catalog';
+import { SPECS, varLabel } from './catalog';
+import { LEVEL_BY_ID } from '../levels/levels';
+import type { SavedLemma } from '../state/factoryStore';
 import {
   RAIL_ORDER, cancelCandidates, gapAddr, gapCandidates, resolveGapPin, resolveSpanPin, spanAddr, spanCandidates,
   spanCount, type GapLoc, type SpanLoc,
@@ -99,9 +102,45 @@ export const JAMS = {
   noGiven: (id: string) => `there is no given “${id}” in this work order`,
   noSocket: (id: string) => `there is no goal “${id}” in this work order`,
   budget: 'this expression has too many possible matches; choose a smaller construction',
+  // v4
+  chooseRecipe: 'choose a recipe',
+  unknownRecipe: 'this recipe is not one this machine knows',
+  oldMachine: (k: string) => `a “${k}” belongs to an older factory; replace it with a v4 machine`,
+  undeclared: (x: string) => `${x}'s Tower was deleted — undo, or place a Tower and rename it ${x} to reconnect`,
+  tooLarge: 'this is too large to check here (a size limit, not a mathematical verdict)',
+  intFromBelt: (m: string) => `${m} is an integer; set it on the machine (a belt carries group elements, not integers)`,
+  needsInt: (m: string) => `the law needs an integer for ${m}: set it on the machine`,
+  towerUnnamed: 'this Tower has no name yet',
+  towerDup: (x: string, who: string) => `${x} is already declared by ${who}; every Tower needs a fresh name`,
+  noLagrange: 'Lagrange needs a group-size given |G| = n',
+  libNotRule: (f: string, k: ItemKind) => `${f} is ${NOUN[k]}; a rewrite needs an equation or a law`,
+  libNotCard: (f: string, k: ItemKind) => `${f} is ${NOUN[k]}, not a theorem with premises; a Theorem needs a law or a conditional card`,
+  forallLibrary: 'a library card is already universal; ∀ needs a fact or card made on this floor',
+  forallEigen: (sup: string, x: string) => `this depends on the supposition ${sup}, which mentions ${x}, so it is not about every ${x} — export it through an Assume room's gate first (giving ${sup} ⇒ …), then generalize`,
+  assumeGate: (f: string) => `an Assume room exports an implication P ⇒ Q for an equation or inequation Q; ${f} is not one`,
+  socketNeedsCard: (want: string, got: string) => `this dock needs the universal statement ${want}, but the belt delivers ${got} — generalize it with a ∀ machine first`,
+  socketLibrary: 'this dock needs a proof made on this floor, not a library card',
+  socketStack: (want: string, have: string, needed: string, hint: string) => `this dock needs ${want}: the belt carries ${have} where the goal has ${needed} — ${hint}`,
+  // Lemma Book
+  lemmaNotCard: 'only a ∀ machine or an Assume room’s gate makes a lemma',
+  lemmaNotReady: (why: string) => `this machine has no finished card yet: ${why}`,
+  lemmaInRoom: 'this card is still inside a room; a lemma must be proved at the floor’s root',
+  lemmaGiven: (g: string) => `uses given ${g} — global lemmas need no level givens`,
+  lemmaConst: (a: string) => `still mentions the level constant ${a} — build it with a Tower instead`,
+  lemmaVar: (x: string) => `still mentions ${x} freely — generalize it with a ∀ machine`,
+  lemmaSupposition: (sup: string) => `depends on the supposition ${sup} — export it through the room's gate first`,
+  lemmaSelf: 'a lemma cannot be used in its own proof (or in a proof saved before it)',
+  lemmaChanged: 'the saved proof no longer produces this exact card',
   gatePlace: 'this gate is not on its own room’s wall facing out; only a room’s own gate crosses its boundary',
   deskPlace: 'this desk is not inside its own room',
 } as const;
+
+/** Rewrite the kernel's "z is not an element of this work order" for an undeclared variable. */
+function undeclared(msg: string): string {
+  if (msg.startsWith('RESOURCE_LIMIT')) return JAMS.tooLarge;
+  const m = /^(.+) is not (?:an element|an integer variable) of this work order$/.exec(msg);
+  return m && /^[A-Za-z]+[_0-9₀-₉]+$/.test(m[1]!) ? JAMS.undeclared(varLabel(m[1]!)) : msg;
+}
 
 /** Matching budget per machine (intervals examined), §10. */
 const MATCH_BUDGET = 50_000;
@@ -219,21 +258,59 @@ function tidyAt(side: 'l' | 'r', wordPath: number[], w: Term[], pos: number): St
   return { k: 'rewrite', rule: { k: 'axiom', id: 'unitR' }, dir: 'fwd', at: { side, path: [...wordPath], range: [pos - 1, pos + 1] }, subst: { x: w[pos - 1]! } };
 }
 
+/** Inputs and rule of a node (kernel nodeUses, plus the v4 product / generalize nodes). */
+function usesOf(n: ProofNode): { inputs: NodeId[]; rule?: NodeId } {
+  if (n.k === 'product') return { inputs: [...n.inputs] };
+  if (n.k === 'generalize') return { inputs: [n.input] };
+  return nodeUses(n);
+}
+
 /** Is v (a ground or partially bound value) complete for every meta? */
 const missing = (metas: MetaId[], s: Subst) => metas.filter((m) => !s[m]);
 
 // ───────────────────────────── compile ─────────────────────────────
 
-export function compile(c: Canvas, ctx: KernelCtx): CompiledX {
+export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
+  const machines = [...c.machines].sort((a, b) => cmp(a.id, b.id));
+  const byId = new Map<string, Machine>(machines.map((m) => [m.id, m]));
+
+  // ── towers → graph variables (unique ids and labels; never a level constant's name) ──
+  const vars: AtomDecl[] = [];
+  const towerErr: Record<string, string> = {};
+  {
+    const taken = new Map<string, string>();
+    for (const a of ctx0.level.atoms) { taken.set(`id:${a.id}`, 'a constant of this order'); taken.set(`lb:${a.label}`, 'a constant of this order'); }
+    for (const m of machines) {
+      if (m.config.kind !== 'tower') continue;
+      const cfg = m.config;
+      if (!cfg.varId || !cfg.label) { towerErr[m.id] = JAMS.towerUnnamed; continue; }
+      const dup = taken.get(`id:${cfg.varId}`) ?? taken.get(`lb:${cfg.label}`);
+      if (dup) { towerErr[m.id] = JAMS.towerDup(cfg.label, dup); continue; }
+      taken.set(`id:${cfg.varId}`, `another Tower (${m.id})`); taken.set(`lb:${cfg.label}`, `another Tower (${m.id})`);
+      vars.push({ id: cfg.varId, label: cfg.label, hue: vars.length % 6, variable: true, ...(cfg.sort === 'Z' ? { sort: 'Z' as const } : {}) });
+    }
+    // the kernel's own admission rule (e.g. a name a given or goal already uses is not fresh)
+    if (vars.length) {
+      const wv = withVars(ctx0, { nodes: [], rooms: [], vars });
+      const okIds = new Set(wv.vars.map((v) => v.id));
+      for (const m of machines) {
+        if (m.config.kind !== 'tower' || towerErr[m.id]) continue;
+        if (!okIds.has(m.config.varId)) towerErr[m.id] = wv.error ?? JAMS.towerUnnamed;
+      }
+      vars.splice(0, vars.length, ...vars.filter((v) => okIds.has(v.id)));
+    }
+  }
+  /** Lowering context: the level's constants plus this floor's declared variables (for ground checks). */
+  const ctx: KernelCtx = vars.length ? { ...ctx0, level: { ...ctx0.level, atoms: [...ctx0.level.atoms, ...vars] } } : ctx0;
   const L = labelsOf(ctx.level.atoms);
   const T = (t: Term) => termText(t, L);
   const F = (f: Fact) => factText(f, L);
   const itemText = (v: ItemValue) => (v.k === 'term' ? T(v.term) : v.k === 'fact' ? F(v.fact) : F(v.card));
-
-  const machines = [...c.machines].sort((a, b) => cmp(a.id, b.id));
-  const byId = new Map<string, Machine>(machines.map((m) => [m.id, m]));
-  const nameOf = (m: Machine) => (m.config.kind === 'stamp' || m.config.kind === 'carddock'
-    ? schemaMachineName(ctx, m.config.schema, m.config.mirror) : SPECS[m.kind]?.name ?? m.kind);
+  /** Ground check with the Tower message for an undeclared variable. */
+  const ground = (t: Term, what: string): Term => {
+    try { return checkGround(t, ctx, what); } catch (e) { return jam(undeclared((e as Error).message)); }
+  };
+  const nameOf = (m: Machine) => SPECS[m.kind]?.name ?? m.kind;
 
   // ── rooms: geometry, parents, scope of a tile ──
   const rooms = [...c.rooms].sort((a, b) => cmp(a.id, b.id));
@@ -254,7 +331,7 @@ export function compile(c: Canvas, ctx: KernelCtx): CompiledX {
     }
     parentOf.set(r.id, best ? best.id : ROOT);
   }
-  const kRooms: KRoom[] = rooms.map((r) => ({ id: r.id, parent: parentOf.get(r.id) ?? ROOT, kind: r.kind, l: r.l, r: r.r }));
+  const kRooms: KRoom[] = rooms.map((r) => ({ id: r.id, parent: parentOf.get(r.id) ?? ROOT, kind: r.kind, l: r.l, r: r.r, ...(r.kind === 'assume' ? { rel: r.rel ?? 'eq' } : {}) }));
   const tileScope = (t: Tile): ScopeId => {
     let best: (typeof rooms)[number] | null = null;
     for (const r of rooms) if (inRect(t, r.rect) && (!best || area(r.rect) < area(best.rect))) best = r;
@@ -272,7 +349,8 @@ export function compile(c: Canvas, ctx: KernelCtx): CompiledX {
   const supposition = (roomId: string): string => {
     const r = roomById.get(roomId);
     if (!r) return 'a supposition';
-    try { return F(r.kind === 'suppose' ? { k: 'eq', l: r.l, r: r.r } : { k: 'neq', l: r.l, r: r.r }); } catch { return 'a supposition'; }
+    const k = r.kind === 'suppose' || (r.kind === 'assume' && (r.rel ?? 'eq') === 'eq') ? 'eq' : 'neq';
+    try { return F({ k, l: r.l, r: r.r }); } catch { return 'a supposition'; }
   };
 
   // ── machines: ports, footprints, scopes ──
@@ -439,6 +517,26 @@ export function compile(c: Canvas, ctx: KernelCtx): CompiledX {
   const pfact = new Map<NodeId, Fact>();
   const pdeps = new Map<NodeId, Set<string>>();
   const roomsK = new Map(kRooms.map((r) => [r.id, r]));
+  /** Ask the kernel itself (on n's ancestor closure) for nodes whose result the compiler does not mirror. */
+  const kernelEval = (n: ProofNode, deps: Set<string>): Fact => {
+    const byNode = new Map(nodes.map((x) => [x.id, x]));
+    byNode.set(n.id, n);
+    const seen = new Set<NodeId>();
+    const stack = [n.id];
+    while (stack.length) {
+      const x = stack.pop()!;
+      if (seen.has(x)) continue;
+      seen.add(x);
+      const nn = byNode.get(x);
+      if (nn) { const u = usesOf(nn); stack.push(...u.inputs, ...(u.rule ? [u.rule] : [])); }
+    }
+    const g: ProofGraph = { nodes: [...byNode.values()].filter((x) => seen.has(x.id)), rooms: kRooms, ...(vars.length ? { vars } : {}) };
+    const res = kcheck(g, ctx0).nodes[n.id];
+    if (!res?.ok || !res.fact) throw new KErr(res?.error ?? 'the kernel rejected this step');
+    deps.clear();
+    for (const d of res.deps) deps.add(d);
+    return res.fact;
+  };
   const preview = (n: ProofNode): { ok: true; fact: Fact } | { ok: false; error: string } => {
     const deps = new Set<string>();
     const use = (id: NodeId): Fact => {
@@ -463,12 +561,18 @@ export function compile(c: Canvas, ctx: KernelCtx): CompiledX {
           if (!r) throw new KErr('there is no such room to suppose in');
           deps.add(`a:${r.id}`);
           const l = checkGround(r.l, ctx, 'the supposition'), rr = checkGround(r.r, ctx, 'the supposition');
-          f = r.kind === 'suppose' ? { k: 'eq', l, r: rr } : { k: 'neq', l, r: rr };
+          const asEq = r.kind === 'suppose' || (r.kind === 'assume' && (r.rel ?? 'eq') === 'eq');
+          f = asEq ? { k: 'eq', l, r: rr } : { k: 'neq', l, r: rr };
           break;
         }
         case 'step': {
           const inp = use(n.input);
           if (inp.k === 'law' || inp.k === 'cond') throw new KErr('a universal statement cannot be rewritten; cite it as a rule instead');
+          if (n.op.k === 'invert') {
+            if (inp.k !== 'eq' && inp.k !== 'neq') throw new KErr('only an equation or an inequation can be inverted on both sides');
+            f = { k: inp.k, l: norm({ k: 'inv', arg: inp.l }), r: norm({ k: 'inv', arg: inp.r }) };
+            break;
+          }
           const rf = n.op.k === 'rewrite' && n.op.rule.k === 'node' ? use(n.op.rule.id) : undefined;
           const r = evalStep(inp, n.op, ctx, rf);
           if (!r.ok) throw new KErr(r.error);
@@ -502,9 +606,17 @@ export function compile(c: Canvas, ctx: KernelCtx): CompiledX {
           f = { k: 'bot' };
           break;
         }
+        case 'product': {
+          const a = use(n.inputs[0]), b = use(n.inputs[1]);
+          if (a.k !== 'eq' || b.k !== 'eq') throw new KErr('a product of equations needs two equations');
+          f = { k: 'eq', l: norm({ k: 'mul', fs: [a.l, b.l] }), r: norm({ k: 'mul', fs: [a.r, b.r] }) };
+          break;
+        }
+        case 'generalize': { use(n.input); f = kernelEval(n, deps); break; }
         case 'exit': {
           const r = roomsK.get(n.room);
           if (!r) throw new KErr('there is no such room to close');
+          if (r.kind === 'assume') { use(n.input); f = kernelEval(n, deps); break; }
           const inp = use(n.input);
           if (inp.k !== 'bot') throw new KErr('a room is closed only by a contradiction (⊥)');
           deps.delete(`a:${r.id}`);
@@ -514,7 +626,7 @@ export function compile(c: Canvas, ctx: KernelCtx): CompiledX {
         case 'press': {
           const inp = use(n.input);
           if (inp.k !== 'size') throw new KErr('the Lagrange press needs the order of the group (|G| = n)');
-          f = pressCard(inp.n);
+          f = pressCard(inp.n, !!(n as { power?: boolean }).power);
           break;
         }
         default: throw new KErr('unknown kind of step');
@@ -533,6 +645,89 @@ export function compile(c: Canvas, ctx: KernelCtx): CompiledX {
   const cause: Record<string, string> = {};
   const plan: RunPlan = { machines: {}, succ: {}, routes: {}, active: [], footprints, feeds: {} };
   const socketStatic: Record<string, { by?: string; P?: NodeId; reason?: string }> = {};
+
+  // ── the library: a given node for EVERY level given (inlet or not) and the Lagrange law ──
+  // Citing a given as a recipe cites this node, so the citation carries the dependency g:<id> exactly
+  // as a belted inlet does; Lagrange is a press node on the |G| given (dependency kept).
+  const givenNode = new Map<string, NodeId>();
+  const libErr = new Map<NodeId, string>();
+  const libNode = (n: ProofNode) => {
+    nodes.push(n);
+    const res = preview(n);
+    if (!res.ok) libErr.set(n.id, res.error);
+  };
+  for (const gd of [...ctx.level.givens].sort((a, b) => cmp(a.id, b.id))) {
+    const nid = `lib#given:${gd.id}`;
+    givenNode.set(gd.id, nid);
+    libNode({ k: 'given', id: nid, scope: ROOT, givenId: gd.id, meta: { station: `lib:given:${gd.id}`, gesture: 'given' } });
+  }
+  const sizeGiven = ctx.level.givens.find((g) => g.fact.k === 'size');
+  const lagrangeNode = sizeGiven ? 'lib#lagrange' : undefined;
+  // Lagrange in two shapes on the same |G| given: the word x x … x (classic orders) and the power x^{|G|}
+  // (Phase B). A Rewriter picks the power shape when its equation has powers, a card the power shape
+  // on orders that enable the power imports.
+  const powerLevel = ctx.level.tools.schemas.some((id) => id.startsWith('power.'));
+  const lagrangePow = sizeGiven ? 'lib#lagrange.pow' : undefined;
+  if (sizeGiven) {
+    libNode({ k: 'press', id: 'lib#lagrange', scope: ROOT, input: givenNode.get(sizeGiven.id)!, meta: { station: 'lib:lagrange', gesture: 'Lagrange (imported)' } });
+    libNode({ k: 'press', id: 'lib#lagrange.pow', scope: ROOT, input: givenNode.get(sizeGiven.id)!, power: true, meta: { station: 'lib:lagrange', gesture: 'Lagrange (imported)' } } as ProofNode);
+  }
+  const hasPow = (f: Fact | undefined) => !!f && JSON.stringify(f).includes('"k":"pow"');
+  const givenName = (id: string) => ctx.level.givens.find((g) => g.id === id)?.name ?? id;
+
+  /** A library entry as a rewrite rule (equation or law). */
+  const libRule = (ref: LibRef, on?: Fact): { ref: RuleRef; fact?: Fact; text: string } => {
+    switch (ref.k) {
+      case 'axiom': return { ref: { k: 'axiom', id: ref.id }, text: F(axiomCard(ref.id)) };
+      case 'given': {
+        const nid = givenNode.get(ref.givenId);
+        const f = nid ? pfact.get(nid) : undefined;
+        if (!nid || !f) return jam(nid ? libErr.get(nid) ?? JAMS.noGiven(ref.givenId) : JAMS.noGiven(ref.givenId));
+        const text = `${givenName(ref.givenId)}: ${F(f)}`;
+        if (f.k === 'neq') return jam(JAMS.ruleNeq(F(f)));
+        if (f.k === 'cond') return jam(JAMS.ruleCond(F(f)));
+        if (f.k !== 'eq' && f.k !== 'law') return jam(JAMS.libNotRule(F(f), f.k));
+        return { ref: { k: 'node', id: nid }, fact: f, text };
+      }
+      case 'schema': {
+        let card: Card;
+        try { card = schemaCard(ref.id, ref.mirror, ctx); } catch (e) { return jam((e as Error).message); }
+        const name = `${schemaInfo(ref.id, ctx)?.name ?? ref.id}${ref.mirror ? ' ᵒᵖ' : ''}`;
+        if (card.k === 'cond') return jam(JAMS.ruleCond(`${name} (${F(card)})`));
+        return { ref: { k: 'schema', id: ref.id, ...(ref.mirror ? { mirror: true } : {}) }, text: name };
+      }
+      case 'lagrange': {
+        const ln = hasPow(on) ? lagrangePow : lagrangeNode;
+        if (!ln || !pfact.get(ln)) return jam(ln ? libErr.get(ln) ?? JAMS.noLagrange : JAMS.noLagrange);
+        return { ref: { k: 'node', id: ln }, fact: pfact.get(ln)!, text: `Lagrange (imported): ${F(pfact.get(ln)!)}` };
+      }
+    }
+    return jam(JAMS.unknownRecipe);
+  };
+  /** A library entry as a card (for Theorem recipes and Card Docks). */
+  const libCard = (ref: LibRef): { ref: RuleRef; card: Card; name: string } => {
+    switch (ref.k) {
+      case 'axiom': return { ref: { k: 'axiom', id: ref.id }, card: axiomCard(ref.id), name: F(axiomCard(ref.id)) };
+      case 'given': {
+        const nid = givenNode.get(ref.givenId);
+        const f = nid ? pfact.get(nid) : undefined;
+        if (!nid || !f) return jam(nid ? libErr.get(nid) ?? JAMS.noGiven(ref.givenId) : JAMS.noGiven(ref.givenId));
+        if (f.k !== 'law' && f.k !== 'cond') return jam(JAMS.libNotCard(`${givenName(ref.givenId)}: ${F(f)}`, f.k));
+        return { ref: { k: 'node', id: nid }, card: f, name: givenName(ref.givenId) };
+      }
+      case 'schema': {
+        let card: Card;
+        try { card = schemaCard(ref.id, ref.mirror, ctx); } catch (e) { return jam((e as Error).message); }
+        return { ref: { k: 'schema', id: ref.id, ...(ref.mirror ? { mirror: true } : {}) }, card, name: `${schemaInfo(ref.id, ctx)?.name ?? ref.id}${ref.mirror ? ' ᵒᵖ' : ''}` };
+      }
+      case 'lagrange': {
+        const ln = powerLevel ? lagrangePow : lagrangeNode;
+        if (!ln || !pfact.get(ln)) return jam(ln ? libErr.get(ln) ?? JAMS.noLagrange : JAMS.noLagrange);
+        return { ref: { k: 'node', id: ln }, card: pfact.get(ln) as Card, name: 'Lagrange (imported)' };
+      }
+    }
+    return jam(JAMS.unknownRecipe);
+  };
 
   for (const id of order) {
     const m = byId.get(id)!;
@@ -559,7 +754,7 @@ export function compile(c: Canvas, ctx: KernelCtx): CompiledX {
       nodes.push(node);
       mine.push(node.id);
       const res = preview(node);
-      if (!res.ok) return jam(res.error);
+      if (!res.ok) return jam(undeclared(res.error));
       return res.fact;
     };
     const lastNode = () => mine[mine.length - 1]!;
@@ -595,11 +790,19 @@ export function compile(c: Canvas, ctx: KernelCtx): CompiledX {
       if (v.k !== 'term') return jam(JAMS.wrongKind(['term'], itemText(v), itemKindOf(v)));
       return v.term;
     };
-    const param = (p: Param, pid: string, what: string): Term => {
+    const param = (p: Param, pid: string, what: string, z = false): Term => {
+      if (z) {
+        // an exponent knob: an integer polynomial over ℤ Towers (never a belt item)
+        if (p.k === 'port') return jam(JAMS.intFromBelt(what));
+        if (!p.term) return starve(JAMS.needsInt(what));
+        try { return checkInt(p.term, ctx, what); } catch (e) { return jam(undeclared((e as Error).message)); }
+      }
       if (p.k === 'port') return getTerm(pid);
       if (!p.term) return starve(JAMS.chooseElement(what));
-      try { return checkGround(p.term, ctx, what); } catch (e) { return jam((e as Error).message); }
+      return ground(p.term, what);
     };
+    /** "needs …" for the first missing metas, integer or element. */
+    const needMsg = (ms: string[], z: Set<string>) => (ms.length && ms.every((m) => z.has(m)) ? JAMS.needsInt(ms.join(', ')) : JAMS.needsMeta(ms.join(', ')));
     /** A routed rewrite rule: an equation fact or a law card. */
     const getRule = (pid: string): { ref: RuleRef; fact?: Fact; text: string } => {
       const v = get(pid, true);
@@ -618,7 +821,7 @@ export function compile(c: Canvas, ctx: KernelCtx): CompiledX {
     const railText = (q: Pallet, s: 'l' | 'r') => (q.k === 'eq' || q.k === 'neq' ? T(q[s]) : '');
 
     /** Resolve a span target to one location among `cands` (each with a payload), or halt. */
-    function pickSpan<X>(q: Pallet, target: Extract<MachineConfig, { target: unknown }>['target'] & { k: string },
+    function pickSpan<X>(q: Pallet, target: SpanTarget,
       cands: { loc: SpanLoc; x: X }[], noneMsg: () => string, misfit: (loc: SpanLoc) => string): { loc: SpanLoc; x: X } {
       r.candidates = cands.map((cd) => ({ addr: spanAddr(cd.loc), label: `${T(cd.loc.redex)} (${sideWord(cd.loc.side)})` }));
       if (target.k === 'first') {
@@ -657,8 +860,7 @@ export function compile(c: Canvas, ctx: KernelCtx): CompiledX {
 
     /** Apply-style lowering shared by Apply and stamps. */
     const lowerApply = (ref: RuleRef, ruleFact: Fact | undefined, name: string, premisePorts: number,
-      values: Record<MetaId, Param>, choice: number, catalystPort: boolean) => {
-      void catalystPort;
+      values: Record<MetaId, Param>, choice: number) => {
       let card;
       try { card = resolveCond(ref, ctx, ruleFact, L); } catch (e) { return jam((e as Error).message); }
       if (card.premises.length !== premisePorts) return jam(JAMS.premiseCount(name, card.premises.length, premisePorts));
@@ -674,7 +876,7 @@ export function compile(c: Canvas, ctx: KernelCtx): CompiledX {
         if (!card.metas.includes(mId)) return jam(JAMS.notAVariable(mId));
         const p = values[mId]!;
         if (p.k === 'knob' && !p.term) continue;
-        partial[mId] = param(p, `meta:${mId}`, mId);
+        partial[mId] = param(p, `meta:${mId}`, mId, card.zmetas.has(mId));
       }
       let ss: Subst[] = [partial];
       for (let i = 0; i < card.premises.length; i++) {
@@ -692,7 +894,7 @@ export function compile(c: Canvas, ctx: KernelCtx): CompiledX {
       const seen = new Set<string>();
       ss = sortSubsts(ss.filter((s) => { const k = substKey(s); if (seen.has(k)) return false; seen.add(k); return true; }));
       const complete = ss.filter((s) => !missing(card.metas, s).length);
-      if (!complete.length) return jam(JAMS.needsMeta(missing(card.metas, ss[0]!).join(', ')));
+      if (!complete.length) return jam(needMsg(missing(card.metas, ss[0]!), card.zmetas));
       r.choices = complete.map((s) => {
         let concl = '';
         try { concl = F({ k: card.concl.k, l: instantiate(card.concl.l, s), r: instantiate(card.concl.r, s) }); } catch { /* shown as σ only */ }
@@ -705,6 +907,65 @@ export function compile(c: Canvas, ctx: KernelCtx): CompiledX {
       r.chosen = choice;
       emit({ k: 'apply', rule: ref, inputs: premNodes, subst: complete[choice]! } as never, name, 'apply');
       r.duration = 2;
+    };
+
+    /** After a rewrite at `loc` whose result there is a lone e: the single explicit unit rewrite. */
+    const tidyAfter = (loc: SpanLoc) => {
+      const w = [...loc.word.slice(0, loc.s), E, ...loc.word.slice(loc.e)];
+      const op = tidyAt(loc.side, loc.wordPath, w, loc.s);
+      if (op) emit({ k: 'step', input: lastNode(), op } as never, 'auto-tidy', 'tidy');
+    };
+    /** Rewrite with a rule (library or routed): at a bracket, or at a gap when the source side is e. */
+    const rewriteWith = (qv: ItemValue & { k: 'fact' }, rule: { ref: RuleRef; fact?: Fact; text: string }) => {
+      if (cfg.kind !== 'rewriter') return;
+      const q = qv.fact;
+      let law;
+      try { law = resolveLaw(rule.ref, ctx, rule.fact, L); } catch (e) { law = jam((e as Error).message); }
+      const [src, dst] = cfg.dir === 'fwd' ? [law.l, law.r] : [law.r, law.l];
+      const partial: Subst = {};
+      for (const mId of Object.keys(cfg.values).sort(cmp)) {
+        const p = cfg.values[mId]!;
+        if (p.k === 'knob' && !p.term) continue;
+        if (!law.metas.includes(mId)) jam(JAMS.notAVariable(mId));
+        partial[mId] = param(p, `meta:${mId}`, mId, law.zmetas.has(mId));
+      }
+      if (norm(src).k === 'e') {
+        // e → the other side, grown at a gap: insert e, then the reversed/forward rule at that e
+        const ss = sortSubsts(match(src, E, partial));
+        const s = ss.find((x) => !missing(law.metas, x).length);
+        if (!s) jam(needMsg(missing(law.metas, ss[0] ?? partial), law.zmetas));
+        const g = pickGap(q, cfg.gap);
+        emit({ k: 'step', input: qv.node, op: { k: 'insertE', at: gapAddr(g) } } as never, `insert by ${rule.text}`, 'insert');
+        emit({ k: 'step', input: lastNode(), op: { k: 'rewrite', rule: rule.ref, dir: cfg.dir, at: { side: g.side, path: [...g.wordPath], range: [g.gap, g.gap + 1] }, subst: s! } } as never, `by ${rule.text}`, 'rewrite');
+        return;
+      }
+      let incomplete: string[] | null = null;
+      const cands: { loc: SpanLoc; x: Subst }[] = [];
+      const fixedLen = metasOf(src).length ? undefined : word(norm(src)).length;
+      if (fixedLen === undefined && spanCount(q) > MATCH_BUDGET) jam(JAMS.budget);
+      for (const loc of spanCandidates(q, RAIL_ORDER, fixedLen)) {
+        const ms = sortSubsts(match(src, loc.redex, partial));
+        const full = ms.find((x) => !missing(law.metas, x).length);
+        if (full) { cands.push({ loc, x: full }); continue; }
+        if (incomplete) continue;
+        // exponents the matcher will not guess (e.g. reverse (xᵐ)ⁿ = xᵐⁿ): ask for knobs
+        const open = ms.length ? ms : matchOpen(src, loc.redex, partial);
+        if (open.length) incomplete = missing(law.metas, open[0]!);
+      }
+      const pat = T(instantiatePartial(src, partial));
+      const pick = pickSpan(q, cfg.target, cands,
+        () => (incomplete ? needMsg(incomplete, law.zmetas) : JAMS.noRedex(pat, qText(q), rule.text)),
+        (loc) => {
+          const ms = matchOpen(src, loc.redex, partial);
+          if (ms.length) return needMsg(missing(law.metas, ms[0]!), law.zmetas);
+          return JAMS.pinMismatch(T(loc.redex), rule.text, pat);
+        });
+      emit({ k: 'step', input: qv.node, op: { k: 'rewrite', rule: rule.ref, dir: cfg.dir, at: spanAddr(pick.loc), subst: pick.x } } as never, `by ${rule.text}`, 'rewrite');
+      if (cfg.tidy) {
+        let dstInst: Term | null = null;
+        try { dstInst = instantiate(dst, pick.x); } catch { dstInst = null; }
+        if (dstInst && dstInst.k === 'e') tidyAfter(pick.loc);
+      }
     };
 
     try {
@@ -727,10 +988,9 @@ export function compile(c: Canvas, ctx: KernelCtx): CompiledX {
         if (!v || !p.accepts.length) continue;
         const k = itemKindOf(v);
         if (p.accepts.includes(k)) continue;
-        // courtesy: the Anvil sorts its two inlets by kind; a gate takes ⊥ from any inward port
-        if (cfg.kind === 'anvil' && (k === 'eq' || k === 'neq')) continue;
-        if (cfg.kind === 'gate' && k === 'bot') continue;
-        if (p.id === 'rule' && (cfg.kind === 'rewriter' || cfg.kind === 'expander')) {
+        // courtesy: the clash Joiner sorts its inlets by kind; gates, ∀ and docks check kinds themselves
+        if (cfg.kind === 'joiner' || cfg.kind === 'gate' || cfg.kind === 'forall' || cfg.kind === 'socket') continue;
+        if (p.id === 'rule' && cfg.kind === 'rewriter') {
           if (k === 'neq') jam(JAMS.ruleNeq(itemText(v)));
           if (k === 'cond') jam(JAMS.ruleCond(itemText(v)));
           jam(JAMS.ruleOther(itemText(v), k));
@@ -741,25 +1001,29 @@ export function compile(c: Canvas, ctx: KernelCtx): CompiledX {
       switch (cfg.kind) {
         // ───── sources ─────
         case 'spool': {
-          const t = param(cfg.t, 't', 't');
+          const t = cfg.t.k === 'port' ? getTerm('t') : cfg.t.term ? ground(cfg.t.term, 'the spool’s element') : starve(JAMS.chooseElement('the spool'));
           source = cfg.t.k === 'knob';
           emit({ k: 'start', term: t } as never, 'reflexivity', 'start');
           r.duration = source ? 0 : 1;
           break;
         }
+        case 'tower': {
+          // declares a variable for the whole floor (graph.vars); no ports, no node, nothing to emit
+          if (towerErr[id]) jam(towerErr[id]!);
+          break;
+        }
         case 'hopper': {
           source = true;
           if (!cfg.t) starve(JAMS.chooseElement('the hopper'));
-          let t: Term;
-          try { t = checkGround(cfg.t!, ctx, 'the hopper’s element'); } catch (e) { t = jam((e as Error).message); }
-          pout[id] = { k: 'term', term: t };
+          pout[id] = { k: 'term', term: ground(cfg.t!, 'the hopper’s element') };
           break;
         }
         case 'given': {
           source = true;
-          const gd = ctx.level.givens.find((g) => g.id === cfg.givenId);
-          if (!gd) jam(JAMS.noGiven(cfg.givenId));
-          emit({ k: 'given', givenId: cfg.givenId } as never, 'given', 'given');
+          const gn = givenNode.get(cfg.givenId);
+          if (!gn) jam(JAMS.noGiven(cfg.givenId));
+          mine.push(gn!);
+          if (!pfact.get(gn!)) jam(libErr.get(gn!) ?? JAMS.noGiven(cfg.givenId));
           break;
         }
         case 'desk': {
@@ -769,215 +1033,140 @@ export function compile(c: Canvas, ctx: KernelCtx): CompiledX {
         }
         case 'carddock': {
           source = true;
-          let card: Card;
-          try { card = schemaCard(cfg.schema, cfg.mirror, ctx); } catch (e) { card = jam((e as Error).message); }
-          pout[id] = { k: 'card', card, ref: { k: 'schema', id: cfg.schema, ...(cfg.mirror ? { mirror: true } : {}) } };
+          if (!cfg.ref) starve(JAMS.chooseRecipe);
+          const lib = libCard(cfg.ref!);
+          pout[id] = { k: 'card', card: lib.card, ref: lib.ref };
+          if (lib.ref.k === 'node') mine.push(lib.ref.id);
           break;
         }
-        // ───── term syntax ─────
-        case 'joiner': {
-          const a = getTerm('a'), b = getTerm('b');
-          pout[id] = { k: 'term', term: norm({ k: 'mul', fs: [a, b] }) };
-          r.duration = 1;
-          break;
-        }
-        case 'inverter': {
-          const t = getTerm('q');
-          pout[id] = { k: 'term', term: norm({ k: 'inv', arg: t }) };
-          r.duration = 1;
-          break;
-        }
-        // ───── built-in axioms ─────
-        case 'canceller': {
-          const qv = getFact('q');
-          const q = qv.fact;
-          if (q.k !== 'eq') jam(JAMS.wrongKind(['eq'], F(q), q.k));
-          const cands: { loc: SpanLoc; x: { id: AxiomId; s: Subst } }[] =
-            cancelCandidates(q).map((cd) => ({ loc: cd.loc, x: { id: cd.id, s: { x: cd.x } } }));
-          const pick = pickSpan(q, cfg.target, cands,
-            () => (cfg.target.k === 'first' ? JAMS.noCancelAnywhere(qText(q)) : JAMS.noCancel('right', railText(q, 'r'))),
-            (loc) => JAMS.notInverses(T(loc.redex)));
-          const at: Addr = spanAddr(pick.loc);
-          emit({ k: 'step', input: qv.node, op: { k: 'rewrite', rule: { k: 'axiom', id: pick.x.id }, dir: 'fwd', at, subst: pick.x.s } } as never, 'cancel', 'cancel');
-          if (cfg.tidy) {
-            const w = [...pick.loc.word.slice(0, pick.loc.s), E, ...pick.loc.word.slice(pick.loc.e)];
-            const op = tidyAt(pick.loc.side, pick.loc.wordPath, w, pick.loc.s);
-            if (op) emit({ k: 'step', input: lastNode(), op } as never, 'auto-tidy', 'tidy');
-          }
-          r.duration = mine.length;
-          break;
-        }
-        case 'popper': {
-          const qv = getFact('q');
-          const q = qv.fact;
-          if (q.k !== 'eq') jam(JAMS.wrongKind(['eq'], F(q), q.k));
-          const all = spanCandidates(q, RAIL_ORDER, 1);
-          const cands = all.filter((l) => l.e - l.s === 1 && l.redex.k === 'e' && l.word.length >= 2).map((loc) => ({ loc, x: null }));
-          const pick = pickSpan(q, cfg.target, cands, () => JAMS.noE(qText(q)),
-            (loc) => (loc.redex.k === 'e' ? JAMS.soleE : JAMS.notE(T(loc.redex))));
-          const op = tidyAt(pick.loc.side, pick.loc.wordPath, pick.loc.word, pick.loc.s)!;
-          emit({ k: 'step', input: qv.node, op } as never, 'remove e', 'pop');
-          r.duration = 1;
-          break;
-        }
-        case 'expander': {
-          const qv = getFact('q');
-          const q = qv.fact;
-          if (q.k !== 'eq') jam(JAMS.wrongKind(['eq'], F(q), q.k));
-          // ingredients first (starved before targeting), then the gap
-          let X: Term | null = null;
-          let rule: { ref: RuleRef; fact?: Fact; text: string } | null = null;
-          if (cfg.insert === 'pair' || cfg.insert === 'pairInv') X = param(cfg.x, 'x', 'x');
-          if (cfg.insert === 'rule') {
-            rule = getRule('rule');
-            if (cfg.x.k === 'port' || cfg.x.term) X = param(cfg.x, 'x', 'x');
-          }
-          const g = pickGap(q, cfg.target);
-          const ga: GapAddr = gapAddr(g);
-          const at: Addr = { side: g.side, path: [...g.wordPath], range: [g.gap, g.gap + 1] };
-          if (cfg.insert === 'e') {
-            emit({ k: 'step', input: qv.node, op: { k: 'insertE', at: ga } } as never, 'insert e', 'insert');
-            r.duration = 1;
-            break;
-          }
-          if (cfg.insert === 'pair' || cfg.insert === 'pairInv') {
-            const ax: AxiomId = cfg.insert === 'pair' ? 'invR' : 'invL';
-            emit({ k: 'step', input: qv.node, op: { k: 'insertE', at: ga } } as never, 'insert pair', 'insert');
-            emit({ k: 'step', input: lastNode(), op: { k: 'rewrite', rule: { k: 'axiom', id: ax }, dir: 'rev', at, subst: { x: X! } } } as never, 'insert pair', 'expand');
-            r.duration = 2;
-            break;
-          }
-          // insert = 'rule': e → the rule's other side, at the new e
-          let law;
-          try { law = resolveLaw(rule!.ref, ctx, rule!.fact, L); } catch (e) { law = jam((e as Error).message); }
-          const [src, dst] = cfg.dir === 'fwd' ? [law.l, law.r] : [law.r, law.l];
-          const partial: Subst = {};
-          if (X && law.metas.length) {
-            const srcMetas = metasOf(src);
-            const dstOnly = law.metas.filter((mm) => !srcMetas.includes(mm));
-            if (law.metas.length > 1 && dstOnly.length > 1) jam(JAMS.expanderMetas(rule!.text, dstOnly.join(', ')));
-            partial[law.metas.length === 1 ? law.metas[0]! : (dstOnly[0] ?? law.metas[0]!)] = X;
-          }
-          const ss = sortSubsts(match(src, E, partial));
-          if (!ss.length) jam(JAMS.ruleNotE(rule!.text, cfg.dir === 'fwd' ? 'left' : 'right'));
-          const s = ss.find((x) => !missing(law.metas, x).length);
-          if (!s) jam(JAMS.needsMeta(missing(law.metas, ss[0]!).join(', ')));
-          void dst;
-          emit({ k: 'step', input: qv.node, op: { k: 'insertE', at: ga } } as never, `insert ${rule!.text}`, 'insert');
-          emit({ k: 'step', input: lastNode(), op: { k: 'rewrite', rule: rule!.ref, dir: cfg.dir, at, subst: s! } } as never, `insert ${rule!.text}`, 'expand');
-          r.duration = 2;
-          break;
-        }
-        // ───── routed rules ─────
+        // ───── Rewriter: one bracket (or gap) of one equation ─────
         case 'rewriter': {
+          if (!cfg.recipe) starve(JAMS.chooseRecipe);
+          const rc = cfg.recipe!;
           const qv = getFact('q');
           const q = qv.fact;
           if (q.k !== 'eq') jam(JAMS.wrongKind(['eq'], F(q), q.k));
-          const rule = getRule('rule');
-          let law;
-          try { law = resolveLaw(rule.ref, ctx, rule.fact, L); } catch (e) { law = jam((e as Error).message); }
-          const [src, dst] = cfg.dir === 'fwd' ? [law.l, law.r] : [law.r, law.l];
-          const partial: Subst = {};
-          for (const mId of Object.keys(cfg.values).sort(cmp)) {
-            const p = cfg.values[mId]!;
-            if (!law.metas.includes(mId)) { if (p.k === 'knob' && !p.term) continue; jam(JAMS.notAVariable(mId)); }
-            if (p.k === 'knob' && !p.term) continue;
-            partial[mId] = param(p, `meta:${mId}`, mId);
-          }
-          let incomplete: string[] | null = null;
-          const cands: { loc: SpanLoc; x: Subst }[] = [];
-          const fixedLen = metasOf(src).length ? undefined : word(norm(src)).length;
-          if (fixedLen === undefined && spanCount(q) > MATCH_BUDGET) jam(JAMS.budget);
-          for (const loc of spanCandidates(q, RAIL_ORDER, fixedLen)) {
-            const ms = sortSubsts(match(src, loc.redex, partial));
-            if (!ms.length) continue;
-            const full = ms.find((s) => !missing(law.metas, s).length);
-            if (full) cands.push({ loc, x: full });
-            else if (!incomplete) incomplete = missing(law.metas, ms[0]!);
-          }
-          const pat = T(instantiatePartial(src, partial));
-          const pick = pickSpan(q, cfg.target, cands,
-            () => (incomplete ? JAMS.needsMeta(incomplete.join(', ')) : JAMS.noRedex(pat, qText(q), rule.text)),
-            (loc) => {
-              const ms = match(src, loc.redex, partial);
-              if (ms.length) return JAMS.needsMeta(missing(law.metas, ms[0]!).join(', '));
-              return JAMS.pinMismatch(T(loc.redex), rule.text, pat);
-            });
-          emit({ k: 'step', input: qv.node, op: { k: 'rewrite', rule: rule.ref, dir: cfg.dir, at: spanAddr(pick.loc), subst: pick.x } } as never, `by ${rule.text}`, 'rewrite');
-          if (cfg.tidy) {
-            let dstInst: Term | null = null;
-            try { dstInst = instantiate(dst, pick.x); } catch { dstInst = null; }
-            if (dstInst && dstInst.k === 'e') {
-              const w = [...pick.loc.word.slice(0, pick.loc.s), E, ...pick.loc.word.slice(pick.loc.e)];
-              const op = tidyAt(pick.loc.side, pick.loc.wordPath, w, pick.loc.s);
-              if (op) emit({ k: 'step', input: lastNode(), op } as never, 'auto-tidy', 'tidy');
+          switch (rc.k) {
+            case 'cancel': {
+              const cands = cancelCandidates(q).map((cd) => ({ loc: cd.loc, x: { id: cd.id as AxiomId, s: { x: cd.x } as Subst } }));
+              const pick = pickSpan(q, cfg.target, cands,
+                () => (cfg.target.k === 'first' ? JAMS.noCancelAnywhere(qText(q)) : JAMS.noCancel('right', railText(q, 'r'))),
+                (loc) => JAMS.notInverses(T(loc.redex)));
+              emit({ k: 'step', input: qv.node, op: { k: 'rewrite', rule: { k: 'axiom', id: pick.x.id }, dir: 'fwd', at: spanAddr(pick.loc), subst: pick.x.s } } as never, 'cancel', 'cancel');
+              if (cfg.tidy) tidyAfter(pick.loc);
+              break;
             }
+            case 'pop': {
+              const cands = spanCandidates(q, RAIL_ORDER, 1).filter((l) => l.redex.k === 'e' && l.word.length >= 2).map((loc) => ({ loc, x: null }));
+              const pick = pickSpan(q, cfg.target, cands, () => JAMS.noE(qText(q)),
+                (loc) => (loc.redex.k === 'e' ? JAMS.soleE : JAMS.notE(T(loc.redex))));
+              emit({ k: 'step', input: qv.node, op: tidyAt(pick.loc.side, pick.loc.wordPath, pick.loc.word, pick.loc.s)! } as never, 'remove e', 'pop');
+              break;
+            }
+            case 'insertE': {
+              const g = pickGap(q, cfg.gap);
+              emit({ k: 'step', input: qv.node, op: { k: 'insertE', at: gapAddr(g) } } as never, 'insert e', 'insert');
+              break;
+            }
+            case 'insertPair': {
+              const X = param(rc.x, 'x', 'x');
+              const g = pickGap(q, cfg.gap);
+              const ax: AxiomId = rc.inv ? 'invL' : 'invR';
+              emit({ k: 'step', input: qv.node, op: { k: 'insertE', at: gapAddr(g) } } as never, 'insert pair', 'insert');
+              emit({ k: 'step', input: lastNode(), op: { k: 'rewrite', rule: { k: 'axiom', id: ax }, dir: 'rev', at: { side: g.side, path: [...g.wordPath], range: [g.gap, g.gap + 1] }, subst: { x: X } } } as never, 'insert pair', 'expand');
+              break;
+            }
+            case 'law': rewriteWith(qv, libRule(rc.ref, q)); break;
+            case 'routed': rewriteWith(qv, getRule('rule')); break;
+            default: jam(JAMS.unknownRecipe);
           }
           r.duration = mine.length;
           break;
         }
-        case 'multiplier': {
+        // ───── Operator: the whole equation ─────
+        case 'operator': {
+          if (!cfg.recipe) starve(JAMS.chooseRecipe);
+          const rc = cfg.recipe!;
           const qv = getFact('q');
-          if (qv.fact.k !== 'eq') jam(`only an equation can be multiplied; ${F(qv.fact)} is ${NOUN[qv.fact.k]}`);
-          const t = param(cfg.t, 't', 't');
-          emit({ k: 'step', input: qv.node, op: { k: 'lift', side: cfg.side, term: t } } as never, `multiply on the ${cfg.side}`, 'lift');
+          if (qv.fact.k !== 'eq' && qv.fact.k !== 'neq') jam(JAMS.wrongKind(['eq', 'neq'], F(qv.fact), qv.fact.k));
+          if (rc.k === 'multiply') {
+            if (qv.fact.k !== 'eq') jam(`only an equation can be multiplied on both sides; ${F(qv.fact)} is an inequation`);
+            const t = param(rc.t, 't', 't');
+            emit({ k: 'step', input: qv.node, op: { k: 'lift', side: rc.side, term: t } } as never, `multiply on the ${rc.side}`, 'lift');
+          } else if (rc.k === 'invert') emit({ k: 'step', input: qv.node, op: { k: 'invert' } } as never, 'invert both sides', 'invert');
+          else if (rc.k === 'swap') emit({ k: 'step', input: qv.node, op: { k: 'swap' } } as never, 'symmetry', 'swap');
+          else jam(JAMS.unknownRecipe);
           r.duration = 1;
           break;
         }
-        case 'swapper': {
-          const qv = getFact('q');
-          emit({ k: 'step', input: qv.node, op: { k: 'swap' } } as never, 'symmetry', 'swap');
-          r.duration = 1;
-          break;
-        }
-        case 'meet': {
+        // ───── Joiner: two facts ─────
+        case 'joiner': {
+          if (!cfg.recipe) starve(JAMS.chooseRecipe);
+          const rc = cfg.recipe!;
           const a = getFact('a'), b = getFact('b');
-          emit({ k: 'merge', inputs: [a.node, b.node] } as never, 'transitivity', 'merge');
-          r.duration = 2;
-          break;
-        }
-        case 'anvil': {
-          const a = getFact('a'), b = getFact('b');
-          // either inlet may carry either statement: sort by kind, then clash([eq, neq])
-          const [qn, nn] = a.fact.k === 'eq' && b.fact.k === 'neq' ? [a.node, b.node] : b.fact.k === 'eq' && a.fact.k === 'neq' ? [b.node, a.node] : [null, null];
-          if (!qn || !nn) {
-            const both = a.fact.k === b.fact.k && (a.fact.k === 'eq' || a.fact.k === 'neq') ? `; both inlets carry ${a.fact.k === 'eq' ? 'equations' : 'inequations'}` : '';
-            jam(`${JAMS.anvilKinds}${both}`);
+          if (rc.k === 'clash') {
+            // either inlet may carry either statement: sort by kind, then clash([eq, neq])
+            const [qn, nn] = a.fact.k === 'eq' && b.fact.k === 'neq' ? [a.node, b.node] : b.fact.k === 'eq' && a.fact.k === 'neq' ? [b.node, a.node] : [null, null];
+            if (!qn || !nn) {
+              const both = a.fact.k === b.fact.k && (a.fact.k === 'eq' || a.fact.k === 'neq') ? `; both inlets carry ${a.fact.k === 'eq' ? 'equations' : 'inequations'}` : '';
+              jam(`${JAMS.anvilKinds}${both}`);
+            }
+            emit({ k: 'clash', inputs: [qn!, nn!] } as never, 'contradiction', 'clash');
+          } else {
+            for (const v of [a, b]) if (v.fact.k !== 'eq') jam(JAMS.wrongKind(['eq'], F(v.fact), v.fact.k));
+            if (rc.k === 'chain') emit({ k: 'merge', inputs: [a.node, b.node] } as never, 'transitivity', 'merge');
+            else if (rc.k === 'product') emit({ k: 'product', inputs: [a.node, b.node] } as never, 'multiply equations', 'product');
+            else jam(JAMS.unknownRecipe);
           }
-          emit({ k: 'clash', inputs: [qn!, nn!] } as never, 'contradiction', 'clash');
           r.duration = 2;
           break;
         }
-        case 'press': {
-          const qv = getFact('q');
-          emit({ k: 'press', input: qv.node } as never, 'Lagrange', 'press');
-          r.duration = 3;
-          break;
-        }
-        case 'apply': {
-          const v = get('rule', true);
+        // ───── Theorem: premises → conclusion by a conditional card ─────
+        case 'theorem': {
+          if (!cfg.recipe) starve(JAMS.chooseRecipe);
+          const rc = cfg.recipe!;
           let ref: RuleRef, rf: Fact | undefined, name: string;
-          if (v.k === 'card') { ref = v.ref; rf = v.ref.k === 'node' ? v.card : undefined; name = F(v.card); }
-          else if (v.k === 'fact') { ref = jam(JAMS.applyNotCard(F(v.fact))); rf = undefined; name = ''; }
-          else { ref = jam(JAMS.applyNotCard(T(v.term))); rf = undefined; name = ''; }
-          lowerApply(ref, rf, name, Math.max(0, Math.floor(cfg.premises)), cfg.values, cfg.choice, true);
+          if (rc.k === 'library') { const lb = libCard(rc.ref); ref = lb.ref; rf = lb.ref.k === 'node' ? lb.card : undefined; name = lb.name; }
+          else if (rc.k === 'routed') {
+            const v = get('card', true);
+            if (v.k !== 'card') jam(JAMS.applyNotCard(itemText(v)));
+            const cv = v as ItemValue & { k: 'card' };
+            ref = cv.ref; rf = cv.ref.k === 'node' ? cv.card : undefined; name = F(cv.card);
+          } else { ref = jam(JAMS.unknownRecipe); rf = undefined; name = ''; }
+          const pPorts = myPorts.filter((p) => p.dir === 'in' && /^p\d+$/.test(p.id)).length;
+          lowerApply(ref, rf, name, pPorts, cfg.values, cfg.choice);
           break;
         }
-        case 'stamp': {
-          const name = schemaMachineName(ctx, cfg.schema, cfg.mirror);
-          try { schemaCard(cfg.schema, cfg.mirror, ctx); } catch (e) { jam((e as Error).message); }
-          const sc = ctx.registry[cfg.schema]!;
-          const n = sc.card.k === 'cond' ? sc.card.premises.length : 0;
-          lowerApply({ k: 'schema', id: cfg.schema, ...(cfg.mirror ? { mirror: true } : {}) }, undefined, name, n, cfg.values, cfg.choice, false);
+        // ───── ∀: generalize over the floor's tower variables ─────
+        case 'forall': {
+          const v = get('q');
+          if (v.k === 'term') jam(JAMS.wrongKind(['eq', 'neq', 'law', 'cond'], T(v.term), 'term'));
+          if (v.k === 'card' && v.ref.k !== 'node') jam(JAMS.forallLibrary);
+          const node = v.k === 'fact' ? v.node : (v as { ref: { id: string } }).ref.id;
+          // eigenvariable condition, explained before the kernel decides: no supposition this rests on
+          // may mention a variable being bound
+          const free = atomsOfFact(v.k === 'fact' ? v.fact : (v as ItemValue & { k: 'card' }).card);
+          for (const d of [...(pdeps.get(node) ?? [])].sort(cmp)) {
+            if (!d.startsWith('a:')) continue;
+            const rm = roomById.get(d.slice(2));
+            if (!rm) continue;
+            const hit = [...atomsOfFact({ k: 'eq', l: rm.l, r: rm.r })].find((x) => free.has(x) && vars.some((vv) => vv.id === x));
+            if (hit) jam(JAMS.forallEigen(supposition(rm.id), vars.find((vv) => vv.id === hit)!.label));
+          }
+          emit({ k: 'generalize', input: node } as never, 'generalize', 'forall');
+          r.duration = 2;
           break;
         }
         // ───── rooms ─────
         case 'gate': {
+          const room = roomById.get(cfg.room);
           const ins0 = myPorts.filter((p) => p.dir === 'in').map((p) => p.id).sort(cmp);
           const gp = ins0.find((pid) => inBelt.has(`${id}|${pid}`) || badIn.has(`${id}|${pid}`) || brokenIn.has(`${id}|${pid}`)) ?? ins0[0] ?? 'q';
           const qv = getFact(gp);
-          if (qv.fact.k !== 'bot') jam(`this would leave the room with its assumption still open: a room is closed only by a contradiction (⊥), not ${F(qv.fact)}`);
-          emit({ k: 'exit', room: cfg.room, input: qv.node } as never, 'discharge', 'exit');
+          if (room?.kind === 'assume') {
+            if (qv.fact.k !== 'eq' && qv.fact.k !== 'neq') jam(JAMS.assumeGate(F(qv.fact)));
+          } else if (qv.fact.k !== 'bot') jam(`this would leave the room with its assumption still open: a room is closed only by a contradiction (⊥), not ${F(qv.fact)}`);
+          emit({ k: 'exit', room: cfg.room, input: qv.node } as never, room?.kind === 'assume' ? 'discharge (⇒)' : 'discharge', 'exit');
           r.duration = 1;
           break;
         }
@@ -986,22 +1175,47 @@ export function compile(c: Canvas, ctx: KernelCtx): CompiledX {
           const sd = ctx.level.sockets.find((s) => s.id === cfg.socketId);
           if (!sd) jam(JAMS.noSocket(cfg.socketId));
           socketStatic[cfg.socketId] = {};
-          const qv = getFact('q');
-          const tg = sd!.target as Pallet & { k: 'eq' | 'neq' };
-          const f = qv.fact;
+          const tg = sd!.target;
           const prod = inBelt.get(`${id}|q`)?.from.m;
-          if (f.k === tg.k && same(norm(f.l), norm(tg.l)) && same(norm(f.r), norm(tg.r))) {
-            socketStatic[cfg.socketId] = { by: prod, P: qv.node };
-          } else if (f.k === tg.k && same(norm(f.l), norm(tg.r)) && same(norm(f.r), norm(tg.l))) {
-            emit({ k: 'step', input: qv.node, op: { k: 'swap' } } as never, 'auto-swap', 'swap');
+          const v = get('q');
+          if (tg.k === 'law' || tg.k === 'cond') {
+            // a ∀ goal: a card proved on this floor, equal to the target up to renaming its variables
+            if (v.k !== 'card') jam(v.k === 'fact' ? JAMS.socketNeedsCard(F(tg), F(v.fact)) : JAMS.socketWrong(F(tg), itemText(v)));
+            const cv = v as ItemValue & { k: 'card' };
+            if (cv.ref.k !== 'node') jam(JAMS.socketLibrary);
+            // as the kernel: a law read either way round (and a cond with a flipped = conclusion) fills it
+            if (!sameCardUpToRenaming(cv.card, tg) && !sameCardUpToRenaming(flipConclusion(cv.card), tg)) jam(JAMS.socketWrong(F(tg), F(cv.card)));
+            socketStatic[cfg.socketId] = { by: prod, P: (cv.ref as { id: string }).id };
+            break;
+          }
+          if (v.k !== 'fact') jam(JAMS.socketWrong(F(tg), itemText(v)));
+          if (tg.k !== 'eq' && tg.k !== 'neq') jam(JAMS.socketWrong(F(tg), itemText(v)));
+          const f = (v as ItemValue & { k: 'fact' }).fact as Pallet & { k: 'eq' | 'neq'; l: Term; r: Term };
+          if (f.k !== 'eq' && f.k !== 'neq') jam(JAMS.socketWrong(F(tg), F(f)));
+          const node = (v as ItemValue & { k: 'fact' }).node;
+          const tq = tg as Pallet & { k: 'eq' | 'neq'; l: Term; r: Term };
+          if (f.k === tq.k && same(norm(f.l), norm(tq.l)) && same(norm(f.r), norm(tq.r))) {
+            socketStatic[cfg.socketId] = { by: prod, P: node };
+          } else if (f.k === tq.k && same(norm(f.l), norm(tq.r)) && same(norm(f.r), norm(tq.l))) {
+            emit({ k: 'step', input: node, op: { k: 'swap' } } as never, 'auto-swap', 'swap');
             socketStatic[cfg.socketId] = { by: prod, P: lastNode() };
-          } else jam(JAMS.socketWrong(F(tg), F(f)));
+          } else {
+            // words versus stacks: say which is which and point at Literal Power (the kernel's wording)
+            const hl = f.k === tq.k ? stackWordHint(f.l, tq.l, L) : null, hr = f.k === tq.k ? stackWordHint(f.r, tq.r, L) : null;
+            const sideOk = (u: Term, w: Term, h: unknown) => !!h || same(norm(u), norm(w));
+            const h = hl ?? hr;
+            if (h && sideOk(f.l, tq.l, hl) && sideOk(f.r, tq.r, hr)) jam(JAMS.socketStack(F(tg), h.have, h.want, h.hint));
+            jam(JAMS.socketWrong(F(tg), F(f)));
+          }
           break;
         }
+        default:
+          jam(JAMS.oldMachine((m as { kind: string }).kind));
       }
     } catch (e) {
       if (!(e instanceof Halt)) throw e;
-      r.status = e.k === 'jammed' ? { k: 'jammed', reason: e.reason } : { k: 'starved', reason: e.reason };
+      const why = undeclared(e.reason);
+      r.status = e.k === 'jammed' ? { k: 'jammed', reason: why } : { k: 'starved', reason: why };
       if (e.k === 'starved' && e.cause) cause[id] = e.cause;
       if (cfg.kind === 'socket' && socketStatic[cfg.socketId] === undefined) socketStatic[cfg.socketId] = {};
       if (cfg.kind === 'socket') socketStatic[cfg.socketId] = { ...socketStatic[cfg.socketId], reason: e.reason };
@@ -1018,8 +1232,8 @@ export function compile(c: Canvas, ctx: KernelCtx): CompiledX {
   }
 
   // ── the authority: one full kernel check ──
-  const graph: ProofGraph = { nodes, rooms: kRooms };
-  const chk: CheckResult = kcheck(graph, ctx);
+  const graph: ProofGraph = { nodes, rooms: kRooms, ...(vars.length ? { vars } : {}) };
+  const chk: CheckResult = kcheck(graph, ctx0);
 
   // reconcile: kernel failures jam their owner; dependants starve with the cause
   for (const id of order) {
@@ -1033,7 +1247,7 @@ export function compile(c: Canvas, ctx: KernelCtx): CompiledX {
         cause[id] = cause[badUp] ?? badUp;
       } else {
         const failed = r.nodes.map((n) => chk.nodes[n]).find((nr) => nr && !nr.ok);
-        if (failed) r.status = { k: 'jammed', reason: failed.error ?? 'the kernel rejected this step' };
+        if (failed) r.status = { k: 'jammed', reason: undeclared(failed.error ?? 'the kernel rejected this step') };
       }
     }
     // final values come from the kernel's result, never from the preview
@@ -1076,14 +1290,23 @@ export function compile(c: Canvas, ctx: KernelCtx): CompiledX {
         seen.add(x);
         const n = nodeById.get(x);
         if (!n) continue;
-        const u = nodeUses(n);
+        const u = usesOf(n);
         stack.push(...u.inputs, ...(u.rule ? [u.rule] : []));
       }
-      const closure: ProofGraph = { nodes: [pn, ...nodes.filter((n) => n.id !== P && seen.has(n.id))], rooms: kRooms };
-      const cr = kcheck(closure, ctx);
+      // the delivered proof's own closure, re-checked by the kernel (in topological order)
+      const closure: ProofGraph = { nodes: nodes.filter((n) => seen.has(n.id)), rooms: kRooms, ...(vars.length ? { vars } : {}) };
+      const cr = kcheck(closure, ctx0);
       const so = cr.sockets.find((s) => s.id === sd.id);
-      ok = cr.ok && !!so?.ok && so.filledBy === P;
-      if (!ok) reason = so?.error ?? Object.values(cr.nodes).find((n) => !n.ok)?.error ?? 'the kernel does not accept this delivery';
+      const pr = cr.nodes[P];
+      const allowed = new Set(sd.allowedGivens.map((g) => `g:${g}`));
+      const tg = sd.target;
+      const pf = pr?.fact;
+      const matches = !!pf && ((tg.k === 'law' || tg.k === 'cond')
+        ? (pf.k === 'law' || pf.k === 'cond') && (sameCardUpToRenaming(pf, tg) || sameCardUpToRenaming(flipConclusion(pf), tg))
+        : (pf.k === tg.k && (tg.k === 'eq' || tg.k === 'neq') && (pf.k === 'eq' || pf.k === 'neq') && same(norm(pf.l), norm(tg.l)) && same(norm(pf.r), norm(tg.r))));
+      const extra = pr?.deps.filter((d) => !allowed.has(d)) ?? [];
+      ok = cr.ok && !!so?.ok && !!pr?.ok && matches && !extra.length;
+      if (!ok) reason = (extra.length || !so?.ok ? so?.error : undefined) ?? Object.values(cr.nodes).find((n) => !n.ok)?.error ?? 'the kernel does not accept this delivery';
     }
     sockets[sd.id] = { ...(st.by ? { by: st.by } : {}), ok, ...(reason ? { reason } : {}) };
     if (!ok) { r.status = { k: 'jammed', reason: reason! }; plan.machines[sm.id]!.ok = false; }
@@ -1101,6 +1324,118 @@ export function compile(c: Canvas, ctx: KernelCtx): CompiledX {
   }
 
   return { graph, check: chk, machines: results, scopeOf, sockets, solvable, beltErrors, cause, plan };
+}
+
+/** Every atom id (level constant or tower variable) occurring in a fact or card. */
+export function atomsOfFact(f: Fact): Set<string> {
+  const out = new Set<string>();
+  const walk = (t: Term) => {
+    switch (t.k) {
+      case 'atom': out.add(t.id); return;
+      case 'inv': walk(t.arg); return;
+      case 'mul': t.fs.forEach(walk); return;
+      case 'pow': walk(t.base); for (const r of polyRefs(t.exp)) if (r.k === 'zvar') out.add(r.id); return;
+      case 'int': for (const r of polyRefs(t.val)) if (r.k === 'zvar') out.add(r.id); return;
+      default: return;
+    }
+  };
+  if (f.k === 'eq' || f.k === 'neq' || f.k === 'law') { walk(f.l); walk(f.r); }
+  else if (f.k === 'cond') { for (const p of f.premises) { walk(p.l); walk(p.r); } walk(f.concl.l); walk(f.concl.r); }
+  return out;
+}
+
+// ───────────────────────────── Lemma Book ─────────────────────────────
+
+/**
+ * The card a ∀ machine or an Assume gate emits, if it is a theorem of group theory: a CLOSED card
+ * (only metas — no level constant, no free tower variable), proved at the root, with no dependencies
+ * (no level given, no open supposition). Everything is read from the kernel's check, never from
+ * recipe metadata.
+ */
+export function lemmaFrom(comp: Compiled, c: Canvas, machineId: string, ctx: KernelCtx): { ok: true; card: Card } | { ok: false; reason: string } {
+  const m = c.machines.find((x) => x.id === machineId);
+  const room = m?.config.kind === 'gate' ? c.rooms.find((x) => x.id === (m.config as { room: string }).room) : undefined;
+  if (!m || !(m.kind === 'forall' || (m.kind === 'gate' && room?.kind === 'assume'))) return { ok: false, reason: JAMS.lemmaNotCard };
+  const r = comp.machines[machineId];
+  if (!r || r.status.k !== 'ok') return { ok: false, reason: JAMS.lemmaNotReady(r && r.status.k !== 'ok' ? r.status.reason : 'nothing comes out yet') };
+  if (r.out?.k !== 'card' || r.out.ref.k !== 'node') return { ok: false, reason: JAMS.lemmaNotReady('nothing comes out yet') };
+  const nodeIdOut = r.out.ref.id;
+  const node = comp.graph.nodes.find((n) => n.id === nodeIdOut);
+  const nr = comp.check.nodes[nodeIdOut];
+  if (!node || !nr?.ok || !nr.fact || (nr.fact.k !== 'law' && nr.fact.k !== 'cond')) return { ok: false, reason: JAMS.lemmaNotReady(nr?.error ?? 'the kernel has not certified it') };
+  const L = labelsOf([...ctx.level.atoms, ...(comp.graph.vars ?? [])]);
+  for (const d of [...nr.deps].sort(cmp)) {
+    if (d.startsWith('g:')) {
+      const gd = ctx.level.givens.find((g) => g.id === d.slice(2));
+      return { ok: false, reason: JAMS.lemmaGiven(gd ? `${gd.name}: ${factText(gd.fact, L)}` : d.slice(2)) };
+    }
+    if (d.startsWith('a:')) {
+      const rm = c.rooms.find((x) => x.id === d.slice(2));
+      const k = rm && (rm.kind === 'suppose' || (rm.kind === 'assume' && (rm.rel ?? 'eq') === 'eq')) ? 'eq' : 'neq';
+      return { ok: false, reason: JAMS.lemmaSupposition(rm ? factText({ k, l: rm.l, r: rm.r }, L) : 'a room’s assumption') };
+    }
+    return { ok: false, reason: JAMS.lemmaNotReady(`it rests on ${d}`) };
+  }
+  if (node.scope !== ROOT) return { ok: false, reason: JAMS.lemmaInRoom };
+  const atoms = [...atomsOfFact(nr.fact)].sort(cmp);
+  const varIds = new Set((comp.graph.vars ?? []).map((v) => v.id));
+  const constant = atoms.find((x) => !varIds.has(x));
+  if (constant) return { ok: false, reason: JAMS.lemmaConst(L[constant] ?? constant) };
+  if (atoms.length) return { ok: false, reason: JAMS.lemmaVar(L[atoms[0]!] ?? atoms[0]!) };
+  return { ok: true, card: nr.fact };
+}
+
+/** Authored-lemma ids a canvas cites (recipes and card docks referring to registry schemas). */
+function citedSchemas(c: Canvas): Set<string> {
+  const out = new Set<string>();
+  const walk = (x: unknown) => {
+    if (!x || typeof x !== 'object') return;
+    if (Array.isArray(x)) { x.forEach(walk); return; }
+    const o = x as Record<string, unknown>;
+    if (o.k === 'schema' && typeof o.id === 'string') out.add(o.id);
+    for (const v of Object.values(o)) walk(v);
+  };
+  for (const m of c.machines) walk(m.config);
+  return out;
+}
+
+/**
+ * Re-verify a saved lemma: recompile its canvas (under its own level) with every authored lemma that
+ * is not EARLIER-saved removed from the library, and require its machine to emit the same card,
+ * closed, at root, with no dependencies. `earlier` = ids of lemmas saved before this one (acyclic
+ * citation); omitted = no other authored lemma may be cited. Use verifyLemmas() for a whole book.
+ */
+export function verifyLemma(l: SavedLemma, ctx: KernelCtx, earlier: string[] = []): { ok: true } | { ok: false; reason: string } {
+  try {
+    const allowed = new Set(earlier.filter((x) => x !== l.id));
+    const authoredOut = (id: string) => ctx.registry[id]?.origin === 'authored' && !allowed.has(id);
+    for (const id of citedSchemas(l.canvas)) if (id === l.id || authoredOut(id)) return { ok: false, reason: JAMS.lemmaSelf };
+    const level = ctx.level.id === l.levelId ? ctx.level : LEVEL_BY_ID[l.levelId];
+    if (!level) return { ok: false, reason: `the order ${l.levelId} it was proved on no longer exists` };
+    const registry = Object.fromEntries(Object.entries(ctx.registry).filter(([id]) => id !== l.id && !authoredOut(id)));
+    const schemas = ctx.level.tools.schemas.filter((id) => id !== l.id && !authoredOut(id));
+    const vctx: KernelCtx = { level: { ...level, tools: { ...ctx.level.tools, schemas } }, registry };
+    const comp = compile(l.canvas, vctx);
+    const res = lemmaFrom(comp, l.canvas, l.machine, vctx);
+    if (!res.ok) return res;
+    if (!sameCardUpToRenaming(res.card, l.card)) return { ok: false, reason: JAMS.lemmaChanged };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, reason: `the saved proof could not be read (${(e as Error)?.message ?? 'unknown'})` };
+  }
+}
+
+/** Verify a whole Lemma Book in save order; each lemma may cite only verified, earlier-saved ones. */
+export function verifyLemmas(lemmas: SavedLemma[], ctxOf: (levelId: string) => KernelCtx): SavedLemma[] {
+  const ordered = [...lemmas].sort((a, b) => a.savedAt - b.savedAt || cmp(a.id, b.id));
+  const good: string[] = [];
+  const out = new Map<string, SavedLemma>();
+  for (const l of ordered) {
+    const v = verifyLemma(l, ctxOf(l.levelId), good);
+    if (v.ok) good.push(l.id);
+    out.set(l.id, v.ok ? { ...l, verified: true, reason: undefined } : { ...l, verified: false, reason: v.reason });
+  }
+  return lemmas.map((l) => out.get(l.id)!);
 }
 
 /** The machine whose jam starves `id` (itself if it is jammed), for the lens's causal link. */

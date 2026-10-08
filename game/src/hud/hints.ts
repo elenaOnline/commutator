@@ -5,7 +5,7 @@ import type { Canvas } from '../factory/types';
 import type { MachineKind } from '../factory/types';
 import { h, machineRect, type S, type Store } from './util';
 
-interface Hint { text: (s: S) => string; anchor: 'slot' | 'spool' | 'socket'; done: (c: Canvas) => boolean }
+interface Hint { text: (s: S) => string; anchor: 'slot' | 'spool' | 'socket' | 'rewriter'; done: (c: Canvas) => boolean }
 
 const players = (c: Canvas, kind: MachineKind) => c.machines.filter((m) => m.kind === kind && !m.locked);
 const fedBy = (c: Canvas, toKind: MachineKind, fromKind: MachineKind) => c.belts.some((b) => {
@@ -13,12 +13,14 @@ const fedBy = (c: Canvas, toKind: MachineKind, fromKind: MachineKind) => c.belts
   return to?.kind === toKind && from?.kind === fromKind;
 });
 
+const hasRecipe = (c: Canvas) => players(c, 'rewriter').some((m) => !!(m.config as { recipe?: unknown }).recipe);
 const HINTS: Record<string, Hint[]> = {
   L01: [
-    { anchor: 'slot', done: (c) => players(c, 'canceller').length > 0,
-      text: (s) => (s.ui.tool.k === 'place' && s.ui.tool.kind === 'canceller' ? 'Click the floor between the spool and the dock' : 'Place a <b>Canceller</b> <kbd>2</kbd>') },
-    { anchor: 'spool', done: (c) => fedBy(c, 'canceller', 'spool'), text: () => '<b>Drag</b> from the spool’s output to the Canceller' },
-    { anchor: 'socket', done: (c) => fedBy(c, 'socket', 'canceller'), text: () => 'Connect the Canceller to the <b>dock</b>' },
+    { anchor: 'slot', done: (c) => players(c, 'rewriter').length > 0,
+      text: (s) => (s.ui.tool.k === 'place' && s.ui.tool.kind === 'rewriter' ? 'Click the floor between the spool and the dock' : 'Place a <b>Rewriter</b> <kbd>2</kbd>') },
+    { anchor: 'rewriter', done: hasRecipe, text: () => 'Choose its recipe: <b>cancel</b>' },
+    { anchor: 'spool', done: (c) => fedBy(c, 'rewriter', 'spool'), text: () => '<b>Drag</b> from the spool’s output to the Rewriter' },
+    { anchor: 'socket', done: (c) => fedBy(c, 'socket', 'rewriter'), text: () => 'Connect the Rewriter to the <b>dock</b>' },
   ],
 };
 
@@ -61,7 +63,7 @@ export function mountHints(layer: HTMLElement, store: Store, hooks: { slotRect: 
     const w = el.offsetWidth, hh = el.offsetHeight;
     let x: number, y: number, side: 'up' | 'down' | 'left' = 'down';
     if (hint.anchor === 'slot') {
-      const r = hooks.slotRect('canceller');
+      const r = hooks.slotRect('rewriter');
       x = r ? r.left + r.width / 2 - w / 2 : innerWidth / 2 - w / 2;
       y = r ? r.top - hh - 16 : innerHeight - 140;
       side = 'down';

@@ -2,7 +2,8 @@
 import type { CheckResult, Family, NodeId, ProofGraph, ProofNode, RuleRef, StepOp } from './types';
 import type { KernelCtx, Metrics } from './index';
 import { beads, norm } from './terms';
-import { check, nodeUses } from './logic';
+import { assumptionOf, check, nodeUses, schemaInfo, withVars } from './logic';
+import { atomsOf } from './terms';
 import { factText, labelsOf, substText, termText, type Labels } from './print';
 import { LEVEL_BY_ID, MIRROR_NAMES } from '../levels/levels';
 
@@ -21,6 +22,7 @@ export function opFamily(op: StepOp, next: StepOp | undefined, kindOf: (id: Node
       return next?.k === 'rewrite' ? ruleFamily(next.rule, next.rule.k === 'node' ? kindOf(next.rule.id) : undefined) : 'identity';
     case 'rewrite': return ruleFamily(op.rule, op.rule.k === 'node' ? kindOf(op.rule.id) : undefined);
     case 'lift': return 'structure';
+    case 'invert': return 'structure';
     case 'swap': return 'equation';
   }
 }
@@ -34,6 +36,8 @@ export function familyOf(n: ProofNode, g: ProofGraph): Family {
     case 'clash': return 'contradiction';
     case 'press': return 'lemma';
     case 'merge': return 'equation';
+    case 'product': return 'structure';
+    case 'generalize': return 'lemma';
     case 'apply': return n.rule.k === 'node' && kindOf(n.rule.id) === 'given' ? 'given' : 'lemma';
     case 'step': {
       let next: StepOp | undefined;
@@ -59,7 +63,7 @@ export function cachedCheck(g: ProofGraph, ctx: KernelCtx): CheckResult {
 }
 
 export function schemaTitle(id: string, mirror: boolean | undefined, ctx: KernelCtx): string {
-  const sc = ctx.registry[id];
+  const sc = schemaInfo(id, ctx);
   if (!sc) return id;
   if (mirror) {
     const mn = MIRROR_NAMES[id];
@@ -85,13 +89,15 @@ export function citeName(id: NodeId, g: ProofGraph, ctx: KernelCtx, L: Labels, r
 const at = (s: Record<string, unknown>, L: Labels) =>
   Object.keys(s).length ? ` at ${substText(s as never, L)}` : '';
 
-export function justify(n: ProofNode, g: ProofGraph, ctx: KernelCtx): string {
+export function justify(n: ProofNode, g: ProofGraph, ctx0: KernelCtx): string {
+  const ctx = withVars(ctx0, g).ctx;
   const L = labelsOf(ctx.level.atoms);
   switch (n.k) {
     case 'start': return 'reflexivity';
     case 'given': return ctx.level.givens.find((x) => x.id === n.givenId)?.name ?? n.givenId;
     case 'assume': {
       const room = g.rooms.find((r) => r.id === n.room);
+      if (room?.kind === 'assume') return `assume ${factText(assumptionOf(room), L)}`;
       return room?.kind === 'classical' ? 'assume the opposite (for contradiction)' : 'supposition';
     }
     case 'step': {
@@ -99,6 +105,7 @@ export function justify(n: ProofNode, g: ProofGraph, ctx: KernelCtx): string {
       switch (op.k) {
         case 'insertE': return 'unit';
         case 'swap': return 'symmetry';
+        case 'invert': return 'invert both sides';
         case 'lift': return `multiply on the ${op.side} by ${termText(op.term, L)}`;
         case 'rewrite': {
           const r = op.rule;
@@ -116,9 +123,20 @@ export function justify(n: ProofNode, g: ProofGraph, ctx: KernelCtx): string {
       return `${citeName(r.id, g, ctx, L)}${at(n.subst, L)}`;
     }
     case 'merge': return 'transitivity';
+    case 'product': return 'multiply the two equations';
+    case 'generalize': {
+      const f = cachedCheck(g, ctx0).nodes[n.input]?.fact;
+      const vars = new Set((g.vars ?? []).map((v) => v.id));
+      const seen = new Set<string>();
+      if (f && (f.k === 'eq' || f.k === 'neq' || f.k === 'law')) { atomsOf(f.l, seen); atomsOf(f.r, seen); }
+      if (f && f.k === 'cond') for (const p of [...f.premises, f.concl]) { atomsOf(p.l, seen); atomsOf(p.r, seen); }
+      const names = [...seen].filter((id) => vars.has(id)).map((id) => L[id] ?? id);
+      return names.length ? `${names.join(', ')} ${names.length === 1 ? 'was' : 'were'} arbitrary: generalize` : 'generalize';
+    }
     case 'clash': return 'contradiction';
     case 'exit': {
       const room = g.rooms.find((r) => r.id === n.room);
+      if (room?.kind === 'assume') return 'discharge the assumption (implication)';
       return room?.kind === 'classical' ? 'proof by contradiction (classical)' : 'the supposition led to a contradiction';
     }
     case 'press': return 'Lagrange (imported)';
@@ -153,7 +171,7 @@ export function metrics(g: ProofGraph, res: CheckResult, ctx: KernelCtx): Metric
   for (const id of reach) {
     const n = byId.get(id)!;
     // parts
-    if (n.k === 'step' || n.k === 'apply' || n.k === 'merge' || n.k === 'clash' || n.k === 'press') {
+    if (n.k === 'step' || n.k === 'apply' || n.k === 'merge' || n.k === 'clash' || n.k === 'press' || n.k === 'product' || n.k === 'generalize') {
       if (n.meta?.gesture !== 'auto-swap') stations.add(`s:${n.meta?.station ?? `n:${n.id}`}`);
     }
     // axioms

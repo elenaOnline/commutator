@@ -15,6 +15,16 @@ export function ctxOf(levelId: string): K.KernelCtx {
   return { level, registry: REGISTRY };
 }
 
+/** v4: the player's own Double Flip as the Lemma Book lends it (factoryStore.ctxFor shape). */
+export const DOUBLE_FLIP: K.Schema = { id: 'lemma:double-flip-1', name: 'Double Flip', textbook: 'Double Flip', card: { k: 'law', metas: ['u'], l: { k: 'inv', arg: { k: 'inv', arg: { k: 'meta', id: 'u' } } }, r: { k: 'meta', id: 'u' } }, origin: 'authored', mirrorable: true };
+/** A context with authored lemmas added to the registry and the level's usable schemas. */
+export function withAuthored(ctx: K.KernelCtx, ...lemmas: K.Schema[]): K.KernelCtx {
+  return {
+    level: { ...ctx.level, tools: { ...ctx.level.tools, schemas: [...ctx.level.tools.schemas, ...lemmas.map((l) => l.id)] } },
+    registry: { ...ctx.registry, ...Object.fromEntries(lemmas.map((l) => [l.id, l])) },
+  };
+}
+
 /** An ad-hoc level manifest for kernel tests. */
 export function mkLevel(p: Omit<Partial<LevelManifest>, 'tools'> & { tools?: Partial<LevelManifest['tools']> } = {}): LevelManifest {
   return {
@@ -26,6 +36,9 @@ export function mkLevel(p: Omit<Partial<LevelManifest>, 'tools'> & { tools?: Par
   };
 }
 export const mkCtx = (p: Parameters<typeof mkLevel>[0] = {}): K.KernelCtx => ({ level: mkLevel(p), registry: REGISTRY });
+
+/** A proof node whose id is optional (distributes over the node union). */
+export type NodeSpec = ProofNode extends infer N ? N extends ProofNode ? Omit<N, 'id'> & { id?: string } : never : never;
 
 let uid = 0;
 const fresh = (p: string) => `${p}${(uid++).toString(36)}`;
@@ -48,7 +61,7 @@ export class Player {
     this.res = K.check(this.graph, ctx);
   }
   fact(id: NodeId) { return this.res.nodes[id]?.fact; }
-  text(id: NodeId) { const f = this.fact(id); return f ? K.factText(f, K.labelsOf(this.ctx.level.atoms)) : '(none)'; }
+  text(id: NodeId) { const f = this.fact(id); return f ? K.factText(f, K.labelsOf(K.withVars(this.ctx, this.graph).ctx.level.atoms)) : '(none)'; }
   private commit(g: ProofGraph): CheckResult {
     const r = K.check(g, this.ctx);
     const bad = Object.values(r.nodes).find((n) => !n.ok);
@@ -86,16 +99,54 @@ export class Player {
     return node.id;
   }
   parse(src: string): Term {
-    const r = K.parseTerm(src, this.ctx.level.atoms);
+    const r = K.parseTerm(src, K.withVars(this.ctx, this.graph).ctx.level.atoms);
     if (!r.ok) throw new Error(r.error);
     return r.term;
   }
-  openRoom(kind: Room['kind'], l: Term | string, r: Term | string, parent: ScopeId = ROOT): { room: ScopeId; assume: NodeId } {
-    const room: Room = { id: fresh('room'), parent, kind, l: typeof l === 'string' ? this.parse(l) : K.norm(l), r: typeof r === 'string' ? this.parse(r) : K.norm(r) };
+  openRoom(kind: Room['kind'], l: Term | string, r: Term | string, parent: ScopeId = ROOT, rel?: 'eq' | 'neq'): { room: ScopeId; assume: NodeId } {
+    const room: Room = { id: fresh('room'), parent, kind, l: typeof l === 'string' ? this.parse(l) : K.norm(l), r: typeof r === 'string' ? this.parse(r) : K.norm(r), ...(rel ? { rel } : {}) };
     const assume: ProofNode = { id: fresh('n'), scope: room.id, k: 'assume', room: room.id, meta: { station: fresh('st'), gesture: kind } };
-    this.commit({ nodes: [...this.graph.nodes, assume], rooms: [...this.graph.rooms, room] });
+    this.commit({ ...this.graph, nodes: [...this.graph.nodes, assume], rooms: [...this.graph.rooms, room] });
     return { room: room.id, assume: assume.id };
   }
+  // ───── v4 moves (what the factory compiles to) ─────
+  /** Declare a Tower variable (Let x₁ ∈ G). Returns its id. */
+  declareVar(label: string): string {
+    const id = `v:${label}`;
+    const vars = [...(this.graph.vars ?? []), { id, label, hue: 5, variable: true }];
+    this.commit({ ...this.graph, vars });
+    return id;
+  }
+  /** Declare a ℤ Tower (Let n₁ ∈ ℤ). Returns its id. */
+  declareInt(label: string): string {
+    const id = `z:${label}`;
+    const vars = [...(this.graph.vars ?? []), { id, label, hue: 6, variable: true, sort: 'Z' as const }];
+    this.commit({ ...this.graph, vars });
+    return id;
+  }
+  private addNode(node: ProofNode): NodeId {
+    this.commit({ ...this.graph, nodes: [...this.graph.nodes, node] });
+    return node.id;
+  }
+  /** Add a node without requiring it to check; returns its NodeResult (graph is kept only if all ok). */
+  tryNode(node: NodeSpec): K.NodeResult {
+    const n = { ...node, id: node.id ?? fresh('t') } as ProofNode;
+    const g = { ...this.graph, nodes: [...this.graph.nodes, n] };
+    const r = K.check(g, this.ctx);
+    if (r.ok && Object.values(r.nodes).every((x) => x.ok)) { this.graph = g; this.res = r; }
+    return r.nodes[n.id]!;
+  }
+  step(input: NodeId, op: StepOp, scope?: ScopeId): NodeId {
+    const sc = scope ?? this.graph.nodes.find((n) => n.id === input)!.scope;
+    return this.addNode({ id: fresh('n'), scope: sc, k: 'step', input, op });
+  }
+  generalize(input: NodeId, scope: ScopeId = ROOT): NodeId { return this.addNode({ id: fresh('G'), scope, k: 'generalize', input }); }
+  product(a: NodeId, b: NodeId, scope: ScopeId = ROOT): NodeId { return this.addNode({ id: fresh('X'), scope, k: 'product', inputs: [a, b] }); }
+  exit(room: ScopeId, input: NodeId): NodeId {
+    const parent = this.graph.rooms.find((r) => r.id === room)!.parent;
+    return this.addNode({ id: fresh('E'), scope: parent, k: 'exit', room, input });
+  }
+
   press(sizeNode: NodeId): NodeId {
     const scope = this.graph.nodes.find((n) => n.id === sizeNode)?.scope ?? ROOT;
     const node: ProofNode = { id: fresh('p'), scope, k: 'press', input: sizeNode, meta: { station: fresh('st'), gesture: 'Lagrange press' } };
@@ -179,8 +230,8 @@ export class Player {
       const uses: NodeId[] = [];
       if (n.k === 'step') { uses.push(n.input); if (n.op.k === 'rewrite' && n.op.rule.k === 'node') uses.push(n.op.rule.id); }
       if (n.k === 'apply') { uses.push(...n.inputs); if (n.rule.k === 'node') uses.push(n.rule.id); }
-      if (n.k === 'merge' || n.k === 'clash') uses.push(...n.inputs);
-      if (n.k === 'exit' || n.k === 'press') uses.push(n.input);
+      if (n.k === 'merge' || n.k === 'clash' || n.k === 'product') uses.push(...n.inputs);
+      if (n.k === 'exit' || n.k === 'press' || n.k === 'generalize') uses.push(n.input);
       if (uses.includes(id)) this.collect(n.id, g, acc);
     }
   }

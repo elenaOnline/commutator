@@ -8,6 +8,7 @@ import type { FactoryStore, FState, FUI } from '../state/factoryStore';
 import type { Belt, Endpoint, ItemKind, ItemValue, Machine, Packet, Rect, Rot, RunState, Tile } from '../factory/types';
 import { itemKindOf } from '../factory/types';
 import { TICKS_PER_SECOND } from '../factory';
+import * as F from '../factory';
 import { queued } from '../factory/runtime';
 import type * as FF from '../factory';
 import { FONT, INK, reducedMotion } from '../ui/tokens';
@@ -18,7 +19,8 @@ import { REGISTRY, MIRROR_NAMES } from '../levels/levels';
 import {
   defaultConfig, faceVec, fallbackRoute, footprint, portTileOut, portsOf, spec, trySplice, tryAutoLinks, tryBranchAt, tryCopy, tryMove, tryPlace, tryRouteOrWhy,
 } from './adapt';
-import { buildGeo, centre, familyOfMachine, portEdge, portEnd, tkey, type BGeo, type Geo, type MGeo, type PortGeo } from './geo';
+import { lookOf, termAtoms } from './look';
+import { buildGeo, centre, portEdge, portEnd, tkey, type BGeo, type Geo, type MGeo, type PortGeo } from './geo';
 import {
   beltBody, beltSVG, bridgeSVG, heightOf, labelsOf, liveStatusOf, machineLabelSVG, machineName, machineSVG, pipSVG, portSVG, roomHandles, roomSVG,
   socketLabelSVG, socketTarget, type Ctx,
@@ -52,7 +54,7 @@ export function fitFloor(): void { ACTIVE?.fit(); }
 // ───────────────────────────── perf probe ─────────────────────────────
 
 export interface FloorPerf { kind: string; sync: number; frame: number }
-const PERF: { samples: FloorPerf[]; frames: number[] } = { samples: [], frames: [] };
+const PERF: { samples: FloorPerf[]; frames: number[]; down?: unknown; drag?: unknown } = { samples: [], frames: [] };
 (globalThis as unknown as { __floorPerf: typeof PERF }).__floorPerf = PERF;
 
 // ───────────────────────────── gestures ─────────────────────────────
@@ -117,6 +119,12 @@ class Floor {
   private justPlaced: Set<string> | null = null;
   private hiddenPk = new Set<number>();
   private kf = 1;
+  private nameBoxes: { x0: number; y0: number; x1: number; y1: number }[] | null = null;
+  private boxZoom = 1;
+  private varIds = new Set<string>();
+  private prevPorts: Map<string, Set<string>> | null = null;
+  private reshaped = new Set<string>();
+  private pulsedAt = new Map<string, number>();
   private headW = new Map<string, number>();
   private clipboard: FF.Blueprint | null = null;
   private pendingCam: { x: number; y: number; zoom: number } | null = null;
@@ -134,7 +142,7 @@ class Floor {
     this.root = document.createElement('div');
     this.root.className = 'fl-root';
     this.root.tabIndex = -1;
-    const layers = ['rooms', 'under', 'belts', 'ports', 'machines', 'labels', 'pips', 'packets', 'fx', 'ghost', 'alt', 'phits', 'handles', 'tags'];
+    const layers = ['rooms', 'under', 'belts', 'ports', 'machines', 'labels', 'radio', 'pips', 'packets', 'fx', 'ghost', 'alt', 'phits', 'badges', 'handles', 'tags'];
     this.root.innerHTML = `<svg class="fl-svg" xmlns="${SVGNS}">${defsSVG()}<rect class="fl-bg" width="100%" height="100%" fill="#fff"/>` +
       `<g class="fl-world"><rect x="-60000" y="-30000" width="120000" height="60000" fill="url(#fl-cross)" pointer-events="none"/>` +
       `<g class="fl-grid" mask="url(#fl-gridmask)" pointer-events="none"><rect x="-60000" y="-30000" width="120000" height="60000" fill="url(#fl-grid)"/></g>` +
@@ -221,8 +229,16 @@ class Floor {
     const geo = this.geo;
     if (!geo) { for (const k of Object.keys(this.L)) this.L[k]!.innerHTML = ''; return; }
     const comp = s.compiled ?? null;
-    // rooms
-    this.L.rooms!.innerHTML = s.canvas.rooms.map((r) => roomSVG(r, this.labels)).join('');
+    // tower variables read as x₁ everywhere
+    for (const [id, v] of geo.vars) this.labels[id] = v.label;
+    this.varIds = new Set(geo.vars.keys());
+    // rooms (an assume room's gate tells us its actual export once it has one)
+    const qOf = (roomId: string) => {
+      const gate = s.canvas.machines.find((m) => m.config.kind === 'gate' && m.config.room === roomId);
+      const out = gate ? comp?.machines[gate.id]?.out : undefined;
+      return out?.k === 'card' && out.card.k === 'cond' ? out.card.concl : undefined;
+    };
+    this.L.rooms!.innerHTML = s.canvas.rooms.map((r) => roomSVG(r, this.labels, false, r.kind === 'assume' ? qOf(r.id) : undefined)).join('');
     // belts
     this.L.belts!.innerHTML = [...geo.bs.values()].map((b) => beltSVG(b, comp)).join('') + geo.crossings.map((c) => bridgeSVG(c, geo)).join('');
     // ports (ground) + port hit targets (top)
@@ -236,6 +252,15 @@ class Floor {
     }
     this.L.ports!.innerHTML = ports;
     this.L.phits!.innerHTML = hits;
+    // a recipe change that adds ports: the new ones ease in (removed ones simply go)
+    const nowPorts = new Map<string, Set<string>>();
+    for (const pg of geo.ports) { const set = nowPorts.get(pg.m) ?? new Set<string>(); set.add(pg.port.id); nowPorts.set(pg.m, set); }
+    if (this.prevPorts && !reducedMotion()) for (const [m, set] of nowPorts) {
+      const before = this.prevPorts.get(m); if (!before) continue;
+      for (const id of set) if (!before.has(id)) this.L.ports!.querySelector(`[data-p="${CSS.escape(`${m}|${id}`)}"]`)?.classList.add('is-new');
+      if ([...set].some((id) => !before.has(id)) || [...before].some((id) => !set.has(id))) this.reshaped.add(m);
+    }
+    this.prevPorts = nowPorts;
     // machines, painter's order (far → near)
     const ms = [...geo.ms.values()].sort((a, b) => (a.x0 + a.y0 + a.x1 + a.y1) - (b.x0 + b.y0 + b.x1 + b.y1) || a.x0 - b.x0);
     const delivered = s.run?.delivered ?? {};
@@ -256,6 +281,8 @@ class Floor {
     this.elByM.clear(); this.elByB.clear();
     this.L.machines!.querySelectorAll('[data-m]').forEach((e) => this.elByM.set((e as HTMLElement).dataset.m!, e));
     this.L.belts!.querySelectorAll('.fl-b').forEach((e) => this.elByB.set((e as HTMLElement).dataset.b!, e));
+    for (const id of this.reshaped) (this.elByM.get(id)?.querySelector('.fl-body') as SVGGElement | null)?.animate([{ opacity: 0.55 }, { opacity: 1 }], { duration: 260, easing: 'ease-out' });
+    this.reshaped.clear();
     this.capPackets();
     this.pipKey = '';
     this.renderPips();
@@ -263,10 +290,46 @@ class Floor {
     this.L.packets!.innerHTML = ''; this.pkEls.clear(); this.prevPos.clear(); this.prevRun = null; this.tickAt = performance.now(); this.drawnRun = null;
     this.renderHandles();
     if (this.s.ui.alt) this.renderAlt();
+    this.renderBadges();
+    this.nameBoxes = null;
     this.headW.clear();
     this.L.rooms!.querySelectorAll<SVGGElement>('.fl-rhead-out').forEach((el) => { const id = el.closest<HTMLElement>('[data-r]')?.dataset.r; if (id) { try { this.headW.set(id, el.getBBox().width); } catch { /* not laid out */ } } });
     if (!this.fitted) this.fit();
     else this.applyCamera();
+  }
+
+  /** "Ready to save": a ∀ machine or Assume gate whose card is a theorem of group theory (compiler's lemmaFrom). */
+  private renderBadges() {
+    const geo = this.geo, comp = this.s.compiled;
+    let o = '';
+    if (geo && comp) for (const g of geo.ms.values()) {
+      if (g.m.kind !== 'forall' && g.m.kind !== 'gate') continue;
+      let ok = false;
+      try { ok = !!(F.lemmaFrom(comp, this.s.canvas, g.m.id, this.s.ctx) as { ok?: boolean })?.ok; } catch { ok = false; }
+      if (!ok) continue;
+      const c = P((g.x0 + g.x1) / 2, (g.y0 + g.y1) / 2, heightOf(g.m));
+      const w = 96, x = c[0] - w / 2, y = c[1] - 40;
+      o += `<g class="fl-badge fl-sz fl-sz-q" data-badge="${esc(g.m.id)}" style="transform-origin:${f1(c[0])}px ${f1(y + 9)}px" role="button" aria-label="Ready to save to the Lemma Book">` +
+        `<line x1="${f1(c[0])}" y1="${f1(y + 18)}" x2="${f1(c[0])}" y2="${f1(c[1] - 4)}" stroke="${INK.gold}" stroke-width="1.4"/>` +
+        `<rect x="${f1(x)}" y="${f1(y)}" width="${w}" height="18" rx="9" fill="${INK.navy}" stroke="${INK.gold}" stroke-width="1.6"/>` +
+        `<text x="${f1(c[0])}" y="${f1(y + 12.4)}" text-anchor="middle" font-family="${FONT.ui}" font-size="9.4" font-weight="600" letter-spacing=".08em" fill="#fff"><tspan fill="${INK.gold}">✓</tspan> READY TO SAVE</text></g>`;
+    }
+    this.L.badges!.innerHTML = o;
+  }
+
+  /** World boxes of every name and glyph on the floor (machine labels, given names, plate titles). */
+  private names(): { x0: number; y0: number; x1: number; y1: number }[] {
+    if (this.nameBoxes) return this.nameBoxes;
+    const out: { x0: number; y0: number; x1: number; y1: number }[] = [];
+    // measured as drawn (label minimum-size scaling included), then mapped back to world px
+    const host = this.root.getBoundingClientRect(), cam = this.cam();
+    this.root.querySelectorAll<SVGGraphicsElement>('.fl-l-labels text, .fl-l-machines .fl-top text, .fl-plaque rect').forEach((t) => {
+      const b = t.getBoundingClientRect(); if (!b.width) return;
+      const a = toWorld(cam, this.view, b.left - host.left, b.top - host.top), z = toWorld(cam, this.view, b.right - host.left, b.bottom - host.top);
+      out.push({ x0: a[0] - 2, y0: a[1] - 2, x1: z[0] + 2, y1: z[1] + 2 });
+    });
+    this.nameBoxes = out;
+    return out;
   }
 
   /** At most MAX_IN_FLIGHT carriers drawn per belt; the rest (and the runtime's held-back queue) read as "×n" at the output. */
@@ -302,13 +365,21 @@ class Floor {
       const d: [number, number] = port ? faceVec(port.face) : [1, 0];
       const at: [number, number] = port ? [port.tile.x + 0.5 + d[0] * 0.12, port.tile.y + 0.5 + d[1] * 0.12] : [(g.x0 + g.x1) / 2, (g.y0 + g.y1) / 2];
       const c0 = P(at[0], at[1], h);
-      // lift it off the machine: above and outside the output corner, clear of the glyph and the label
-      const c: [number, number] = [c0[0] + (d[0] - d[1]) * 16 + 6, c0[1] + (d[0] + d[1]) * 4 - 16];
+      // lift it off the machine, then slide it until it covers no name or glyph (labels, given names, plates)
+      const boxes = this.names();
+      const cands: [number, number][] = [[16, -16], [24, -30], [-22, -26], [30, -2], [0, -44], [-34, -6], [36, -46]];
+      let c: [number, number] = [c0[0] + 16, c0[1] - 16];
+      for (const [dx, dy] of cands) {
+        const p: [number, number] = [c0[0] + (d[0] - d[1]) * dx * 0.7 + (d[0] === 0 ? dx : 0) * 0.3 + 6, c0[1] + dy];
+        const k = Math.max(1, 9 / (8.6 * this.cam().zoom));
+        const r = { x0: p[0] - 4 - 12 * k, y0: p[1] - 7 - 9 * k, x1: p[0] - 4 + 12 * k, y1: p[1] - 7 + 9 * k };
+        if (!boxes.some((b) => r.x0 < b.x1 && r.x1 > b.x0 && r.y0 < b.y1 && r.y1 > b.y0)) { c = p; break; }
+      }
       const y = c[1] - 7;
       o += `<g class="fl-queue fl-sz fl-sz-q" data-q="${esc(m)}" style="transform-origin:${f1(c[0])}px ${f1(y)}px">` +
         `<rect x="${f1(c[0] - 13)}" y="${f1(y - 5)}" width="22" height="12" rx="3" fill="#fff" stroke="${INK.navy}" stroke-width="1" opacity=".75"/>` +
         `<rect x="${f1(c[0] - 15)}" y="${f1(y - 8)}" width="22" height="12" rx="3" fill="#fff" stroke="${INK.navy}" stroke-width="1.1"/>` +
-        `<text x="${f1(c[0] - 4)}" y="${f1(y + 1.6)}" text-anchor="middle" font-family="${FONT.ui}" font-size="9" font-weight="600" fill="${INK.navy}">×${n}</text></g>`;
+        `<text x="${f1(c[0] - 4)}" y="${f1(y + 1.6)}" text-anchor="middle" font-family="${FONT.ui}" font-size="9" font-weight="600" fill="${INK.navy}">×${n > 9 ? '9+' : n}</text></g>`;
     }
     this.L.fx!.innerHTML = o;
   }
@@ -346,6 +417,13 @@ class Floor {
     }
     // seals
     for (const [sid, t] of Object.entries(run.delivered)) if (prev.delivered[sid] === undefined) { void t; this.seal(sid); }
+    // towers broadcast when a machine produces something that speaks of their symbol
+    if (this.varIds.size) {
+      const old = new Set(prev.packets.map((p) => p.id));
+      const heard = new Set<string>();
+      for (const p of run.packets) if (!old.has(p.id)) for (const v of this.valueVars(p.value)) heard.add(v);
+      for (const v of heard) { const t = this.geo?.vars.get(v)?.tower; if (t) this.pulseTower(t); }
+    }
   }
 
   private stamp(id: string) {
@@ -395,6 +473,7 @@ class Floor {
     }
     const bg = geo.bs.get(p.at.belt);
     if (bg?.direct) return null; // a coupling has no cells to ride: counted in the producer's stack
+    if (p.at.i < 0) return null; // still leaving its port: part of the producer's output, not yet on the belt
     const n = bg?.b.path.length ?? 0;
     const compact = occ.has(`${p.at.belt}|${p.at.i + 1}`) || (!!bg && p.at.i === n - 1 && occ.has(`P|${bg.b.to.m}|${bg.b.to.port}`));
     return { ...base, compact };
@@ -431,10 +510,10 @@ class Floor {
       if (!rec) {
         const el = document.createElementNS(SVGNS, 'g');
         el.setAttribute('class', 'fl-pk');
-        el.innerHTML = packetSVG(p.value, axis, this.labels, this.slots, cur.compact).svg;
+        el.innerHTML = packetSVG(p.value, axis, this.labels, this.slots, cur.compact, this.varIds).svg;
         this.L.packets!.appendChild(el);
         rec = { el, key }; this.pkEls.set(p.id, rec);
-      } else if (rec.key !== key) { rec.el.innerHTML = packetSVG(p.value, axis, this.labels, this.slots, cur.compact).svg; rec.key = key; }
+      } else if (rec.key !== key) { rec.el.innerHTML = packetSVG(p.value, axis, this.labels, this.slots, cur.compact, this.varIds).svg; rec.key = key; }
       const sp = P(gx, gy);
       rec.el.setAttribute('transform', `translate(${f1(sp[0])},${f1(sp[1])})`);
     }
@@ -469,6 +548,7 @@ class Floor {
     this.root.classList.toggle('is-far', c.zoom < 0.62);
     if (Math.abs(kf - this.kf) / this.kf > 0.06) { this.kf = kf; if (this.s?.ui.alt) this.renderAlt(); }
     this.flipHeadings(c, kf);
+    if (Math.abs(c.zoom - this.boxZoom) / Math.max(0.01, this.boxZoom) > 0.04) { this.boxZoom = c.zoom; this.nameBoxes = null; if (this.s?.run) this.capPackets(); }
   }
   /** A room heading sits outside its north-west wall; when that would clip the floor's edge (or slide under the
    *  order chip), it moves inside the room under the top corner. */
@@ -530,6 +610,110 @@ class Floor {
     this.L.pips!.querySelectorAll('[data-pip]').forEach((e) => e.classList.toggle('is-hover', hovM === (e as HTMLElement).dataset.pip));
     this.L.phits!.querySelectorAll('[data-p]').forEach((e) => { const [m, p] = (e as HTMLElement).dataset.p!.split('|'); e.classList.toggle('is-hover', ui.hover?.k === 'port' && ui.hover.id === m && ui.hover.port === p); });
     this.L.ports!.querySelectorAll('[data-p]').forEach((e) => { const [m] = (e as HTMLElement).dataset.p!.split('|'); e.classList.toggle('is-hot', hovM === m || sel.has(m!)); });
+    this.renderTrace();
+  }
+
+  // ───────────── towers: symbols, broadcast, tracing ─────────────
+
+  /** Tower variable ids a value speaks of. */
+  private valueVars(v: ItemValue | undefined): Set<string> {
+    const out = new Set<string>();
+    if (!v || !this.varIds.size) return out;
+    const terms: import('../kernel/types').Term[] = [];
+    const fact = (f: import('../kernel/types').Fact | import('../kernel/types').PatFact): void => {
+      if (f.k === 'eq' || f.k === 'neq' || f.k === 'law') { terms.push(f.l, f.r); return; }
+      if (f.k === 'cond') { f.premises.forEach(fact); fact(f.concl); }
+    };
+    if (v.k === 'term') terms.push(v.term); else if (v.k === 'fact') fact(v.fact); else fact(v.card);
+    for (const t of terms) for (const a of termAtoms(t)) if (this.varIds.has(a)) out.add(a);
+    return out;
+  }
+
+  /** Variables a machine uses: what it makes, what reaches it, and its own knobs. */
+  private machineVars(id: string): Set<string> {
+    const out = new Set<string>();
+    const g = this.geo?.ms.get(id); if (!g || !this.varIds.size) return out;
+    if (g.m.config.kind === 'tower') { out.add(g.m.config.varId); return out; }
+    const r = this.s.compiled?.machines[id];
+    const add = (v?: ItemValue) => { for (const x of this.valueVars(v)) out.add(x); };
+    add(r?.out); for (const v of Object.values(r?.inputs ?? {})) add(v);
+    const knob = (p?: import('../factory/types').Param) => { if (p?.k === 'knob' && p.term) add({ k: 'term', term: p.term }); };
+    const c = g.m.config;
+    if (c.kind === 'spool') knob(c.t);
+    if (c.kind === 'hopper' && c.t) add({ k: 'term', term: c.t });
+    if (c.kind === 'operator' && c.recipe?.k === 'multiply') knob(c.recipe.t);
+    if (c.kind === 'rewriter') { Object.values(c.values).forEach(knob); if (c.recipe?.k === 'insertPair') knob(c.recipe.x); }
+    if (c.kind === 'theorem') Object.values(c.values).forEach(knob);
+    return out;
+  }
+
+  private dishOf(towerId: string): S2 | null {
+    const g = this.geo?.ms.get(towerId); if (!g) return null;
+    const t = P((g.x0 + g.x1) / 2, (g.y0 + g.y1) / 2, 1.55);
+    return [t[0] + 1, t[1] + 1];
+  }
+
+  /** Broadcast rings from a tower's dish (throttled). */
+  private pulseTower(towerId: string) {
+    if (reducedMotion()) return;
+    const now = performance.now();
+    if (now - (this.pulsedAt.get(towerId) ?? 0) < 1400) return;
+    this.pulsedAt.set(towerId, now);
+    const d = this.dishOf(towerId); if (!d) return;
+    const g = document.createElementNS(SVGNS, 'g');
+    g.setAttribute('class', 'fl-waves');
+    for (let i = 0; i < 3; i++) {
+      const e = document.createElementNS(SVGNS, 'ellipse');
+      e.setAttribute('cx', f1(d[0])); e.setAttribute('cy', f1(d[1])); e.setAttribute('rx', '16'); e.setAttribute('ry', '8');
+      e.setAttribute('fill', 'none'); e.setAttribute('stroke', VIOLET); e.setAttribute('stroke-width', '1.6');
+      e.style.transformOrigin = `${f1(d[0])}px ${f1(d[1])}px`; e.style.transformBox = 'view-box';
+      g.appendChild(e);
+      e.animate([{ transform: 'scale(.5)', opacity: 0.85 }, { transform: 'scale(3.4)', opacity: 0 }], { duration: 1300, delay: i * 190, easing: 'cubic-bezier(.2,.7,.3,1)', fill: 'both' });
+    }
+    this.L.radio!.appendChild(g);
+    setTimeout(() => g.remove(), 1800);
+    this.elByM.get(towerId)?.querySelector('.fl-dish')?.animate([{ opacity: 1 }, { opacity: 0.6 }, { opacity: 1 }], { duration: 400 });
+  }
+
+  /** Hover a tower → light everything that speaks its symbol (radio arcs to them). Hover a machine or belt
+   *  that speaks of a variable → trace back to its tower. */
+  private renderTrace() {
+    const geo = this.geo, h = this.s.ui.hover;
+    const layer = this.L.radio!;
+    layer.querySelector('.fl-trace')?.remove();
+    for (const el of this.root.querySelectorAll('.is-var-lit')) el.classList.remove('is-var-lit');
+    this.root.classList.remove('is-tracing');
+    if (!geo || !h || !this.varIds.size || (h.k !== 'machine' && h.k !== 'belt' && h.k !== 'port')) return;
+    const hid = h.id;
+    const hg = geo.ms.get(hid);
+    let pairs: { tower: string; target: S2 }[] = [];
+    const centreOf = (id: string): S2 | null => { const g = geo.ms.get(id); return g ? P((g.x0 + g.x1) / 2, (g.y0 + g.y1) / 2, 0.45) : null; };
+    if (h.k === 'machine' && hg?.m.config.kind === 'tower') {
+      const v = hg.m.config.varId;
+      for (const [id] of geo.ms) if (id !== hid && this.machineVars(id).has(v)) { this.elByM.get(id)?.classList.add('is-var-lit'); const c = centreOf(id); if (c) pairs.push({ tower: hid, target: c }); }
+      for (const [id, bg] of geo.bs) if (this.valueVars(this.s.compiled?.machines[bg.b.from.m]?.out).has(v)) this.elByB.get(id)?.classList.add('is-var-lit');
+      this.elByM.get(hid)?.classList.add('is-var-lit');
+    } else {
+      const vars = h.k === 'belt' ? this.valueVars(this.s.compiled?.machines[geo.bs.get(hid)?.b.from.m ?? '']?.out) : this.machineVars(hid);
+      if (!vars.size) return;
+      const from = h.k === 'belt' ? (() => { const bg = geo.bs.get(hid); const t = bg?.line[Math.floor((bg?.line.length ?? 1) / 2)]; return t ? P(t[0], t[1], 0.2) : null; })() : centreOf(hid);
+      if (!from) return;
+      for (const v of vars) { const t = geo.vars.get(v)?.tower; if (t) { this.elByM.get(t)?.classList.add('is-var-lit'); pairs.push({ tower: t, target: from }); } }
+    }
+    if (!pairs.length && !(h.k === 'machine' && hg?.m.config.kind === 'tower')) return;
+    this.root.classList.add('is-tracing');
+    pairs = pairs.slice(0, 40);
+    let o = '';
+    for (const p of pairs) {
+      const d = this.dishOf(p.tower); if (!d) continue;
+      const mx = (d[0] + p.target[0]) / 2, my = Math.min(d[1], p.target[1]) - 40 - Math.abs(d[0] - p.target[0]) * 0.12;
+      o += `<path d="M${f1(d[0])},${f1(d[1])}Q${f1(mx)},${f1(my)} ${f1(p.target[0])},${f1(p.target[1])}" fill="none" stroke="${VIOLET}" stroke-width="1.4" stroke-dasharray="2 5" stroke-linecap="round" opacity=".7"/>` +
+        `<circle cx="${f1(p.target[0])}" cy="${f1(p.target[1])}" r="3" fill="${VIOLET}" opacity=".7"/>`;
+    }
+    const g = document.createElementNS(SVGNS, 'g');
+    g.setAttribute('class', 'fl-trace');
+    g.innerHTML = o;
+    layer.appendChild(g);
   }
 
   private renderHandles() {
@@ -613,7 +797,8 @@ class Floor {
   private ghostMachine(tile: Tile): Machine | null {
     const tool = this.s.ui.tool;
     if (tool.k !== 'place') return null;
-    const config = this.pipette?.kind === tool.kind ? this.pipette.config : defaultConfig(tool.kind, this.s.ctx, { schema: tool.schema, mirror: tool.mirror });
+    const armed = (tool as { config?: Machine['config'] }).config;
+    const config = armed && armed.kind === tool.kind ? armed : this.pipette?.kind === tool.kind ? this.pipette.config : defaultConfig(tool.kind, this.s.ctx, { schema: tool.schema, mirror: tool.mirror });
     const probe: Machine = { id: '__ghost', kind: tool.kind, at: { x: 0, y: 0 }, rot: this.s.ui.rot, config };
     const fp = footprint(probe, this.s.ctx);
     const w = Math.max(...fp.map((t) => t.x)) + 1, h = Math.max(...fp.map((t) => t.y)) + 1;
@@ -652,7 +837,8 @@ class Floor {
     const s = spec(m.kind);
     const tiles = footprint(m, this.s.ctx);
     const xs = tiles.map((t) => t.x), ys = tiles.map((t) => t.y);
-    const g: MGeo = { m, spec: s, fam: familyOfMachine(m, s), tiles, x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs) + 1, y1: Math.max(...ys) + 1, ports: portsOf(m, this.s.ctx) };
+    const look = lookOf(m, this.s.ctx);
+    const g: MGeo = { m, spec: s, fam: look.fam, look, tiles, x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs) + 1, y1: Math.max(...ys) + 1, ports: portsOf(m, this.s.ctx) };
     // geometric overlap is a fact we can see; the verdict (if any) is the editor's
     const overlap = tiles.some((t) => this.geo!.occ.has(tkey(t)) || this.geo!.beltOcc.has(tkey(t)));
     const ok = verdict ? verdict.ok : !overlap;
@@ -955,7 +1141,7 @@ class Floor {
       const tool = this.s.ui.tool;
       const kind = tool.k === 'room' ? tool.kind : 'suppose';
       const spec = this.roomSpec();
-      this.L.ghost!.innerHTML = roomSVG({ id: '__ghost', kind, l: spec?.l ?? null, r: spec?.r ?? null, rect }, this.labels, true);
+      this.L.ghost!.innerHTML = roomSVG({ id: '__ghost', kind, rel: spec?.rel, l: spec?.l ?? null, r: spec?.r ?? null, rect }, this.labels, true);
       this.L.under!.innerHTML = '';
     } else if (g.k === 'resize') {
       const room = this.s.canvas.rooms.find((r) => r.id === g.id); if (!room) return;
@@ -964,10 +1150,10 @@ class Floor {
     }
   }
 
-  private roomSpec(): { l: import('../kernel/types').Term; r: import('../kernel/types').Term } | null {
+  private roomSpec(): { l: import('../kernel/types').Term; r: import('../kernel/types').Term; rel?: 'eq' | 'neq' } | null {
     const ui = this.s.ui as FUI;
-    const tl = ui.tool as { k: string; l?: import('../kernel/types').Term; r?: import('../kernel/types').Term };
-    if (tl.k === 'room' && tl.l && tl.r) return { l: tl.l, r: tl.r };
+    const tl = ui.tool as { k: string; l?: import('../kernel/types').Term; r?: import('../kernel/types').Term; rel?: 'eq' | 'neq' };
+    if (tl.k === 'room' && tl.l && tl.r) return { l: tl.l, r: tl.r, rel: tl.rel ?? ui.roomSpec?.rel };
     if (ui.roomSpec) return ui.roomSpec;
     // the goal chip's preset: a suppose room for a ≠ target, a classical room for an = target
     const tool = ui.tool;
@@ -1019,7 +1205,8 @@ class Floor {
   }
 
   private valueHTML(v: ItemValue): string {
-    return v.k === 'term' ? termHTML(v.term, this.labels) : v.k === 'fact' ? factHTML(v.fact, this.labels) : factHTML(v.card, this.labels);
+    const html = v.k === 'term' ? termHTML(v.term, this.labels) : v.k === 'fact' ? factHTML(v.fact, this.labels) : factHTML(v.card, this.labels);
+    return subHTML(html);
   }
 
   private tipHTML(t: Target): string {
@@ -1028,6 +1215,12 @@ class Floor {
     if (t.k === 'machine') {
       if (this.s.ui.lens === t.id) return ''; // the HUD lens already says it
       const g = geo.ms.get(t.id); if (!g) return '';
+      if (g.m.config.kind === 'tower') {
+        const users = [...geo.ms.keys()].filter((id) => id !== g.m.id && this.machineVars(id).has((g.m.config as { varId: string }).varId)).length;
+        const isZ = g.m.config.sort === 'Z';
+        return `<div class="fl-tip-h">Tower <span class="fl-tip-k">declares ${isZ ? 'an integer' : 'a variable'}</span></div><div class="fl-tip-math math">Let ${subHTML(`<i>${esc(g.m.config.label.replace(/[₀-₉]+$/, ''))}</i>${g.m.config.label.replace(/^[^₀-₉]+/, '')}`)} ∈ ${isZ ? 'ℤ' : '<i>G</i>'}</div>` +
+          `<div class="fl-tip-why">${isZ ? 'An arbitrary integer exponent' : 'An arbitrary element'}: its name is unique on this floor. ${users ? `${users} machine${users === 1 ? '' : 's'} use it — lit now.` : 'No machine uses it yet.'}</div><div class="fl-tip-foot">Facts about it can be generalized by a ∀ machine</div>`;
+      }
       const name = machineName(g, this.cx);
       if (g.m.kind === 'socket') {
         const target = socketTarget(g.m, this.s.level);
@@ -1096,16 +1289,21 @@ class Floor {
     }
     const pt = this.local(me);
     const cam = this.cam();
-    const R = Math.max(12, 16 * cam.zoom);
-    let best: PortGeo | null = null, bs = Infinity;
+    // port hit areas sit just OUTSIDE the body and scale with zoom (never larger than ~0.4 tile on screen),
+    // so at far zoom a click on a machine's body selects it rather than starting a belt
+    const tile = Math.hypot(42, 21) * cam.zoom;
+    const R = Math.min(16, Math.max(6, 0.4 * tile));
+    let best: PortGeo | null = null, bs = Infinity, bd = Infinity;
     for (const pg of this.geo.ports) {
       const d = faceVec(pg.port.face);
-      const c = toScreen(cam, this.view, P(pg.edge[0] + d[0] * 0.2, pg.edge[1] + d[1] * 0.2));
+      const c = toScreen(cam, this.view, P(pg.edge[0] + d[0] * 0.3, pg.edge[1] + d[1] * 0.3));
       const dist = Math.hypot(c[0] - pt.x, c[1] - pt.y);
       if (dist > R) continue;
-      const score = dist - (pg.m === under ? 6 : 0) - (pg.port.dir === 'out' ? 4 : 0);
-      if (score < bs) { bs = score; best = pg; }
+      const score = dist - (pg.m === under ? 4 : 0) - (pg.port.dir === 'out' ? 3 : 0);
+      if (score < bs) { bs = score; best = pg; bd = dist; }
     }
+    // pressing on a body: only a port right under the pointer wins over the body itself
+    if (best && under && bd > R * 0.55) best = null;
     if (best) return { k: 'port', m: best.m, port: best.port.id };
     if (base.k === 'port') return under ? { k: 'machine', id: under } : { k: 'floor' };
     if (base.k === 'machine' && under && under !== base.id) return { k: 'machine', id: under };
@@ -1159,11 +1357,18 @@ class Floor {
     this.pointer = { x: p.x, y: p.y, inside: true };
     this.root.focus({ preventScroll: true });
     const t = this.targetOf(e);
+    PERF.down = { t, tool: this.s.ui.tool.k, g: this.g.k, el: ((e.target as Element | null)?.getAttribute?.('class') ?? (e.target as Element | null)?.tagName) };
     const tool = this.s.ui.tool;
     // right button: cancel
     if (e.button === 2) { this.cancel(true); return; }
     if (e.button === 1 || this.space) { this.startPan(e, p); return; }
     if (e.button !== 0) return;
+    const badge = (e.target as Element | null)?.closest?.('[data-badge]') as HTMLElement | null;
+    if (badge && e.button === 0) {
+      const id = badge.dataset.badge!;
+      this.store.select([id]); this.store.setUI({ lens: id, lensFocus: 'save' } as Partial<FUI>);
+      e.preventDefault(); return;
+    }
     // click-click belt: second click
     if (this.g.k === 'belt' && this.g.click) {
       this.updateBeltGesture();
@@ -1255,6 +1460,7 @@ class Floor {
   private beginDrag(g: Extract<Gesture, { k: 'press' }>, e: PointerEvent) {
     const tool = this.s.ui.tool;
     const t = g.target;
+    PERF.drag = { t, tool: tool.k };
     this.hideTip();
     if (t.k === 'port' && this.isOutPort(t)) { this.startBelt({ m: t.m, port: t.port }, undefined, false); this.updateBeltGesture(); this.updateGhost(); return; }
     if (tool.k === 'place' || tool.k === 'erase') {
@@ -1348,7 +1554,7 @@ class Floor {
         const tool = this.s.ui.tool;
         const spec = this.roomSpec();
         if (!spec) { this.say('Choose what the room assumes first (Room popover)'); return; }
-        this.timed('room', e, () => this.store.paintRoom(rect, tool.k === 'room' ? tool.kind : 'suppose', spec.l, spec.r));
+        this.timed('room', e, () => this.store.paintRoom(rect, tool.k === 'room' ? tool.kind : 'suppose', spec.l, spec.r, spec.rel));
         return;
       }
       case 'resize': {
@@ -1512,12 +1718,15 @@ class Floor {
       const id = ui.hover?.k === 'machine' ? ui.hover.id : ui.hover?.k === 'port' ? ui.hover.id : null;
       const m = id ? this.geo?.ms.get(id)?.m : undefined;
       if (m && spec(m.kind).placeable) {
-        this.pipette = { kind: m.kind, config: m.config };
-        const sc = m.config.kind === 'stamp' || m.config.kind === 'carddock' ? { schema: m.config.schema, mirror: m.config.mirror } : {};
-        this.store.setTool({ k: 'place', kind: m.kind, ...sc });
+        // Q over a machine: pipette (kind + its whole configuration, recipe included)
+        this.store.setTool({ k: 'place', kind: m.kind, config: m.config });
         this.store.setRot(m.rot);
         this.pipette = { kind: m.kind, config: m.config };
-      } else if (ui.tool.k === 'place') this.store.setTool({ k: 'select' });
+      } else if (!m) {
+        // Q over empty floor clears the cursor (Factorio)
+        this.pipette = null; this.g = { k: 'none' }; this.clearPreview();
+        this.store.setTool({ k: 'select' });
+      }
       e.preventDefault();
       return;
     }
@@ -1545,6 +1754,11 @@ class Floor {
 }
 
 // ───────────────────────────── helpers ─────────────────────────────
+
+/** Latin Modern lacks the subscript glyphs: x₁ → x<sub>1</sub>. */
+function subHTML(html: string): string {
+  return html.replace(/[₀-₉]+/g, (m) => `<sub class="m-sub">${[...m].map((c) => String(c.charCodeAt(0) - 0x2080)).join('')}</sub>`);
+}
 
 function kindWord(ks: ItemKind[], cap = false): string {
   const w = (k: ItemKind) => ({ term: 'a term', eq: 'an equation', neq: 'an inequation', bot: 'a contradiction', size: 'a group order', law: 'a law card', cond: 'a theorem card' }[k]);

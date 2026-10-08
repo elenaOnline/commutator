@@ -1,6 +1,7 @@
 // LEMMA WORKS — shared math typesetting to HTML (Latin Modern). Architect-owned.
 // Independent of kernel bodies so every surface can use it immediately.
 import type { Fact, Term } from '../kernel/types';
+import { exponentText } from '../kernel';
 
 export type Labels = Record<string, string>;
 
@@ -27,6 +28,12 @@ export function termHTML(t: Term, L: Labels, opts: { minRun?: number } = {}): st
         return simple ? `${atomHTML(a)}${sup(MINUS + '1')}` : `(${termHTML(a, L, opts)})${sup(MINUS + '1')}`;
       }
       case 'mul': return termHTML(t, L, opts);
+      case 'pow': {
+        const b = t.base;
+        const simple = b.k === 'atom' || b.k === 'meta' || b.k === 'e';
+        return `${simple ? atomHTML(b) : `(${termHTML(b, L, opts)})`}${sup(esc(exponentText(t.exp, L)).replace(/-/g, MINUS))}`;
+      }
+      case 'int': return esc(exponentText(t.val, L)).replace(/-/g, MINUS);
     }
   };
   if (t.k !== 'mul') return atomHTML(t);

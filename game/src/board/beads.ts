@@ -3,6 +3,7 @@
 // disc = e; blue field = crate, navy frame + −1 = inverted crate. L rides the
 // screen-upper lane, R the lower; strings read left → right; '=' rung leads.
 import type { Fact, Term } from '../kernel/types';
+import { termText as K_termText } from '../kernel';
 import { FAMILY, FONT, INK } from '../ui/tokens';
 import { P, RUN, RUN_ANGLE, f1, type S2 } from './geom';
 import type { Labels } from './mathsvg';
@@ -42,6 +43,9 @@ function toks(t: Term, L: Labels): Tok[] {
         if (f.arg.k === 'atom' || f.arg.k === 'meta') return { k: 'inv', label: f.arg.k === 'atom' ? L[f.arg.id] ?? f.arg.id : f.arg.id, slot: f.arg.k === 'atom' ? SLOTS[f.arg.id] ?? 0 : 0 };
         return { k: 'crate', inv: true, inner: toks(f.arg, L) };
       case 'mul': return { k: 'crate', inv: false, inner: toks(f, L) };
+      // v4 Phase B placeholder: a power is one labelled bead, e.g. (ab)^n₁ (the floor polishes visuals)
+      case 'pow': return { k: 'atom', label: K_termText(f, L), slot: 0 };
+      case 'int': return { k: 'atom', label: K_termText(f, L), slot: 0 };
     }
   });
 }

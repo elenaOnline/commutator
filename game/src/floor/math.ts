@@ -1,7 +1,7 @@
 // LEMMA WORKS v3 floor — statement typesetting as SVG <tspan>s, in the SAME 'stmt' convention as the
 // order chip (shell/util.ts typeset): runs of ≥ 2 compress to powers (a², (ab)⁵), so the dock, the inlet
 // and the chip always print one statement the same way. HTML (tooltips) uses shell/util fH directly.
-import type { Fact, PatFact, Term } from '../kernel/types';
+import type { Fact, PatFact, Poly, Term } from '../kernel/types';
 import { fH, tH } from '../shell/util';
 
 export type Labels = Record<string, string>;
@@ -10,6 +10,12 @@ const it = (s: string) => `<tspan font-style="italic">${esc(s)}</tspan>`;
 const up = (s: string) => `<tspan font-style="normal">${esc(s)}</tspan>`;
 const sup = (s: string) => `<tspan font-style="normal" font-size="68%" baseline-shift="38%">${esc(s)}</tspan>`;
 const rel = (s: string) => up(` ${s} `);
+/** An italic letter with a REAL subscript (tower variables: x₁ → x<sub>1</sub>). */
+const sub = (s: string) => {
+  const m = /^(.*?)([₀-₉]+)$/.exec(s);
+  if (!m) return it(s);
+  return it(m[1]!) + `<tspan font-style="normal" font-size="68%" baseline-shift="-24%">${[...m[2]!].map((c) => String(c.charCodeAt(0) - 0x2080)).join('')}</tspan>`;
+};
 
 const same = (a: Term, b: Term) => JSON.stringify(a) === JSON.stringify(b);
 const simple = (x: Term) => x.k === 'atom' || x.k === 'meta' || x.k === 'e';
@@ -42,14 +48,30 @@ export function termSVG(t: Term, L: Labels): string {
   }).join('');
   const one = (x: Term): string => {
     switch (x.k) {
-      case 'atom': return it(L[x.id] ?? x.id);
+      case 'atom': return sub(L[x.id] ?? x.id);
       case 'meta': return it(x.id);
       case 'e': return it('e');
       case 'inv': return simple(x.arg) ? one(x.arg) + sup('−1') : up('(') + termSVG(x.arg, L) + up(')') + sup('−1');
       case 'mul': return word(x.fs);
+      case 'pow': return (simple(x.base) ? one(x.base) : up('(') + termSVG(x.base, L) + up(')')) + sup(polyText(x.exp, L));
+      case 'int': return up(polyText(x.val, L));
     }
   };
   return t.k === 'mul' ? word(t.fs) : one(t);
+}
+
+const SUPD: Record<string, string> = { '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴', '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹' };
+/** An exponent polynomial as text: 5k, n₁, 2n₁ + 3, n₁²m₁ (ℤ towers by their labels, metas by name). */
+export function polyText(p: Poly, L: Labels): string {
+  if (!p.length) return '0';
+  const parts = p.map((t, i) => {
+    const c = BigInt(t.coefficient);
+    const mono = t.monomial.map((m) => (L[m.ref.id] ?? m.ref.id) + (m.degree > 1 ? [...String(m.degree)].map((d) => SUPD[d] ?? d).join('') : '')).join('');
+    const mag = c < 0n ? -c : c;
+    const body = mono ? (mag === 1n ? mono : `${mag}${mono}`) : `${mag}`;
+    return (i === 0 ? (c < 0n ? '−' : '') : c < 0n ? ' − ' : ' + ') + body;
+  });
+  return parts.join('');
 }
 
 export function factSVG(f: Fact | PatFact, L: Labels): string {

@@ -146,3 +146,28 @@
 .fl-room.is-flip .fl-rhead-in { display: inline; }
 .fl-room.is-flip .fl-rhead-out { display: none; }
 .fl-root .fl-m[data-kind="gate"], .fl-root .fl-m[data-kind="desk"] { cursor: grab; }
+
+/* ── v4: towers, symbol tracing, recipe changes ── */
+.fl-tower { cursor: pointer; }
+.fl-tower .fl-plaque rect { transition: stroke-width 120ms; }
+.fl-tower.is-hover .fl-plaque rect, .fl-tower.is-var-lit .fl-plaque rect { stroke-width: 2.2; }
+.fl-l-radio { pointer-events: none; }
+.fl-trace path { animation: fl-radio 1.1s linear infinite; }
+@keyframes fl-radio { to { stroke-dashoffset: -14; } }
+/* while a symbol is traced, everything that does not speak it quiets down */
+.fl-root.is-tracing .fl-m:not(.is-var-lit):not(.is-hover), .fl-root.is-tracing .fl-b:not(.is-var-lit):not(.is-hover) { opacity: .38; transition: opacity 140ms; }
+.fl-m.is-var-lit .fl-m-mark { opacity: .9; stroke: #5528C2; fill: #5528C2; fill-opacity: .06; stroke-dasharray: 2 3; }
+.fl-b.is-var-lit .fl-b-sel { opacity: .1; fill: #5528C2; }
+/* a recipe change that adds ports: they ease in */
+.fl-p.is-new { animation: fl-port-in 420ms cubic-bezier(.34,1.56,.64,1) both; transform-box: fill-box; transform-origin: center; }
+@keyframes fl-port-in { from { opacity: 0; transform: scale(.4); } to { opacity: 1; transform: scale(1); } }
+.fl-m.is-neutral .fl-top text { letter-spacing: 0; }
+@media (prefers-reduced-motion: reduce) { .fl-trace path, .fl-p.is-new { animation: none; } }
+/* Assume rooms (implication-intro) always show their dotted wall; suppose rooms stay borderless until selected */
+.fl-room.is-assume .fl-room-edge { opacity: .75; }
+
+/* ∀ "Ready to save" badge: the one interactive annotation on the floor */
+.fl-l-badges { pointer-events: none; }
+.fl-badge { pointer-events: all; cursor: pointer; }
+.fl-badge:hover rect { fill: #2A3560; }
+.fl-root.is-alt .fl-badge { opacity: .9; }

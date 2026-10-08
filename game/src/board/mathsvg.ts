@@ -3,6 +3,7 @@
 // runs ≥ 3 compress to powers). Superscripts use baseline-shift, so baselines
 // never drift (the empty-tspan dy gotcha from visual-direction.md §3).
 import type { Fact, Term } from '../kernel/types';
+import { exponentText } from '../kernel';
 
 export type Labels = Record<string, string>;
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
@@ -25,6 +26,12 @@ export function termSVG(t: Term, L: Labels): string {
         return simple ? `${one(a)}${sup('−1')}` : `${up('(')}${termSVG(a, L)}${up(')')}${sup('−1')}`;
       }
       case 'mul': return termSVG(t, L);
+      case 'pow': {
+        const b = t.base;
+        const simple = b.k === 'atom' || b.k === 'meta' || b.k === 'e';
+        return `${simple ? one(b) : `${up('(')}${termSVG(b, L)}${up(')')}`}${sup(exponentText(t.exp, L))}`;
+      }
+      case 'int': return up(exponentText(t.val, L));
     }
   };
   if (t.k !== 'mul') return one(t);
@@ -75,6 +82,8 @@ export function factPlain(f: Fact | undefined, L: Labels): string {
       case 'e': return 'e';
       case 'inv': return (t.arg.k === 'mul' ? `(${tp(t.arg)})` : tp(t.arg)) + '⁻¹';
       case 'mul': return t.fs.map(tp).join('');
+      case 'pow': return `${t.base.k === 'mul' || t.base.k === 'inv' || t.base.k === 'pow' ? `(${tp(t.base)})` : tp(t.base)}^(${exponentText(t.exp, L)})`;
+      case 'int': return exponentText(t.val, L);
     }
   };
   switch (f.k) {

@@ -1062,7 +1062,11 @@ class Bench {
     const s = this.store.get();
     const out: Array<{ label: string; pallet: Pallet; socket?: string }> = [];
     const many = s.level.sockets.length > 1;
-    s.level.sockets.forEach((sock, i) => out.push({ label: many ? `Goal ${i + 1}` : 'Goal', pallet: sock.target, socket: sock.id }));
+    s.level.sockets.forEach((sock, i) => {
+      const t = sock.target;
+      if (t.k === 'law' || t.k === 'cond') return; // v4 ∀ goals have no bench ghost
+      out.push({ label: many ? `Goal ${i + 1}` : 'Goal', pallet: t, socket: sock.id });
+    });
     const scope = this.store.activeScope();
     this.claimsOf(s).filter((c) => c.scope === scope).forEach((c, i) => out.push({ label: `Claim ${i + 1}`, pallet: c.pallet }));
     return out;

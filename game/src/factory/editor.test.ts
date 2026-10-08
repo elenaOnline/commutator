@@ -8,13 +8,53 @@ function ctxOf(id: string, earned = Object.keys(REGISTRY)): KernelCtx {
   return { level: { ...level, tools: { lift: true, merge: true, suppose: true, classical: true, press: true, conjecture: true, schemas } }, registry: REGISTRY };
 }
 import { footprint, frontOf, portsOf, tileKey } from './geometry';
+import { defaultConfig, libCard, libName, libPremises, libraryRefs, varLabel } from './catalog';
 import {
   INITIAL_GAP, autoLinks, spliceCandidates, branch, branchAt, connect, routeOrWhy, connectVia, copySelection, hit, initialCanvas, moveMachines, paintRoom, paste,
-  place, remove, resizeRoom, rotateMachine, route, setConfig, setConfigCtx,
+  place, placementWhy, remove, resizeRoom, rotateMachine, route, setConfig, setConfigCtx,
 } from './editor';
-import type { Belt, Canvas, Edit, Machine, Tile } from './index';
+import type { Belt, Canvas, Edit, Endpoint, Machine, MachineConfig, MachineKind, Rot, Tile } from './index';
 
 const ctx = ctxOf('L01');
+// ── v3-era test vocabulary on v4 machines: each legacy name places the v4 machine with the matching recipe and
+//    keeps the legacy id (canceller1, inverter2 …) so the geometry stories below read as before. An "inverter"
+//    (a 1×1 machine with one input) is a Spool whose t is a port; its legacy input 'q' is the Spool's 't'.
+const FIRST = { k: 'first' } as const;
+const RW = (recipe: Extract<MachineConfig, { kind: 'rewriter' }>['recipe']): MachineConfig => ({ kind: 'rewriter', recipe, dir: 'fwd', target: FIRST, gap: FIRST, values: {}, tidy: true });
+const LEG: Record<string, { kind: MachineKind; config: MachineConfig }> = {
+  canceller: { kind: 'rewriter', config: RW({ k: 'cancel' }) },
+  popper: { kind: 'rewriter', config: RW({ k: 'pop' }) },
+  swapper: { kind: 'operator', config: { kind: 'operator', recipe: { k: 'swap' } } },
+  multiplier: { kind: 'operator', config: { kind: 'operator', recipe: { k: 'multiply', side: 'left', t: { k: 'knob', term: null } } } },
+  meet: { kind: 'joiner', config: { kind: 'joiner', recipe: { k: 'chain' } } },
+  anvil: { kind: 'joiner', config: { kind: 'joiner', recipe: { k: 'clash' } } },
+  joiner: { kind: 'joiner', config: { kind: 'joiner', recipe: null } },
+  apply: { kind: 'theorem', config: { kind: 'theorem', recipe: { k: 'routed' }, choice: 0, values: {} } },
+  inverter: { kind: 'spool', config: { kind: 'spool', t: { k: 'port' } } },
+};
+function renameIn(c: Canvas, from: string, to: string): Canvas {
+  const r = (e: Endpoint) => (e.m === from ? { ...e, m: to } : e);
+  return { ...c, machines: c.machines.map((x) => (x.id === from ? { ...x, id: to } : x)), belts: c.belts.map((x) => ({ ...x, from: r(x.from), to: r(x.to) })) };
+}
+function lplace(c: Canvas, kind: string, at: Tile, rot: Rot, k: KernelCtx = ctx, config?: MachineConfig): Edit {
+  const leg = LEG[kind];
+  if (!leg) return place(c, kind as MachineKind, at, rot, k, config);
+  const e = place(c, leg.kind, at, rot, k, config ?? leg.config);
+  if (!e.ok) return e;
+  const newId = e.ids![0]!;
+  const taken = new Set(c.machines.map((x) => x.id));
+  let n = 1; while (taken.has(`${kind}${n}`)) n++;
+  const id = `${kind}${n}`;
+  return { ...e, canvas: renameIn(e.canvas, newId, id), ids: e.ids!.map((x) => (x === newId ? id : x)) };
+}
+const tr = (e: Endpoint): Endpoint => (/^inverter\d+$/.test(e.m) && e.port === 'q' ? { m: e.m, port: 't' } : e);
+const lconnect = (c: Canvas, f: Endpoint, t: Endpoint, k: KernelCtx, path?: Tile[]) => connect(c, tr(f), tr(t), k, path);
+const lconnectVia = (c: Canvas, f: Endpoint, t: Endpoint, via: Tile[], k: KernelCtx) => connectVia(c, tr(f), tr(t), via, k);
+const lbranch = (c: Canvas, belt: string, t: Endpoint, k: KernelCtx) => branch(c, belt, tr(t), k);
+const lbranchAt = (c: Canvas, belt: string, i: number, t: Endpoint, k: KernelCtx) => branchAt(c, belt, i, tr(t), k);
+const lroute = (c: Canvas, f: Endpoint, t: Endpoint, k: KernelCtx, via?: Tile[]) => route(c, tr(f), tr(t), k, via);
+const lrouteOrWhy = (c: Canvas, f: Endpoint, t: Endpoint, k: KernelCtx) => routeOrWhy(c, tr(f), tr(t), k);
+
 const a = { k: 'atom', id: 'a' } as const;
 const b = { k: 'atom', id: 'b' } as const;
 const empty = (): Canvas => ({ version: 3, levelId: 'L01', machines: [], belts: [], rooms: [] });
@@ -119,23 +159,23 @@ describe('initialCanvas', () => {
 describe('place', () => {
   it('places with a fresh id and refuses overlap, locked or not', () => {
     const c0 = initialCanvas(ctx.level, ctx);
-    const c1 = must(place(c0, 'canceller', { x: 5, y: 0 }, 0, ctx));
+    const c1 = must(lplace(c0, 'canceller', { x: 5, y: 0 }, 0, ctx));
     expect(c1.ids).toEqual(['canceller1']);
-    const c2 = must(place(c1, 'canceller', { x: 5, y: 2 }, 0, ctx));
+    const c2 = must(lplace(c1, 'canceller', { x: 5, y: 2 }, 0, ctx));
     expect(c2.ids).toEqual(['canceller2']);
-    const r = place(c2, 'popper', { x: 6, y: 0 }, 0, ctx);
+    const r = lplace(c2, 'popper', { x: 6, y: 0 }, 0, ctx);
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.reason).toMatch(/Canceller/);
-    expect(place(c2, 'meet', { x: 10, y: 0 }, 0, ctx).ok).toBe(false); // over the locked dock
-    expect(place(c2, 'socket', { x: 5, y: 6 }, 0, ctx).ok).toBe(false); // not placeable
+    if (!r.ok) expect(r.reason).toMatch(/Rewriter/);
+    expect(lplace(c2, 'meet', { x: 10, y: 0 }, 0, ctx).ok).toBe(false); // over the locked dock
+    expect(lplace(c2, 'socket', { x: 5, y: 6 }, 0, ctx).ok).toBe(false); // not placeable
     invariants(c2);
   });
   it('placing over a belt re-routes it', () => {
     let c = initialCanvas(ctx.level, ctx);
-    c = must(place(c, 'canceller', { x: 5, y: 0 }, 0, ctx));
-    c = must(connect(c, { m: 'canceller1', port: 'out' }, { m: 'socket:s', port: 'q' }, ctx));
+    c = must(lplace(c, 'canceller', { x: 5, y: 0 }, 0, ctx));
+    c = must(lconnect(c, { m: 'canceller1', port: 'out' }, { m: 'socket:s', port: 'q' }, ctx));
     expect(c.belts[0]!.path).toEqual([{ x: 7, y: 0 }, { x: 8, y: 0 }, { x: 9, y: 0 }, { x: 10, y: 0 }]);
-    c = must(place(c, 'hopper', { x: 8, y: 0 }, 0, ctx));
+    c = must(lplace(c, 'hopper', { x: 8, y: 0 }, 0, ctx));
     expect(c.belts.length).toBe(1);
     expect(c.belts[0]!.path.some((t) => t.x === 8 && t.y === 0)).toBe(false);
     invariants(c);
@@ -145,39 +185,39 @@ describe('place', () => {
 describe('routing and connect', () => {
   it('First Light: spool → canceller → dock in two straight belts', () => {
     let c = initialCanvas(ctx.level, ctx);
-    c = must(place(c, 'canceller', { x: 5, y: 0 }, 0, ctx));
-    c = must(connect(c, { m: 'pre:0', port: 'out' }, { m: 'canceller1', port: 'q' }, ctx));
+    c = must(lplace(c, 'canceller', { x: 5, y: 0 }, 0, ctx));
+    c = must(lconnect(c, { m: 'pre:0', port: 'out' }, { m: 'canceller1', port: 'q' }, ctx));
     expect(c.belts[0]!.path).toEqual([{ x: 1, y: 0 }, { x: 2, y: 0 }, { x: 3, y: 0 }, { x: 4, y: 0 }]);
     // dragged backwards: input first
-    c = must(connect(c, { m: 'socket:s', port: 'q' }, { m: 'canceller1', port: 'out' }, ctx));
+    c = must(lconnect(c, { m: 'socket:s', port: 'q' }, { m: 'canceller1', port: 'out' }, ctx));
     expect(c.belts[1]!.from).toEqual({ m: 'canceller1', port: 'out' });
     invariants(c);
   });
 
   it('routes around an obstacle with few turns', () => {
     let c = empty();
-    c = must(place(c, 'hopper', { x: 0, y: 0 }, 0, ctx));
-    c = must(place(c, 'inverter', { x: 10, y: 0 }, 0, ctx));
-    c = must(place(c, 'meet', { x: 5, y: -1 }, 0, ctx)); // wall across y = -1..0
-    const p = route(c, { m: 'hopper1', port: 'out' }, { m: 'inverter1', port: 'q' }, ctx)!;
+    c = must(lplace(c, 'hopper', { x: 0, y: 0 }, 0, ctx));
+    c = must(lplace(c, 'inverter', { x: 10, y: 0 }, 0, ctx));
+    c = must(lplace(c, 'meet', { x: 5, y: -1 }, 0, ctx)); // wall across y = -1..0
+    const p = lroute(c, { m: 'hopper1', port: 'out' }, { m: 'inverter1', port: 'q' }, ctx)!;
     expect(p).not.toBeNull();
     expect(p[0]).toEqual({ x: 1, y: 0 });
     expect(p[p.length - 1]).toEqual({ x: 9, y: 0 });
     const turns = p.slice(2).filter((t, i) => (t.x - p[i + 1]!.x) !== (p[i + 1]!.x - p[i]!.x) || (t.y - p[i + 1]!.y) !== (p[i + 1]!.y - p[i]!.y)).length;
     expect(turns).toBe(3); // down, across, up (then into the port)
     expect(p.length).toBe(11);
-    c = must(connect(c, { m: 'hopper1', port: 'out' }, { m: 'inverter1', port: 'q' }, ctx, p));
+    c = must(lconnect(c, { m: 'hopper1', port: 'out' }, { m: 'inverter1', port: 'q' }, ctx, p));
     invariants(c);
   });
 
   it('avoids other belts and reports no route when boxed in', () => {
     let c = empty();
-    c = must(place(c, 'hopper', { x: 0, y: 0 }, 0, ctx));
-    c = must(place(c, 'inverter', { x: 6, y: 0 }, 0, ctx));
-    c = must(place(c, 'hopper', { x: 3, y: -3 }, 1, ctx)); // out faces south
-    c = must(place(c, 'inverter', { x: 3, y: 3 }, 1, ctx)); // q faces north
-    c = must(connect(c, { m: 'hopper2', port: 'out' }, { m: 'inverter2', port: 'q' }, ctx)); // vertical wall x = 3
-    const r = connect(c, { m: 'hopper1', port: 'out' }, { m: 'inverter1', port: 'q' }, ctx);
+    c = must(lplace(c, 'hopper', { x: 0, y: 0 }, 0, ctx));
+    c = must(lplace(c, 'inverter', { x: 6, y: 0 }, 0, ctx));
+    c = must(lplace(c, 'hopper', { x: 3, y: -3 }, 1, ctx)); // out faces south
+    c = must(lplace(c, 'inverter', { x: 3, y: 3 }, 1, ctx)); // q faces north
+    c = must(lconnect(c, { m: 'hopper2', port: 'out' }, { m: 'inverter2', port: 'q' }, ctx)); // vertical wall x = 3
+    const r = lconnect(c, { m: 'hopper1', port: 'out' }, { m: 'inverter1', port: 'q' }, ctx);
     expect(r.ok).toBe(true); // crosses the vertical belt straight over it
     const c2 = must(r);
     expect(c2.belts[1]!.path).toEqual([1, 2, 3, 4, 5].map((x) => ({ x, y: 0 })));
@@ -186,62 +226,62 @@ describe('routing and connect', () => {
 
   it('refuses impossible endpoints but allows type mismatches', () => {
     let c = initialCanvas(ctx.level, ctx);
-    c = must(place(c, 'canceller', { x: 5, y: 0 }, 0, ctx));
-    c = must(place(c, 'hopper', { x: 5, y: 3 }, 0, ctx));
+    c = must(lplace(c, 'canceller', { x: 5, y: 0 }, 0, ctx));
+    c = must(lplace(c, 'hopper', { x: 5, y: 3 }, 0, ctx));
     const bad = (e: Edit, re: RegExp) => { expect(e.ok).toBe(false); if (!e.ok) expect(e.reason).toMatch(re); };
-    bad(connect(c, { m: 'canceller1', port: 'q' }, { m: 'socket:s', port: 'q' }, ctx), /inputs/);
-    bad(connect(c, { m: 'canceller1', port: 'out' }, { m: 'pre:0', port: 'out' }, ctx), /outputs/);
-    bad(connect(c, { m: 'canceller1', port: 'nope' }, { m: 'socket:s', port: 'q' }, ctx), /no port/);
-    c = must(connect(c, { m: 'hopper1', port: 'out' }, { m: 'canceller1', port: 'q' }, ctx)); // term into eq port: allowed
+    bad(lconnect(c, { m: 'canceller1', port: 'q' }, { m: 'socket:s', port: 'q' }, ctx), /inputs/);
+    bad(lconnect(c, { m: 'canceller1', port: 'out' }, { m: 'pre:0', port: 'out' }, ctx), /outputs/);
+    bad(lconnect(c, { m: 'canceller1', port: 'nope' }, { m: 'socket:s', port: 'q' }, ctx), /no port/);
+    c = must(lconnect(c, { m: 'hopper1', port: 'out' }, { m: 'canceller1', port: 'q' }, ctx)); // term into eq port: allowed
     // a fed input: the new feed replaces the old one, and says so
-    const rep = connect(c, { m: 'pre:0', port: 'out' }, { m: 'canceller1', port: 'q' }, ctx);
+    const rep = lconnect(c, { m: 'pre:0', port: 'out' }, { m: 'canceller1', port: 'q' }, ctx);
     expect(rep.ok).toBe(true);
     if (rep.ok) {
       expect(rep.note).toMatch(/Replaced the feed from the Hopper/);
       expect(rep.canvas.belts.filter((b) => b.to.m === 'canceller1').map((b) => b.from.m)).toEqual(['pre:0']);
       invariants(rep.canvas);
     }
-    bad(connect(c, { m: 'hopper1', port: 'out' }, { m: 'canceller1', port: 'q' }, ctx), /already there/);
+    bad(lconnect(c, { m: 'hopper1', port: 'out' }, { m: 'canceller1', port: 'q' }, ctx), /already there/);
     invariants(c);
   });
 
   it('validates explicit paths', () => {
     let c = initialCanvas(ctx.level, ctx);
-    c = must(place(c, 'canceller', { x: 5, y: 0 }, 0, ctx));
+    c = must(lplace(c, 'canceller', { x: 5, y: 0 }, 0, ctx));
     const from = { m: 'pre:0', port: 'out' }, to = { m: 'canceller1', port: 'q' };
-    expect(connect(c, from, to, ctx, [{ x: 1, y: 0 }, { x: 3, y: 0 }, { x: 4, y: 0 }]).ok).toBe(false);
-    expect(connect(c, from, to, ctx, [{ x: 2, y: 0 }, { x: 3, y: 0 }, { x: 4, y: 0 }]).ok).toBe(false);
+    expect(lconnect(c, from, to, ctx, [{ x: 1, y: 0 }, { x: 3, y: 0 }, { x: 4, y: 0 }]).ok).toBe(false);
+    expect(lconnect(c, from, to, ctx, [{ x: 2, y: 0 }, { x: 3, y: 0 }, { x: 4, y: 0 }]).ok).toBe(false);
     const p = [{ x: 1, y: 0 }, { x: 1, y: 1 }, { x: 2, y: 1 }, { x: 3, y: 1 }, { x: 4, y: 1 }, { x: 4, y: 0 }];
-    c = must(connect(c, from, to, ctx, p));
+    c = must(lconnect(c, from, to, ctx, p));
     expect(c.belts[0]!.path).toEqual(p);
   });
 
   it('waypoints are honoured', () => {
     let c = initialCanvas(ctx.level, ctx);
-    c = must(place(c, 'canceller', { x: 5, y: 0 }, 0, ctx));
-    c = must(connectVia(c, { m: 'pre:0', port: 'out' }, { m: 'canceller1', port: 'q' }, [{ x: 2, y: 3 }], ctx));
+    c = must(lplace(c, 'canceller', { x: 5, y: 0 }, 0, ctx));
+    c = must(lconnectVia(c, { m: 'pre:0', port: 'out' }, { m: 'canceller1', port: 'q' }, [{ x: 2, y: 3 }], ctx));
     expect(c.belts[0]!.path.some((t) => t.x === 2 && t.y === 3)).toBe(true);
     invariants(c);
   });
 
   it('a route never walls in a free input port', () => {
     let c = empty();
-    c = must(place(c, 'hopper', { x: 0, y: 0 }, 0, ctx));
-    c = must(place(c, 'hopper', { x: 0, y: 2 }, 0, ctx));
-    c = must(place(c, 'meet', { x: 8, y: 10 }, 0, ctx));
-    c = must(place(c, 'inverter', { x: 13, y: 10 }, 0, ctx));
-    c = must(connect(c, { m: 'hopper1', port: 'out' }, { m: 'meet1', port: 'a' }, ctx));
-    c = must(connect(c, { m: 'hopper2', port: 'out' }, { m: 'inverter1', port: 'q' }, ctx));
+    c = must(lplace(c, 'hopper', { x: 0, y: 0 }, 0, ctx));
+    c = must(lplace(c, 'hopper', { x: 0, y: 2 }, 0, ctx));
+    c = must(lplace(c, 'meet', { x: 8, y: 10 }, 0, ctx));
+    c = must(lplace(c, 'inverter', { x: 13, y: 10 }, 0, ctx));
+    c = must(lconnect(c, { m: 'hopper1', port: 'out' }, { m: 'meet1', port: 'a' }, ctx));
+    c = must(lconnect(c, { m: 'hopper2', port: 'out' }, { m: 'inverter1', port: 'q' }, ctx));
     // meet1.b (front 7,11) must still be reachable: the inverter's output can come back to it
-    c = must(connect(c, { m: 'inverter1', port: 'out' }, { m: 'meet1', port: 'b' }, ctx));
+    c = must(lconnect(c, { m: 'inverter1', port: 'out' }, { m: 'meet1', port: 'b' }, ctx));
     invariants(c);
   });
 
   it('a one-tile belt joins facing ports one cell apart', () => {
     let c = empty();
-    c = must(place(c, 'hopper', { x: 0, y: 0 }, 0, ctx));
-    c = must(place(c, 'inverter', { x: 2, y: 0 }, 0, ctx));
-    c = must(connect(c, { m: 'hopper1', port: 'out' }, { m: 'inverter1', port: 'q' }, ctx));
+    c = must(lplace(c, 'hopper', { x: 0, y: 0 }, 0, ctx));
+    c = must(lplace(c, 'inverter', { x: 2, y: 0 }, 0, ctx));
+    c = must(lconnect(c, { m: 'hopper1', port: 'out' }, { m: 'inverter1', port: 'q' }, ctx));
     expect(c.belts[0]!.path).toEqual([{ x: 1, y: 0 }]);
   });
 });
@@ -249,13 +289,13 @@ describe('routing and connect', () => {
 describe('branch (copy trees)', () => {
   it('a branch shares a prefix with its trunk and never rejoins', () => {
     let c = empty();
-    c = must(place(c, 'hopper', { x: 0, y: 0 }, 0, ctx));
-    c = must(place(c, 'inverter', { x: 10, y: 0 }, 0, ctx));
-    c = must(place(c, 'inverter', { x: 6, y: 4 }, 0, ctx));
-    c = must(place(c, 'inverter', { x: 6, y: -4 }, 0, ctx));
-    c = must(connect(c, { m: 'hopper1', port: 'out' }, { m: 'inverter1', port: 'q' }, ctx));
-    c = must(branch(c, 'b1', { m: 'inverter2', port: 'q' }, ctx));
-    c = must(branch(c, 'b1', { m: 'inverter3', port: 'q' }, ctx));
+    c = must(lplace(c, 'hopper', { x: 0, y: 0 }, 0, ctx));
+    c = must(lplace(c, 'inverter', { x: 10, y: 0 }, 0, ctx));
+    c = must(lplace(c, 'inverter', { x: 6, y: 4 }, 0, ctx));
+    c = must(lplace(c, 'inverter', { x: 6, y: -4 }, 0, ctx));
+    c = must(lconnect(c, { m: 'hopper1', port: 'out' }, { m: 'inverter1', port: 'q' }, ctx));
+    c = must(lbranch(c, 'b1', { m: 'inverter2', port: 'q' }, ctx));
+    c = must(lbranch(c, 'b1', { m: 'inverter3', port: 'q' }, ctx));
     expect(c.belts.length).toBe(3);
     const [t, b1, b2] = c.belts;
     expect(b1!.from).toEqual(t!.from);
@@ -265,13 +305,13 @@ describe('branch (copy trees)', () => {
     expect(b1!.path.length).toBeLessThanOrEqual(t!.path.length);
     invariants(c);
     // connecting from the same output again also builds onto the tree
-    c = must(place(c, 'joiner', { x: 12, y: 3 }, 0, ctx));
-    c = must(connect(c, { m: 'hopper1', port: 'out' }, { m: 'joiner1', port: 'a' }, ctx));
+    c = must(lplace(c, 'joiner', { x: 12, y: 3 }, 0, ctx));
+    c = must(lconnect(c, { m: 'hopper1', port: 'out' }, { m: 'joiner1', port: 'a' }, ctx));
     invariants(c);
     // branching at a chosen cell leaves exactly there
-    c = must(place(c, 'inverter', { x: 3, y: 5 }, 0, ctx));
+    c = must(lplace(c, 'inverter', { x: 3, y: 5 }, 0, ctx));
     const trunk = c.belts[0]!;
-    const c3 = must(branchAt(c, trunk.id, 1, { m: 'inverter4', port: 'q' }, ctx));
+    const c3 = must(lbranchAt(c, trunk.id, 1, { m: 'inverter4', port: 'q' }, ctx));
     const nb = c3.belts[c3.belts.length - 1]!;
     expect(nb.path.slice(0, 2)).toEqual(trunk.path.slice(0, 2));
     expect(trunk.path.slice(2).some((t) => tileKey(t) === tileKey(nb.path[2]!))).toBe(false);
@@ -286,9 +326,9 @@ describe('branch (copy trees)', () => {
 describe('move / rotate / remove / configure', () => {
   const line = () => {
     let c = initialCanvas(ctx.level, ctx);
-    c = must(place(c, 'canceller', { x: 5, y: 0 }, 0, ctx));
-    c = must(connect(c, { m: 'pre:0', port: 'out' }, { m: 'canceller1', port: 'q' }, ctx));
-    c = must(connect(c, { m: 'canceller1', port: 'out' }, { m: 'socket:s', port: 'q' }, ctx));
+    c = must(lplace(c, 'canceller', { x: 5, y: 0 }, 0, ctx));
+    c = must(lconnect(c, { m: 'pre:0', port: 'out' }, { m: 'canceller1', port: 'q' }, ctx));
+    c = must(lconnect(c, { m: 'canceller1', port: 'out' }, { m: 'socket:s', port: 'q' }, ctx));
     return c;
   };
   it('moving re-routes attached belts', () => {
@@ -300,8 +340,8 @@ describe('move / rotate / remove / configure', () => {
   });
   it('moving a connected group carries internal belts unchanged in shape', () => {
     let c = line();
-    c = must(place(c, 'popper', { x: 5, y: 4 }, 0, ctx));
-    c = must(connect(c, { m: 'canceller1', port: 'out' }, { m: 'popper1', port: 'q' }, ctx));
+    c = must(lplace(c, 'popper', { x: 5, y: 4 }, 0, ctx));
+    c = must(lconnect(c, { m: 'canceller1', port: 'out' }, { m: 'popper1', port: 'q' }, ctx));
     const before = c.belts.find((x) => x.to.m === 'popper1')!.path;
     c = must(moveMachines(c, ['canceller1', 'popper1'], { x: 1, y: 2 }, ctx));
     const after = c.belts.find((x) => x.to.m === 'popper1')!.path;
@@ -327,37 +367,51 @@ describe('move / rotate / remove / configure', () => {
     // a pre-placed spool's term is part of the order
     expect(setConfig(c, 'pre:0', { kind: 'spool', t: { k: 'knob', term: a } }).ok).toBe(false);
   });
-  it('setConfig adds/removes ports, drops belts to vanished ports, refuses when there is no room', () => {
+  it('setConfig: recipe changes keep belts on surviving ports, mark the rest broken, refuse when there is no room', () => {
     let c = empty();
-    c = must(place(c, 'hopper', { x: 0, y: 2 }, 0, ctx));
-    c = must(place(c, 'multiplier', { x: 4, y: 0 }, 0, ctx));
-    c = must(setConfig(c, 'multiplier1', { kind: 'multiplier', side: 'left', t: { k: 'port' } }));
+    c = must(lplace(c, 'hopper', { x: 0, y: 2 }, 0, ctx));
+    c = must(lplace(c, 'multiplier', { x: 4, y: 0 }, 0, ctx));
+    c = must(setConfig(c, 'multiplier1', { kind: 'operator', recipe: { k: 'multiply', side: 'left', t: { k: 'port' } } }));
     expect(portsOf(m(c, 'multiplier1'), ctx).map((p) => p.id)).toContain('t');
-    c = must(connect(c, { m: 'hopper1', port: 'out' }, { m: 'multiplier1', port: 't' }, ctx));
+    c = must(lconnect(c, { m: 'hopper1', port: 'out' }, { m: 'multiplier1', port: 't' }, ctx));
     invariants(c);
-    const e = setConfig(c, 'multiplier1', { kind: 'multiplier', side: 'left', t: { k: 'knob', term: a } });
+    const e = setConfig(c, 'multiplier1', { kind: 'operator', recipe: { k: 'multiply', side: 'left', t: { k: 'knob', term: a } } });
     c = must(e);
     expect(c.belts.length).toBe(1); // kept, broken, never silently dropped
     expect(c.belts[0]!.broken).toMatch(/no port/);
     if (e.ok) expect(e.broken).toEqual([c.belts[0]!.id]);
     c = must(remove(c, [c.belts[0]!.id]));
-    // Apply growing from 1 to 3 premises needs two more rows
-    c = must(place(c, 'apply', { x: 10, y: 0 }, 0, ctx));
-    c = must(place(c, 'hopper', { x: 10, y: 2 }, 0, ctx));
-    const r = setConfig(c, 'apply1', { kind: 'apply', premises: 3, choice: 0, values: {} });
+    // A Rewriter growing to three parameter ports needs a wider footprint
+    c = must(lplace(c, 'canceller', { x: 10, y: 0 }, 0, ctx));
+    c = must(lplace(c, 'inverter', { x: 12, y: 0 }, 0, ctx));     // its t port faces the Rewriter's output: may touch it
+    const three = { kind: 'rewriter' as const, recipe: { k: 'routed' as const }, dir: 'fwd' as const, target: FIRST, gap: FIRST, tidy: true, values: { u: { k: 'port' as const }, v: { k: 'port' as const }, w: { k: 'port' as const } } };
+    const r = setConfig(c, 'canceller1', three);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toMatch(/No room for the new port/);
-    expect(setConfigCtx(c, 'apply1', { kind: 'apply', premises: 2, choice: 0, values: {} }, ctx).ok).toBe(true);
-    expect(setConfig(c, 'apply1', { kind: 'canceller', target: { k: 'first' }, tidy: true }).ok).toBe(false);
+    expect(setConfigCtx(c, 'canceller1', { ...three, values: { u: { k: 'port' }, v: { k: 'port' } } }, ctx).ok).toBe(true);
+    expect(setConfig(c, 'canceller1', { kind: 'operator', recipe: { k: 'swap' } }).ok).toBe(false);
   });
-  it('stamp schema validation', () => {
+  it('Joiner chain → clash keeps both input belts (ports persist)', () => {
+    let c = empty();
+    c = must(lplace(c, 'hopper', { x: 0, y: 0 }, 0, ctx));
+    c = must(lplace(c, 'hopper', { x: 0, y: 3 }, 0, ctx));
+    c = must(lplace(c, 'meet', { x: 5, y: 0 }, 0, ctx));
+    c = must(lconnect(c, { m: 'hopper1', port: 'out' }, { m: 'meet1', port: 'a' }, ctx));
+    c = must(lconnect(c, { m: 'hopper2', port: 'out' }, { m: 'meet1', port: 'b' }, ctx));
+    const e = setConfig(c, 'meet1', { kind: 'joiner', recipe: { k: 'clash' } });
+    const d = must(e);
+    expect(d.belts.map((x) => [x.to.port, x.broken])).toEqual([['a', undefined], ['b', undefined]]);
+    if (e.ok) expect(e.broken).toBeUndefined();
+  });
+  it('library refs are validated: unknown theorems, missing mirrors', () => {
     const k = ctxOf('L12');
     let c: Canvas = { ...empty(), levelId: 'L12' };
-    c = must(place(c, 'stamp', { x: 0, y: 0 }, 0, k));
-    expect(m(c, 'stamp1').config).toMatchObject({ schema: 'witness' });
-    expect(setConfigCtx(c, 'stamp1', { kind: 'stamp', schema: 'socks', mirror: false, choice: 0, values: {} }, k).ok).toBe(false);
-    expect(setConfigCtx(c, 'stamp1', { kind: 'stamp', schema: 'cancel', mirror: true, choice: 0, values: {} }, k).ok).toBe(true);
-    expect(place(c, 'carddock', { x: 0, y: 3 }, 0, k, { kind: 'carddock', schema: 'socks', mirror: true }).ok).toBe(false);
+    c = must(lplace(c, 'theorem', { x: 0, y: 0 }, 0, k, { kind: 'theorem', recipe: { k: 'library', ref: { k: 'schema', id: 'witness' } }, choice: 0, values: {} }));
+    expect(m(c, 'theorem1').config).toMatchObject({ recipe: { ref: { id: 'witness' } } });
+    expect(setConfigCtx(c, 'theorem1', { kind: 'theorem', recipe: { k: 'library', ref: { k: 'schema', id: 'nope' } }, choice: 0, values: {} }, k).ok).toBe(false);
+    expect(setConfigCtx(c, 'theorem1', { kind: 'theorem', recipe: { k: 'library', ref: { k: 'schema', id: 'cancel', mirror: true } }, choice: 0, values: {} }, k).ok).toBe(true);
+    expect(lplace(c, 'carddock', { x: 0, y: 3 }, 0, k, { kind: 'carddock', ref: { k: 'schema', id: 'socks', mirror: true } }).ok).toBe(false);
+    expect(lplace(c, 'carddock', { x: 0, y: 3 }, 0, k, { kind: 'carddock', ref: { k: 'given', givenId: 'zz' } }).ok).toBe(false);
   });
 });
 
@@ -391,12 +445,12 @@ describe('rooms', () => {
     expect(paintRoom(base(), { x: 12, y: -2, w: 4, h: 5 }, 'suppose', a, b, k).ok).toBe(false);
     invariants(c, k);
     // machines placed straddling a wall are refused
-    expect(place(c, 'canceller', { x: 10, y: 4 }, 0, k).ok).toBe(false);
+    expect(lplace(c, 'canceller', { x: 10, y: 4 }, 0, k).ok).toBe(false);
   });
   it('remove a room takes its desk and gate (and their belts) only', () => {
     let c = must(paintRoom(base(), { x: 3, y: -3, w: 6, h: 5 }, 'suppose', a, b, k));
     const [rid, did, gid] = c.ids;
-    c = must(place(c, 'swapper', { x: 5, y: 1 }, 0, k));
+    c = must(lplace(c, 'swapper', { x: 5, y: 1 }, 0, k));
     c = must(remove(c, [did!]).ok ? remove(c, [did!]) : { ok: true, canvas: c });
     expect(c.machines.some((x) => x.id === did)).toBe(true); // desk alone can't go
     c = must(remove(c, [rid!]));
@@ -412,7 +466,7 @@ describe('rooms', () => {
     const r = c.rooms[0]!.rect;
     expect(gate.at.x === r.x + r.w - 1 || gate.at.y === r.y + r.h - 1 || gate.at.x === r.x || gate.at.y === r.y).toBe(true);
     invariants(c, k);
-    c = must(place(c, 'meet', { x: 5, y: -1 }, 0, k));
+    c = must(lplace(c, 'meet', { x: 5, y: -1 }, 0, k));
     expect(resizeRoom(c, rid!, { x: 3, y: -3, w: 3, h: 6 }, k).ok).toBe(false); // would cut the Meet
     // moving the whole room carries its contents
     const moved = must(moveMachines(c, [rid!], { x: 0, y: 2 }, k));
@@ -431,10 +485,10 @@ describe('belts respect rooms', () => {
   };
   it('a belt between machines in a room stays inside, even when outside is shorter', () => {
     let c = setup();
-    c = must(place(c, 'inverter', { x: 6, y: 2 }, 1, k));     // wall on the top ring row
-    c = must(place(c, 'hopper', { x: 9, y: 3 }, 3, k));        // out faces north, onto the ring
-    c = must(place(c, 'inverter', { x: 4, y: 3 }, 1, k));      // q faces north, onto the ring
-    c = must(connect(c, { m: 'hopper1', port: 'out' }, { m: 'inverter2', port: 'q' }, k));
+    c = must(lplace(c, 'inverter', { x: 7, y: 2 }, 1, k));     // wall on the top ring row
+    c = must(lplace(c, 'hopper', { x: 9, y: 3 }, 3, k));        // out faces north, onto the ring
+    c = must(lplace(c, 'inverter', { x: 5, y: 3 }, 1, k));      // q faces north, onto the ring
+    c = must(lconnect(c, { m: 'hopper1', port: 'out' }, { m: 'inverter2', port: 'q' }, k));
     const r = c.rooms[0]!.rect;
     for (const t of c.belts[0]!.path) expect(inside(t, r), `${t.x},${t.y} left the room`).toBe(true);
     invariants(c, k);
@@ -442,12 +496,12 @@ describe('belts respect rooms', () => {
   it('gate → outside dock stays outside the room (no shortcut along the ring)', () => {
     let c = setup();
     const gate = c.machines.find((x) => x.kind === 'gate')!;
-    c = must(connect(c, { m: gate.id, port: 'out' }, { m: 'socket:s', port: 'q' }, k));
+    c = must(lconnect(c, { m: gate.id, port: 'out' }, { m: 'socket:s', port: 'q' }, k));
     const r = c.rooms[0]!.rect;
     for (const t of c.belts[0]!.path) expect(inside(t, r), `${t.x},${t.y} re-entered the room`).toBe(false);
     // an explicit path through the ring is refused
     const bad = [{ x: 11, y: 4 }, { x: 11, y: 3 }, { x: 11, y: 2 }, { x: 10, y: 2 }, { x: 10, y: 1 }, { x: 10, y: 0 }];
-    const e = connect(must(remove(c, [c.belts[0]!.id])), { m: gate.id, port: 'out' }, { m: 'socket:s', port: 'q' }, k, bad);
+    const e = lconnect(must(remove(c, [c.belts[0]!.id])), { m: gate.id, port: 'out' }, { m: 'socket:s', port: 'q' }, k, bad);
     expect(e.ok).toBe(false);
     invariants(c, k);
   });
@@ -455,8 +509,8 @@ describe('belts respect rooms', () => {
     let c = initialCanvas(k.level, k);
     c = must(paintRoom(c, { x: 3, y: 3, w: 7, h: 7 }, 'suppose', a, b, k));
     c = must(paintRoom(c, { x: 5, y: 5, w: 4, h: 4 }, 'suppose', b, a, k));
-    c = must(place(c, 'swapper', { x: 6, y: 8 }, 0, k));
-    c = must(connect(c, { m: 'given:n', port: 'out' }, { m: 'swapper1', port: 'q' }, k));
+    c = must(lplace(c, 'swapper', { x: 6, y: 8 }, 0, k));
+    c = must(lconnect(c, { m: 'given:n', port: 'out' }, { m: 'swapper1', port: 'q' }, k));
     const depth = (t: Tile) => c.rooms.filter((r) => inside(t, r.rect)).length;
     const ds = c.belts[0]!.path.map(depth);
     for (let i = 1; i < ds.length; i++) expect(ds[i]!).toBeGreaterThanOrEqual(ds[i - 1]!);
@@ -467,9 +521,9 @@ describe('belts respect rooms', () => {
   });
   it('a leak (inside → outside, not via the gate) is still buildable; the compiler jams it', () => {
     let c = setup();
-    c = must(place(c, 'hopper', { x: 5, y: 5 }, 0, k));
-    c = must(place(c, 'inverter', { x: 14, y: 5 }, 0, k));
-    expect(connect(c, { m: 'hopper1', port: 'out' }, { m: 'inverter1', port: 'q' }, k).ok).toBe(true);
+    c = must(lplace(c, 'hopper', { x: 5, y: 5 }, 0, k));
+    c = must(lplace(c, 'inverter', { x: 14, y: 5 }, 0, k));
+    expect(lconnect(c, { m: 'hopper1', port: 'out' }, { m: 'inverter1', port: 'q' }, k).ok).toBe(true);
   });
 });
 
@@ -477,10 +531,10 @@ describe('malformed input', () => {
   it('place refuses a cyclic term instead of throwing', () => {
     const t = { k: 'inv' } as { k: 'inv'; arg: unknown };
     t.arg = t;
-    const e = place(empty(), 'hopper', { x: 0, y: 0 }, 0, ctx, { kind: 'hopper', t: t as never });
+    const e = lplace(empty(), 'hopper', { x: 0, y: 0 }, 0, ctx, { kind: 'hopper', t: t as never });
     expect(e.ok).toBe(false);
     if (!e.ok) expect(e.reason).toMatch(/malformed/);
-    const c = must(place(empty(), 'hopper', { x: 0, y: 0 }, 0, ctx));
+    const c = must(lplace(empty(), 'hopper', { x: 0, y: 0 }, 0, ctx));
     expect(setConfigCtx(c, 'hopper1', { kind: 'hopper', t: t as never }, ctx).ok).toBe(false);
   });
 });
@@ -489,37 +543,37 @@ describe('forgiving belts (r2)', () => {
   const k = ctxOf('L09');
   it('perpendicular crossings are allowed; parallel overlap and crossing at a turn are refused, naming the belt', () => {
     let c = empty();
-    c = must(place(c, 'hopper', { x: 0, y: 0 }, 0, ctx));
-    c = must(place(c, 'inverter', { x: 8, y: 0 }, 0, ctx));
-    c = must(place(c, 'hopper', { x: 4, y: -4 }, 1, ctx));
-    c = must(place(c, 'inverter', { x: 4, y: 4 }, 1, ctx));
-    c = must(connect(c, { m: 'hopper1', port: 'out' }, { m: 'inverter1', port: 'q' }, ctx));
-    c = must(connect(c, { m: 'hopper2', port: 'out' }, { m: 'inverter2', port: 'q' }, ctx));
+    c = must(lplace(c, 'hopper', { x: 0, y: 0 }, 0, ctx));
+    c = must(lplace(c, 'inverter', { x: 8, y: 0 }, 0, ctx));
+    c = must(lplace(c, 'hopper', { x: 4, y: -4 }, 1, ctx));
+    c = must(lplace(c, 'inverter', { x: 4, y: 4 }, 1, ctx));
+    c = must(lconnect(c, { m: 'hopper1', port: 'out' }, { m: 'inverter1', port: 'q' }, ctx));
+    c = must(lconnect(c, { m: 'hopper2', port: 'out' }, { m: 'inverter2', port: 'q' }, ctx));
     expect(c.belts[1]!.path.some((t) => t.x === 4 && t.y === 0)).toBe(true); // the crossing
     invariants(c);
     // parallel: a third line along y = 0 is refused, naming the belt it would run on
-    c = must(place(c, 'hopper', { x: 2, y: 2 }, 0, ctx));
-    c = must(place(c, 'inverter', { x: 7, y: 2 }, 0, ctx));
+    c = must(lplace(c, 'hopper', { x: 2, y: 2 }, 0, ctx));
+    c = must(lplace(c, 'inverter', { x: 7, y: 2 }, 0, ctx));
     const along = [{ x: 3, y: 2 }, { x: 3, y: 1 }, { x: 3, y: 0 }, { x: 4, y: 0 }, { x: 5, y: 0 }, { x: 5, y: 1 }, { x: 5, y: 2 }, { x: 6, y: 2 }];
-    const e = connect(c, { m: 'hopper3', port: 'out' }, { m: 'inverter3', port: 'q' }, ctx, along);
+    const e = lconnect(c, { m: 'hopper3', port: 'out' }, { m: 'inverter3', port: 'q' }, ctx, along);
     expect(e.ok).toBe(false);
     if (!e.ok) { expect(e.reason).toMatch(/belt from the Hopper/); expect(e.blockers).toContain('b1'); }
   });
 
   it('touching ports link directly with path []; place auto-links flush compatible ports', () => {
     let c = empty();
-    c = must(place(c, 'hopper', { x: 0, y: 0 }, 0, ctx));
-    const ghost: Machine = { id: 'ghost', kind: 'inverter', at: { x: 1, y: 0 }, rot: 0, config: { kind: 'inverter' } };
-    expect(autoLinks(c, ghost, ctx)).toEqual([{ from: { m: 'hopper1', port: 'out' }, to: { m: 'ghost', port: 'q' } }]);
-    const p = must(place(c, 'inverter', { x: 1, y: 0 }, 0, ctx));
-    expect(p.belts).toEqual([{ id: 'b1', from: { m: 'hopper1', port: 'out' }, to: { m: 'inverter1', port: 'q' }, path: [] }]);
+    c = must(lplace(c, 'hopper', { x: 0, y: 0 }, 0, ctx));
+    const ghost: Machine = { id: 'ghost', kind: 'spool', at: { x: 1, y: 0 }, rot: 0, config: { kind: 'spool', t: { k: 'port' } } };
+    expect(autoLinks(c, ghost, ctx)).toEqual([{ from: { m: 'hopper1', port: 'out' }, to: { m: 'ghost', port: 't' } }]);
+    const p = must(lplace(c, 'inverter', { x: 1, y: 0 }, 0, ctx));
+    expect(p.belts).toEqual([{ id: 'b1', from: { m: 'hopper1', port: 'out' }, to: { m: 'inverter1', port: 't' }, path: [] }]);
     expect(p.ids).toEqual(['inverter1', 'b1']);
     invariants(p);
     // incompatible (term into an equation inlet): no auto-link, but connect still links directly (it may jam)
-    const q = must(place(c, 'canceller', { x: 1, y: 0 }, 0, ctx));
+    const q = must(lplace(c, 'canceller', { x: 1, y: 0 }, 0, ctx));
     expect(q.belts).toEqual([]);
-    expect(routeOrWhy(q, { m: 'hopper1', port: 'out' }, { m: 'canceller1', port: 'q' }, ctx)).toEqual({ path: [] });
-    const r = must(connect(q, { m: 'hopper1', port: 'out' }, { m: 'canceller1', port: 'q' }, ctx, []));
+    expect(lrouteOrWhy(q, { m: 'hopper1', port: 'out' }, { m: 'canceller1', port: 'q' }, ctx)).toEqual({ path: [] });
+    const r = must(lconnect(q, { m: 'hopper1', port: 'out' }, { m: 'canceller1', port: 'q' }, ctx, []));
     expect(r.belts[0]!.path).toEqual([]);
     invariants(r);
   });
@@ -527,20 +581,20 @@ describe('forgiving belts (r2)', () => {
   it('never silently drops a belt: an unroutable belt is kept broken, naming the blocker, and heals later', () => {
     // Astra P1 #1: in delivered L01, a Hopper dropped right before the dock.
     let c = initialCanvas(ctx.level, ctx);
-    c = must(place(c, 'canceller', { x: 5, y: 0 }, 0, ctx));
-    c = must(connect(c, { m: 'pre:0', port: 'out' }, { m: 'canceller1', port: 'q' }, ctx));
-    c = must(connect(c, { m: 'canceller1', port: 'out' }, { m: 'socket:s', port: 'q' }, ctx));
+    c = must(lplace(c, 'canceller', { x: 5, y: 0 }, 0, ctx));
+    c = must(lconnect(c, { m: 'pre:0', port: 'out' }, { m: 'canceller1', port: 'q' }, ctx));
+    c = must(lconnect(c, { m: 'canceller1', port: 'out' }, { m: 'socket:s', port: 'q' }, ctx));
     // the dock also accepts from its north side, so one Hopper on its doorstep just re-routes the belt
-    const d1 = must(place(c, 'hopper', { x: 10, y: 0 }, 0, ctx));
+    const d1 = must(lplace(c, 'hopper', { x: 10, y: 0 }, 0, ctx));
     const b1 = d1.belts.find((b) => b.to.m === 'socket:s')!;
     expect(b1.broken).toBeUndefined();
     expect([{ x: 11, y: -1 }, { x: 11, y: 1 }]).toContainEqual(b1.path[b1.path.length - 1]); // a side face
     invariants(d1);
     // blocking every approach breaks it — kept, dashed, naming the blocker
-    const d1b = must(place(d1, 'hopper', { x: 11, y: -1 }, 0, ctx));
+    const d1b = must(lplace(d1, 'hopper', { x: 11, y: -1 }, 0, ctx));
     expect(d1b.belts.find((b) => b.to.m === 'socket:s')!.path.at(-1)).toEqual({ x: 11, y: 1 }); // the south face
     invariants(d1b);
-    const e = place(d1b, 'hopper', { x: 11, y: 1 }, 2, ctx);
+    const e = lplace(d1b, 'hopper', { x: 11, y: 1 }, 2, ctx);
     const d = must(e);
     expect(d.belts.length).toBe(2);
     const br = d.belts.find((b) => b.to.m === 'socket:s')!;
@@ -555,33 +609,33 @@ describe('forgiving belts (r2)', () => {
     let r = d;
     for (let i = 0; i < 4; i++) { r = must(rotateMachine(r, 'canceller1', ctx)); expect(r.belts.length).toBe(2); invariants(r); }
     // a broken input can be re-fed directly (the broken belt is replaced)
-    const refeed = connect(d, { m: 'hopper1', port: 'out' }, { m: 'socket:s', port: 'q' }, ctx);
+    const refeed = lconnect(d, { m: 'hopper1', port: 'out' }, { m: 'socket:s', port: 'q' }, ctx);
     expect(refeed.ok).toBe(true);
   });
 
   it('refusals name the blocker: occupied cells, room walls', () => {
     let c = initialCanvas(ctx.level, ctx);
-    c = must(place(c, 'canceller', { x: 5, y: 0 }, 0, ctx));
-    const e = place(c, 'popper', { x: 4, y: 0 }, 0, ctx);
+    c = must(lplace(c, 'canceller', { x: 5, y: 0 }, 0, ctx));
+    const e = lplace(c, 'popper', { x: 4, y: 0 }, 0, ctx);
     expect(e.ok).toBe(false);
-    if (!e.ok) { expect(e.reason).toBe('The Canceller is in the way.'); expect(e.blockers).toEqual(['canceller1']); }
+    if (!e.ok) { expect(e.reason).toBe('The Rewriter is in the way.'); expect(e.blockers).toEqual(['canceller1']); }
     // an Anvil inside a room whose ≠ input faces the wall
     let r = initialCanvas(k.level, k);
     r = must(paintRoom(r, { x: 3, y: 2, w: 8, h: 6 }, 'suppose', a, b, k));
-    r = must(place(r, 'anvil', { x: 3, y: 5 }, 0, k));             // a, b on the west wall, facing out
-    r = must(place(r, 'swapper', { x: 6, y: 6 }, 0, k));
-    r = must(place(r, 'hopper', { x: 3, y: 7 }, 0, k));             // and its side approach is taken
-    const w = connect(r, { m: 'swapper1', port: 'out' }, { m: 'anvil1', port: 'b' }, k);
+    r = must(lplace(r, 'anvil', { x: 3, y: 5 }, 0, k));             // a, b on the west wall, facing out
+    r = must(lplace(r, 'swapper', { x: 6, y: 6 }, 0, k));
+    r = must(lplace(r, 'hopper', { x: 3, y: 7 }, 0, k));             // and its side approach is taken
+    const w = lconnect(r, { m: 'swapper1', port: 'out' }, { m: 'anvil1', port: 'b' }, k);
     expect(w.ok).toBe(false);
-    if (!w.ok) { expect(w.reason).toBe('no route: the Anvil’s ≠ input faces the room wall.'); expect(w.blockers).toEqual([r.rooms[0]!.id]); }
+    if (!w.ok) { expect(w.reason).toBe('no route: the Joiner’s ≠ input faces the room wall.'); expect(w.blockers).toEqual([r.rooms[0]!.id]); }
   });
 
   it('routes never take another port’s doorstep', () => {
     let c = empty();
-    c = must(place(c, 'hopper', { x: 0, y: 0 }, 0, ctx));
-    c = must(place(c, 'inverter', { x: 6, y: 0 }, 0, ctx));
-    c = must(place(c, 'meet', { x: 3, y: 1 }, 3, ctx)); // rot 3: inputs face south, out faces north onto (3,0)
-    c = must(connect(c, { m: 'hopper1', port: 'out' }, { m: 'inverter1', port: 'q' }, ctx));
+    c = must(lplace(c, 'hopper', { x: 0, y: 0 }, 0, ctx));
+    c = must(lplace(c, 'inverter', { x: 6, y: 0 }, 0, ctx));
+    c = must(lplace(c, 'meet', { x: 3, y: 1 }, 3, ctx)); // rot 3: inputs face south, out faces north onto (3,0)
+    c = must(lconnect(c, { m: 'hopper1', port: 'out' }, { m: 'inverter1', port: 'q' }, ctx));
     const doorstep = frontOf(portsOf(m(c, 'meet1'), ctx).find((p) => p.id === 'out')!);
     expect(c.belts[0]!.path.some((t) => t.x === doorstep.x && t.y === doorstep.y)).toBe(false);
     invariants(c);
@@ -623,9 +677,9 @@ describe('forgiving rooms and lines (r3)', () => {
     c = must(paintRoom(c, { x: 3, y: 2, w: 8, h: 6 }, 'suppose', a, a, k));
     const gate = c.machines.find((x) => x.kind === 'gate')!;
     const gIn = frontOf(portsOf(gate, k).find((p) => p.id === 'q')!);
-    c = must(place(c, 'hopper', gIn, 0, k));
-    c = must(place(c, 'anvil', { x: 5, y: 5 }, 0, k));
-    c = must(connect(c, { m: 'anvil1', port: 'out' }, { m: gate.id, port: 'q' }, k));
+    c = must(lplace(c, 'hopper', gIn, 0, k));
+    c = must(lplace(c, 'anvil', { x: 5, y: 5 }, 0, k));
+    c = must(lconnect(c, { m: 'anvil1', port: 'out' }, { m: gate.id, port: 'q' }, k));
     const last = c.belts[c.belts.length - 1]!.path.at(-1)!;
     expect([{ x: gate.at.x, y: gate.at.y - 1 }, { x: gate.at.x, y: gate.at.y + 1 }]).toContainEqual(last);
     invariants(c, k);
@@ -633,16 +687,16 @@ describe('forgiving rooms and lines (r3)', () => {
 
   it('rip-up and re-route: a belt sealing the only approach is moved aside, and the note says so', () => {
     let c = empty();
-    c = must(place(c, 'inverter', { x: 5, y: 0 }, 0, ctx));          // B's target: q doorstep (4,0)
-    for (const [x, y, r] of [[5, -1, 3], [5, 1, 1], [4, -1, 3], [4, 1, 1]] as const) c = must(place(c, 'hopper', { x, y }, r, ctx));
-    c = must(place(c, 'hopper', { x: 3, y: -4 }, 1, ctx));          // A's source, out faces south
-    c = must(place(c, 'inverter', { x: 2, y: 4 }, 1, ctx));         // A's target, q faces north
+    c = must(lplace(c, 'inverter', { x: 5, y: 0 }, 0, ctx));          // B's target: q doorstep (4,0)
+    for (const [x, y, r] of [[5, -1, 3], [5, 1, 1], [4, -1, 3], [4, 1, 1]] as const) c = must(lplace(c, 'hopper', { x, y }, r, ctx));
+    c = must(lplace(c, 'hopper', { x: 3, y: -4 }, 1, ctx));          // A's source, out faces south
+    c = must(lplace(c, 'inverter', { x: 2, y: 4 }, 1, ctx));         // A's target, q faces north
     const hopA = c.machines.at(-2)!.id, invA = c.machines.at(-1)!.id;
     const aPath = [{ x: 3, y: -3 }, { x: 3, y: -2 }, { x: 3, y: -1 }, { x: 3, y: 0 }, { x: 2, y: 0 }, { x: 2, y: 1 }, { x: 2, y: 2 }, { x: 2, y: 3 }];
-    c = must(connect(c, { m: hopA, port: 'out' }, { m: invA, port: 'q' }, ctx, aPath)); // turns at (3,0): seals (4,0)
-    c = must(place(c, 'hopper', { x: 0, y: 0 }, 0, ctx));
+    c = must(lconnect(c, { m: hopA, port: 'out' }, { m: invA, port: 'q' }, ctx, aPath)); // turns at (3,0): seals (4,0)
+    c = must(lplace(c, 'hopper', { x: 0, y: 0 }, 0, ctx));
     const hopB = c.machines.at(-1)!.id;
-    const e = connect(c, { m: hopB, port: 'out' }, { m: 'inverter1', port: 'q' }, ctx);
+    const e = lconnect(c, { m: hopB, port: 'out' }, { m: 'inverter1', port: 'q' }, ctx);
     expect(e.ok).toBe(true);
     if (e.ok) {
       expect(e.note).toMatch(/Re-routed the belt from the Hopper/);
@@ -654,34 +708,35 @@ describe('forgiving rooms and lines (r3)', () => {
 
   it('free fan-out: a direct-linked output feeds a second consumer from its side', () => {
     let c = empty();
-    c = must(place(c, 'hopper', { x: 0, y: 0 }, 0, ctx));
-    c = must(place(c, 'inverter', { x: 1, y: 0 }, 0, ctx));         // auto-linked, path []
+    c = must(lplace(c, 'hopper', { x: 0, y: 0 }, 0, ctx));
+    c = must(lplace(c, 'inverter', { x: 1, y: 0 }, 0, ctx));         // auto-linked, path []
     expect(c.belts[0]!.path).toEqual([]);
-    c = must(place(c, 'inverter', { x: 4, y: 3 }, 0, ctx));
-    c = must(connect(c, { m: 'hopper1', port: 'out' }, { m: 'inverter2', port: 'q' }, ctx));
+    c = must(lplace(c, 'inverter', { x: 4, y: 3 }, 0, ctx));
+    c = must(lconnect(c, { m: 'hopper1', port: 'out' }, { m: 'inverter2', port: 'q' }, ctx));
     expect([{ x: 0, y: -1 }, { x: 0, y: 1 }]).toContainEqual(c.belts[1]!.path[0]);
-    c = must(place(c, 'inverter', { x: 4, y: -3 }, 0, ctx));
-    c = must(branch(c, c.belts[0]!.id, { m: 'inverter3', port: 'q' }, ctx)); // branching a [] belt works too
+    c = must(lplace(c, 'inverter', { x: 4, y: -3 }, 0, ctx));
+    c = must(lbranch(c, c.belts[0]!.id, { m: 'inverter3', port: 'q' }, ctx)); // branching a [] belt works too
     expect(c.belts.length).toBe(3);
     invariants(c);
   });
 
   it('splicing: a machine dropped onto a compatible belt joins the line; previewed by spliceCandidates', () => {
-    let c = empty();
-    c = must(place(c, 'hopper', { x: 0, y: 0 }, 0, ctx));
-    c = must(place(c, 'inverter', { x: 8, y: 0 }, 0, ctx));
-    c = must(connect(c, { m: 'hopper1', port: 'out' }, { m: 'inverter1', port: 'q' }, ctx));
-    const ghost: Machine = { id: 'ghost', kind: 'inverter', at: { x: 4, y: 0 }, rot: 0, config: { kind: 'inverter' } };
+    let c = initialCanvas(ctx.level, ctx);                          // pre:0 spool at (0,0), dock at (11,0)
+    c = must(lconnect(c, { m: 'pre:0', port: 'out' }, { m: 'socket:s', port: 'q' }, ctx));
+    const ghost: Machine = { id: 'ghost', kind: 'rewriter', at: { x: 4, y: 0 }, rot: 0, config: RW({ k: 'cancel' }) };
     expect(spliceCandidates(c, ghost, ctx).map((s) => s.belt)).toEqual(['b1']);
-    const e = place(c, 'inverter', { x: 4, y: 0 }, 0, ctx);
+    const e = lplace(c, 'canceller', { x: 4, y: 0 }, 0, ctx);
     const d = must(e);
-    if (e.ok) expect(e.note).toMatch(/Spliced into the belt from the Hopper/);
-    expect(d.belts.map((b) => [b.from.m, b.to.m])).toEqual([['hopper1', 'inverter2'], ['inverter2', 'inverter1']]);
+    if (e.ok) expect(e.note).toMatch(/Spliced into the belt from the Spool/);
+    expect(d.belts.map((b) => [b.from.m, b.to.m])).toEqual([['pre:0', 'canceller1'], ['canceller1', 'socket:s']]);
     invariants(d);
     // an incompatible machine (equation inlet on a term belt) does not splice: the belt just moves aside
-    const ghost2: Machine = { id: 'ghost', kind: 'canceller', at: { x: 4, y: 0 }, rot: 0, config: { kind: 'canceller', target: { k: 'first' }, tidy: true } };
-    expect(spliceCandidates(c, ghost2, ctx)).toEqual([]);
-    const f = must(place(c, 'canceller', { x: 4, y: 0 }, 0, ctx));
+    let t = empty();
+    t = must(lplace(t, 'hopper', { x: 0, y: 0 }, 0, ctx));
+    t = must(lplace(t, 'inverter', { x: 8, y: 0 }, 0, ctx));
+    t = must(lconnect(t, { m: 'hopper1', port: 'out' }, { m: 'inverter1', port: 'q' }, ctx));
+    expect(spliceCandidates(t, ghost, ctx)).toEqual([]);
+    const f = must(lplace(t, 'canceller', { x: 4, y: 0 }, 0, ctx));
     expect(f.belts.map((b) => [b.from.m, b.to.m])).toEqual([['hopper1', 'inverter1']]);
     invariants(f);
   });
@@ -707,10 +762,10 @@ describe('final polish', () => {
 
   it('a route never seals a free output doorstep — not even its own target machine’s', () => {
     let c = empty();
-    c = must(place(c, 'hopper', { x: 0, y: 0 }, 0, ctx));
-    c = must(place(c, 'inverter', { x: 5, y: 0 }, 2, ctx));          // q faces east, out (doorstep 4,0) faces west
-    for (const x of [3, 4, 5]) c = must(place(c, 'hopper', { x, y: 1 }, 1, ctx)); // a wall under it
-    c = must(connect(c, { m: 'hopper1', port: 'out' }, { m: 'inverter1', port: 'q' }, ctx));
+    c = must(lplace(c, 'hopper', { x: 0, y: 0 }, 0, ctx));
+    c = must(lplace(c, 'inverter', { x: 5, y: 0 }, 2, ctx));          // q faces east, out (doorstep 4,0) faces west
+    for (const x of [3, 4, 5]) c = must(lplace(c, 'hopper', { x, y: 1 }, 1, ctx)); // a wall under it
+    c = must(lconnect(c, { m: 'hopper1', port: 'out' }, { m: 'inverter1', port: 'q' }, ctx));
     const outDoor = frontOf(portsOf(m(c, 'inverter1'), ctx).find((p) => p.id === 'out')!);
     expect(openRegion(c, outDoor)).toBeGreaterThanOrEqual(40);
     invariants(c);
@@ -718,8 +773,8 @@ describe('final polish', () => {
 
   it('docks take the belt on the near face (no loop round the dock)', () => {
     let c = initialCanvas(ctx.level, ctx);
-    c = must(place(c, 'canceller', { x: 5, y: 3 }, 0, ctx));
-    c = must(connect(c, { m: 'canceller1', port: 'out' }, { m: 'socket:s', port: 'q' }, ctx));
+    c = must(lplace(c, 'canceller', { x: 5, y: 3 }, 0, ctx));
+    c = must(lconnect(c, { m: 'canceller1', port: 'out' }, { m: 'socket:s', port: 'q' }, ctx));
     const p = c.belts[0]!.path;
     expect(p.at(-1)).toEqual({ x: 11, y: 1 });                         // the dock's south face
     expect(p.length).toBe(7);
@@ -727,31 +782,27 @@ describe('final polish', () => {
   });
 
   it('splices only when dropped on the belt in line with it', () => {
-    let c = empty();
-    c = must(place(c, 'hopper', { x: 0, y: 0 }, 0, ctx));
-    c = must(place(c, 'inverter', { x: 8, y: 0 }, 0, ctx));
-    c = must(connect(c, { m: 'hopper1', port: 'out' }, { m: 'inverter1', port: 'q' }, ctx));
-    const across: Machine = { id: 'g', kind: 'inverter', at: { x: 4, y: 0 }, rot: 1, config: { kind: 'inverter' } };
-    const beside: Machine = { id: 'g', kind: 'inverter', at: { x: 4, y: 1 }, rot: 0, config: { kind: 'inverter' } };
-    const backwards: Machine = { id: 'g', kind: 'inverter', at: { x: 4, y: 0 }, rot: 2, config: { kind: 'inverter' } };
-    for (const g of [across, beside, backwards]) expect(spliceCandidates(c, g, ctx)).toEqual([]);
-    const d = must(place(c, 'inverter', { x: 4, y: 0 }, 1, ctx));      // across the belt: re-routes, no splice
-    expect(d.belts.map((b) => [b.from.m, b.to.m])).toEqual([['hopper1', 'inverter1']]);
+    let c = initialCanvas(ctx.level, ctx);
+    c = must(lconnect(c, { m: 'pre:0', port: 'out' }, { m: 'socket:s', port: 'q' }, ctx));
+    const g = (at: Tile, rot: Rot): Machine => ({ id: 'g', kind: 'rewriter', at, rot, config: RW({ k: 'pop' }) });
+    for (const x of [g({ x: 4, y: 0 }, 1), g({ x: 4, y: 1 }, 0), g({ x: 4, y: 0 }, 2)]) expect(spliceCandidates(c, x, ctx)).toEqual([]);
+    const d = must(lplace(c, 'popper', { x: 4, y: 0 }, 1, ctx));       // across the belt: re-routes, no splice
+    expect(d.belts.map((b) => [b.from.m, b.to.m])).toEqual([['pre:0', 'socket:s']]);
     invariants(d);
-    const s2 = must(place(c, 'inverter', { x: 4, y: 0 }, 0, ctx));     // in line: splices
-    expect(s2.belts.map((b) => [b.from.m, b.to.m])).toEqual([['hopper1', 'inverter2'], ['inverter2', 'inverter1']]);
+    const s2 = must(lplace(c, 'popper', { x: 4, y: 0 }, 0, ctx));      // in line: splices
+    expect(s2.belts.map((b) => [b.from.m, b.to.m])).toEqual([['pre:0', 'popper1'], ['popper1', 'socket:s']]);
   });
 
   it('a wall of machines is blamed as a wall, naming both ends', () => {
     let c = empty();
-    c = must(place(c, 'hopper', { x: 0, y: 0 }, 0, ctx));
-    c = must(place(c, 'inverter', { x: 0, y: 4 }, 0, ctx));
+    c = must(lplace(c, 'hopper', { x: 0, y: 0 }, 0, ctx));
+    c = must(lplace(c, 'inverter', { x: 0, y: 4 }, 0, ctx));
     // a closed box of swappers around the inverter
-    for (let x = -2; x <= 3; x += 2) for (const y of [2, 6]) c = must(place(c, 'swapper', { x, y }, 0, ctx));
-    for (const y of [3, 4, 5]) { c = must(place(c, 'hopper', { x: -2, y }, 2, ctx)); c = must(place(c, 'hopper', { x: 3, y }, 0, ctx)); }
-    const e = connect(c, { m: 'hopper1', port: 'out' }, { m: 'inverter1', port: 'q' }, ctx);
+    for (let x = -2; x <= 3; x += 2) for (const y of [2, 6]) c = must(lplace(c, 'swapper', { x, y }, 0, ctx));
+    for (const y of [3, 4, 5]) { c = must(lplace(c, 'hopper', { x: -2, y }, 2, ctx)); c = must(lplace(c, 'hopper', { x: 3, y }, 0, ctx)); }
+    const e = lconnect(c, { m: 'hopper1', port: 'out' }, { m: 'inverter1', port: 'q' }, ctx);
     expect(e.ok).toBe(false);
-    if (!e.ok) { expect(e.reason).toMatch(/walls? the Hopper off from the Inverter/); expect(e.blockers!.length).toBeGreaterThan(0); }
+    if (!e.ok) { expect(e.reason).toMatch(/walls? the Hopper off from the Spool/); expect(e.blockers!.length).toBeGreaterThan(0); }
   });
 });
 
@@ -760,8 +811,8 @@ describe('hit testing', () => {
     const k = ctxOf('L09');
     let c = initialCanvas(k.level, k);
     c = must(paintRoom(c, { x: 2, y: -2, w: 8, h: 5 }, 'suppose', a, b, k));
-    c = must(place(c, 'swapper', { x: 5, y: -2 }, 0, k));
-    c = must(connect(c, { m: 'given:n', port: 'out' }, { m: 'swapper1', port: 'q' }, k));
+    c = must(lplace(c, 'swapper', { x: 5, y: -2 }, 0, k));
+    c = must(lconnect(c, { m: 'given:n', port: 'out' }, { m: 'swapper1', port: 'q' }, k));
     expect(hit(c, { x: 6, y: -2 }, k)).toEqual({ k: 'machine', id: 'swapper1' });
     const bt = c.belts[0]!.path[1]!;
     expect(hit(c, bt, k)).toMatchObject({ k: 'belt', id: c.belts[0]!.id, i: 1 });
@@ -773,18 +824,18 @@ describe('hit testing', () => {
 describe('copy / paste', () => {
   it('copies machines + internal belts, pastes with fresh ids, translated belts', () => {
     let c = initialCanvas(ctx.level, ctx);
-    c = must(place(c, 'canceller', { x: 4, y: 3 }, 0, ctx));
-    c = must(place(c, 'popper', { x: 8, y: 3 }, 0, ctx));
-    c = must(connect(c, { m: 'canceller1', port: 'out' }, { m: 'popper1', port: 'q' }, ctx));
-    c = must(connect(c, { m: 'pre:0', port: 'out' }, { m: 'canceller1', port: 'q' }, ctx));
+    c = must(lplace(c, 'canceller', { x: 4, y: 3 }, 0, ctx));
+    c = must(lplace(c, 'popper', { x: 8, y: 3 }, 0, ctx));
+    c = must(lconnect(c, { m: 'canceller1', port: 'out' }, { m: 'popper1', port: 'q' }, ctx));
+    c = must(lconnect(c, { m: 'pre:0', port: 'out' }, { m: 'canceller1', port: 'q' }, ctx));
     const bp = copySelection(c, ['canceller1', 'popper1', 'pre:0', 'b2']);
     expect(bp.machines.map((x) => x.id)).toEqual(['canceller1', 'popper1']); // locked spool skipped
     expect(bp.belts.length).toBe(1);
     expect(bp.origin).toEqual({ x: 4, y: 3 });
     const p = must(paste(c, bp, { x: 4, y: 6 }, ctx));
-    expect(p.ids.slice(0, 2)).toEqual(['canceller2', 'popper2']);
-    const nb = p.belts.find((x) => x.to.m === 'popper2')!;
-    expect(nb.from.m).toBe('canceller2');
+    expect(p.ids.slice(0, 2)).toEqual(['rewriter1', 'rewriter2']);
+    const nb = p.belts.find((x) => x.to.m === 'rewriter2')!;
+    expect(nb.from.m).toBe('rewriter1');
     expect(nb.path).toEqual(c.belts[0]!.path.map((t) => ({ x: t.x, y: t.y + 3 })));
     invariants(p);
     expect(paste(c, bp, { x: 4, y: 3 }, ctx).ok).toBe(false); // on top of the originals
@@ -792,5 +843,171 @@ describe('copy / paste', () => {
     // the blueprint is a deep copy
     (bp.machines[0] as Machine).at.x = 99;
     expect(m(c, 'canceller1').at.x).toBe(4);
+  });
+});
+
+describe('v4: towers, assume rooms, pipette', () => {
+  const tower = (c: Canvas, id: string) => m(c, id).config as Extract<MachineConfig, { kind: 'tower' }>;
+  const x = (id: string) => ({ k: 'atom', id }) as const;
+
+  it('tower labels are unique on the floor: x₁, y₁, z₁, w₁, x₂ … (place and rename)', () => {
+    let c = empty();
+    c = must(place(c, 'tower', { x: 0, y: 0 }, 0, ctx));
+    c = must(place(c, 'tower', { x: 2, y: 0 }, 0, ctx));
+    expect([tower(c, 'tower1'), tower(c, 'tower2')].map((t) => [t.label, t.varId])).toEqual([['x₁', 'x1'], ['y₁', 'y1']]);
+    for (const x0 of [4, 6, 8]) c = must(place(c, 'tower', { x: x0, y: 0 }, 0, ctx));
+    expect(['tower3', 'tower4', 'tower5'].map((id) => tower(c, id).label)).toEqual(['z₁', 'w₁', 'x₂']);
+    expect(portsOf(m(c, 'tower1'), ctx)).toEqual([]);
+    // renaming tower2 to a taken label renumbers the label; its varId (and so its uses) stays
+    c = must(setConfig(c, 'tower2', { kind: 'tower', varId: 'y1', label: 'x₁', sort: 'G' }));
+    expect([tower(c, 'tower2').label, tower(c, 'tower2').varId]).toEqual(['y₁', 'y1']);
+    c = must(setConfig(c, 'tower2', { kind: 'tower', varId: 'y1', label: 'v₇', sort: 'G' }));
+    expect([tower(c, 'tower2').label, tower(c, 'tower2').varId]).toEqual(['v₇', 'y1']);
+    invariants(c);
+  });
+
+  it('deleting a tower never silently re-binds its symbol; undo (the old canvas) keeps the same varId', () => {
+    let c = empty();
+    c = must(place(c, 'tower', { x: 0, y: 0 }, 0, ctx));
+    c = must(place(c, 'spool', { x: 3, y: 0 }, 0, ctx, { kind: 'spool', t: { k: 'knob', term: x('x1') } }));
+    const before = c;
+    c = must(remove(c, ['tower1']));                 // allowed; the Spool's x₁ now jams in the compiler
+    c = must(place(c, 'tower', { x: 0, y: 3 }, 0, ctx));
+    // a NEW variable, and not visibly “x₁” either: that label is reserved while orphaned uses remain
+    expect([tower(c, 'tower1').label, tower(c, 'tower1').varId]).toEqual(['y₁', 'y1']);
+    expect(tower(before, 'tower1').varId).toBe('x1');
+    // renaming the new Tower to the orphaned label is the explicit remap: it takes over x1 and its uses
+    c = must(setConfig(c, 'tower1', { kind: 'tower', varId: 'y1', label: 'x₁', sort: 'G' }));
+    expect([tower(c, 'tower1').label, tower(c, 'tower1').varId]).toEqual(['x₁', 'x1']);
+    expect(varLabel('x1')).toBe('x₁');
+  });
+
+  it('copy/paste: a pasted tower is a new variable; machines pasted with it follow it, others keep the original', () => {
+    let c = empty();
+    c = must(place(c, 'tower', { x: 0, y: 0 }, 0, ctx));
+    c = must(place(c, 'spool', { x: 3, y: 0 }, 0, ctx, { kind: 'spool', t: { k: 'knob', term: x('x1') } }));
+    const withTower = must(paste(c, copySelection(c, ['tower1', 'spool1']), { x: 0, y: 4 }, ctx));
+    const t2 = withTower.machines.find((q) => q.kind === 'tower' && q.id !== 'tower1')!.config as Extract<MachineConfig, { kind: 'tower' }>;
+    expect([t2.label, t2.varId]).toEqual(['y₁', 'y1']);
+    expect(withTower.machines.find((q) => q.kind === 'spool' && q.id !== 'spool1')!.config).toEqual({ kind: 'spool', t: { k: 'knob', term: x('y1') } });
+    const alone = must(paste(c, copySelection(c, ['spool1']), { x: 3, y: 4 }, ctx));
+    expect(alone.machines.find((q) => q.kind === 'spool' && q.id !== 'spool1')!.config).toEqual({ kind: 'spool', t: { k: 'knob', term: x('x1') } });
+  });
+
+  it('pipette: place keeps a full recipe configuration intact', () => {
+    const cfg: MachineConfig = { kind: 'rewriter', recipe: { k: 'law', ref: { k: 'axiom', id: 'invL' } }, dir: 'rev', target: FIRST, gap: FIRST, values: { x: { k: 'knob', term: a } }, tidy: false };
+    const c = must(place(empty(), 'rewriter', { x: 0, y: 0 }, 0, ctx, cfg));
+    expect(m(c, 'rewriter1').config).toEqual(cfg);
+  });
+
+  it('assume rooms: kind + rel, desk inside, gate on the east wall', () => {
+    const k = ctxOf('L09');
+    const c = must(paintRoom(initialCanvas(k.level, k), { x: 3, y: 2, w: 8, h: 6 }, 'assume', a, b, k, 'neq'));
+    expect(c.rooms[0]).toMatchObject({ kind: 'assume', rel: 'neq' });
+    expect(c.machines.filter((q) => q.kind === 'desk' || q.kind === 'gate').length).toBe(2);
+    invariants(c, k);
+  });
+});
+
+describe('v4 Phase B: integer towers and imported power laws', () => {
+  const kz: KernelCtx = { ...ctx, level: { ...ctx.level, tools: { ...ctx.level.tools, schemas: ['power.add', 'power.zero', 'power.literal'] } } };
+  const tw = (c: Canvas, id: string) => { const t = m(c, id).config as Extract<MachineConfig, { kind: 'tower' }>; return [t.label, t.varId, t.sort]; };
+
+  it('towers auto-label per sort (x₁… / n₁…), unique across both sorts', () => {
+    let c = empty();
+    c = must(place(c, 'tower', { x: 0, y: 0 }, 0, kz, defaultConfig('tower', kz, { sort: 'Z' })));
+    c = must(place(c, 'tower', { x: 2, y: 0 }, 0, kz, defaultConfig('tower', kz, { sort: 'Z' })));
+    c = must(place(c, 'tower', { x: 4, y: 0 }, 0, kz));
+    expect([tw(c, 'tower1'), tw(c, 'tower2'), tw(c, 'tower3')]).toEqual([['n₁', 'n1', 'Z'], ['k₁', 'k1', 'Z'], ['x₁', 'x1', 'G']]);
+    // switching an element tower to ℤ relabels it in the integer letters, still unique
+    c = must(setConfig(c, 'tower3', { kind: 'tower', varId: 'x1', label: 'x₁', sort: 'Z' }));
+    expect(tw(c, 'tower3')).toEqual(['m₁', 'x1', 'Z']);
+    // a player's own letter that fits the sort is kept
+    c = must(setConfig(c, 'tower1', { kind: 'tower', varId: 'n1', label: 'j₁', sort: 'Z' }));
+    expect(tw(c, 'tower1')[0]).toBe('j₁');
+  });
+
+  it('the library lists the order’s imported power laws, the literal family as one entry with an r knob', () => {
+    const refs = libraryRefs(kz, 'rule');
+    expect(refs).toContainEqual({ k: 'schema', id: 'power.add' });
+    expect(refs).toContainEqual({ k: 'schema', id: 'power.literal' });
+    expect(refs).not.toContainEqual({ k: 'schema', id: 'power.multiply' });   // not listed by the order
+    expect(libCard(kz, { k: 'schema', id: 'power.zero' })?.k).toBe('law');
+    expect(libCard(kz, { k: 'schema', id: 'power.literal' })).toBeNull();     // r not chosen yet
+    expect(libCard(kz, { k: 'schema', id: 'power.literal:3' })?.k).toBe('law');
+    expect(libName(kz, { k: 'schema', id: 'power.add' })).toBe('Exponent Adder');
+    expect(libName(kz, { k: 'schema', id: 'power.literal' })).toBe('Literal Power (choose r)');
+    expect(libPremises(kz, { k: 'schema', id: 'power.add' })).toBe(0);
+    const law = (id: string): MachineConfig => ({ kind: 'rewriter', recipe: { k: 'law', ref: { k: 'schema', id } }, dir: 'fwd', target: FIRST, gap: FIRST, values: {}, tidy: true });
+    for (const id of ['power.add', 'power.literal', 'power.literal:4']) expect(place(empty(), 'rewriter', { x: 0, y: 0 }, 0, kz, law(id)).ok).toBe(true);
+    expect(place(empty(), 'rewriter', { x: 0, y: 0 }, 0, kz, law('power.bogus')).ok).toBe(false);
+  });
+});
+
+describe('v4 r2: doorsteps and the L12 floor', () => {
+  const k12: KernelCtx = { ...ctxOf('L12'), registry: REGISTRY };
+  const RWr: MachineConfig = { kind: 'rewriter', recipe: { k: 'routed' }, dir: 'fwd', target: FIRST, gap: FIRST, values: {}, tidy: true };
+
+  it('every doorstep (rule ports included) is hard for placement, named in the refusal and the preview', () => {
+    let c = empty();
+    c = must(place(c, 'rewriter', { x: 4, y: 4 }, 0, ctx, RWr));        // rule port on the north side → doorstep (4,3)
+    const e = place(c, 'joiner', { x: 3, y: 2 }, 0, ctx);
+    expect(e.ok).toBe(false);
+    if (!e.ok) { expect(e.reason).toBe('That would block the Rewriter’s rule input.'); expect(e.blockers).toEqual(['rewriter1']); }
+    const ghost: Machine = { id: 'g', kind: 'hopper', at: { x: 4, y: 3 }, rot: 0, config: { kind: 'hopper', t: null } };
+    expect(placementWhy(c, ghost, ctx)?.reason).toBe('That would block the Rewriter’s rule input.');
+    expect(placementWhy(c, { ...ghost, at: { x: 7, y: 3 } }, ctx)).toBeNull();
+  });
+
+  it('L12-shaped floor (playtest v4 r1 #2): a Suppose room with a Lagrange line, Witness feeding a rule port, clash and gate — every belt routes', () => {
+    let c = initialCanvas(k12.level, k12);
+    const ab = [a, b, a, b, a, b];
+    c = must(paintRoom(c, { x: 3, y: 3, w: 14, h: 9 }, 'suppose', { k: 'mul', fs: ab } as never, { k: 'e' }, k12));
+    const P = (kind: MachineKind, x: number, y: number, cfg: MachineConfig) => { c = must(place(c, kind, { x, y }, 0, k12, cfg)); return c.machines.at(-1)!.id; };
+    const lag = P('carddock', 5, 9, { kind: 'carddock', ref: { k: 'lagrange' } });
+    const r1 = P('rewriter', 7, 9, RWr), r2 = P('rewriter', 10, 9, RWr);
+    const wit = P('theorem', 13, 9, { kind: 'theorem', recipe: { k: 'library', ref: { k: 'schema', id: 'witness' } }, choice: 0, values: {} });
+    const r3 = P('rewriter', 8, 5, RWr);
+    const an = P('joiner', 12, 5, { kind: 'joiner', recipe: { k: 'clash' } });
+    const desk = c.machines.find((q) => q.kind === 'desk')!.id, gate = c.machines.find((q) => q.kind === 'gate')!.id;
+    const wires: [string, string, string, string][] = [
+      [desk, 'out', r1, 'q'], [lag, 'out', r1, 'rule'], [r1, 'out', r2, 'q'], [desk, 'out', r2, 'rule'], [r2, 'out', wit, 'p0'],
+      [wit, 'out', r3, 'rule'], [desk, 'out', r3, 'q'], [r3, 'out', an, 'a'], ['given:n', 'out', an, 'b'], [an, 'out', gate, 'q'], [gate, 'out', 'socket:s', 'q'],
+    ];
+    for (const [f, fp, t, tp] of wires) c = must(connect(c, { m: f, port: fp }, { m: t, port: tp }, k12));
+    expect(c.belts.length).toBe(wires.length);
+    expect(c.belts.filter((x) => x.broken)).toEqual([]);
+    for (const x of c.belts) expect(x.path.length, `${x.from.m}→${x.to.m}`).toBeLessThanOrEqual(16);
+    invariants(c, k12);
+  });
+});
+
+describe('v4 final: short-belt splices and unambiguous blame', () => {
+  it('a machine dropped over a 2-cell belt splices both ends (direct links to source and target)', () => {
+    let c = empty();
+    c = must(lplace(c, 'canceller', { x: 0, y: 0 }, 0, ctx));          // out doorstep (2,0)
+    c = must(lplace(c, 'popper', { x: 4, y: 0 }, 0, ctx));             // q doorstep (3,0)
+    c = must(lconnect(c, { m: 'canceller1', port: 'out' }, { m: 'popper1', port: 'q' }, ctx));
+    expect(c.belts[0]!.path).toEqual([{ x: 2, y: 0 }, { x: 3, y: 0 }]);
+    const op: Machine = { id: 'g', kind: 'operator', at: { x: 2, y: 0 }, rot: 0, config: { kind: 'operator', recipe: { k: 'swap' } } };
+    expect(spliceCandidates(c, op, ctx).map((s) => s.belt)).toEqual(['b1']);
+    const e = place(c, 'operator', { x: 2, y: 0 }, 0, ctx, op.config);
+    const d = must(e);
+    if (e.ok) expect(e.note).toMatch(/Spliced/);
+    expect(d.belts.map((b) => [b.from.m, b.to.m, b.path.length, b.broken])).toEqual([['canceller1', 'operator1', 0, undefined], ['operator1', 'popper1', 0, undefined]]);
+    invariants(d);
+  });
+
+  it('blame names a belt by its source’s plate and position, and still flashes its id', () => {
+    let c = empty();
+    c = must(lplace(c, 'canceller', { x: 0, y: 0 }, 0, ctx));
+    c = must(lplace(c, 'popper', { x: 9, y: 0 }, 0, ctx));
+    c = must(lconnect(c, { m: 'canceller1', port: 'out' }, { m: 'popper1', port: 'q' }, ctx));
+    c = must(lplace(c, 'hopper', { x: 3, y: 2 }, 0, ctx));
+    c = must(lplace(c, 'inverter', { x: 8, y: 2 }, 0, ctx));
+    const along = [{ x: 4, y: 2 }, { x: 4, y: 1 }, { x: 4, y: 0 }, { x: 5, y: 0 }, { x: 6, y: 0 }, { x: 6, y: 1 }, { x: 6, y: 2 }, { x: 7, y: 2 }];
+    const e = lconnect(c, { m: 'hopper1', port: 'out' }, { m: 'inverter1', port: 'q' }, ctx, along);
+    expect(e.ok).toBe(false);
+    if (!e.ok) { expect(e.reason).toMatch(/[Tt]he belt from the CANCEL Rewriter at \(0,0\)/); expect(e.blockers).toContain('b1'); }
   });
 });

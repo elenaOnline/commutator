@@ -43,7 +43,7 @@ export class Floor {
     this.ok(F.connect(this.c, { m: from, port: 'out' }, { m: to, port }, this.ctx, path));
     return this.c.belts[this.c.belts.length - 1]!.id;
   }
-  room(rect: F.Rect, kind: 'suppose' | 'classical', l: Term, r: Term) {
+  room(rect: F.Rect, kind: F.Room['kind'], l: Term, r: Term) {
     const before = new Set(this.c.rooms.map((x) => x.id));
     this.ok(F.paintRoom(this.c, rect, kind, l, r, this.ctx));
     const room = this.c.rooms.find((x) => !before.has(x.id))!;
@@ -68,3 +68,35 @@ export function factOut(comp: F.Compiled, id: string): Pallet {
   return (o as { fact: Pallet }).fact;
 }
 export const status = (comp: F.Compiled, id: string) => comp.machines[id]!.status;
+
+// ───── v4 machine configs ─────
+type RW = Extract<F.MachineConfig, { kind: 'rewriter' }>;
+export const rw = (recipe: F.RewriteRecipe, o: Partial<Omit<RW, 'kind' | 'recipe'>> = {}): F.MachineConfig =>
+  ({ kind: 'rewriter', recipe, dir: 'fwd', target: { k: 'first' }, gap: { k: 'first' }, values: {}, tidy: true, ...o });
+export const cancel = (target: F.SpanTarget = { k: 'first' }, tidy = true) => rw({ k: 'cancel' }, { target, tidy });
+export const pop = (target: F.SpanTarget = { k: 'first' }) => rw({ k: 'pop' }, { target });
+export const insertE = (gap: F.GapTarget = { k: 'first' }) => rw({ k: 'insertE' }, { gap });
+export const insertPair = (x: Term, inv: boolean, gap: F.GapTarget = { k: 'first' }) => rw({ k: 'insertPair', inv, x: knob(x) }, { gap });
+export const lawRw = (ref: F.LibRef, o: Partial<Omit<RW, 'kind' | 'recipe'>> = {}) => rw({ k: 'law', ref }, o);
+export const routed = (o: Partial<Omit<RW, 'kind' | 'recipe'>> = {}) => rw({ k: 'routed' }, o);
+export const op = (recipe: F.OperatorRecipe): F.MachineConfig => ({ kind: 'operator', recipe });
+export const mult = (side: 'left' | 'right', t: Term) => op({ k: 'multiply', side, t: knob(t) });
+export const join = (recipe: F.JoinerRecipe): F.MachineConfig => ({ kind: 'joiner', recipe });
+export const thm = (ref: F.LibRef | 'routed', choice = 0, values: Record<string, F.Param> = {}): F.MachineConfig =>
+  ({ kind: 'theorem', recipe: ref === 'routed' ? { k: 'routed' } : { k: 'library', ref }, choice, values });
+export const tower = (varId: string, label: string): F.MachineConfig => ({ kind: 'tower', varId, label, sort: 'G' });
+export const spool = (t: Term): F.MachineConfig => ({ kind: 'spool', t: knob(t) });
+export const x1: Term = { k: 'atom', id: 'x1' }, y1: Term = { k: 'atom', id: 'y1' };
+export const M = (id: string): Term => ({ k: 'meta', id });
+
+// ───── Phase B (integer exponents) ─────
+import { polyConst, polyMul, polyZmeta, polyZvar } from '../kernel/poly';
+import type { Poly } from '../kernel/types';
+export const towerZ = (varId: string, label: string): F.MachineConfig => ({ kind: 'tower', varId, label, sort: 'Z' });
+export const pw = (base: Term, exp: Poly): Term => ({ k: 'pow', base, exp });
+export const Zc = (n: number): Poly => polyConst(n);
+export const Zv = (id: string): Poly => polyZvar(id);
+export const Zm = (id: string): Poly => polyZmeta(id);
+export const Zmul = (a: Poly, b: Poly): Poly => polyMul(a, b);
+/** An exponent knob value (a ℤ-meta's integer). */
+export const intKnob = (p: Poly): F.Param => ({ k: 'knob', term: { k: 'int', val: p } });

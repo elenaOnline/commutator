@@ -11,7 +11,7 @@ import type { Family } from '../kernel/types';
 import type { MachineKind } from '../factory/types';
 import { FAMILY, reducedMotion } from '../ui/tokens';
 import { MATH_CSS } from '../ui/math';
-import { floorModule, h, hotbarKinds, pointer, spec, type S } from './util';
+import { VERBS, floorModule, h, hotbarKinds, pointer, spec, type S } from './util';
 import { mountHotbar } from './hotbar';
 import { mountLens } from './lens';
 import { mountOrder } from './order';
@@ -22,6 +22,9 @@ import { mountCeremony } from './ceremony';
 import { mountMap } from './map';
 import { mountLab } from './lab';
 import { mountFollow } from './follow';
+import { mountConcepts } from './concept';
+import { mountLemmaBook } from './lemmabook';
+import { pending, withRecipe } from './presets';
 import { rectToScreen } from '../floor/project';
 
 export interface AppOpts {
@@ -102,14 +105,17 @@ export function mountApp(root: HTMLElement, store: FactoryStore, opts: AppOpts =
   layer.append(labEl);
   let labOpen = false;
   const lab = mountLab(labEl, store, (m) => { toastEl.dataset.kind = 'note'; toast(m); }, { pin: (p) => order.addPlan(p), pinned: () => order.plans() });
-  lab.onToggle((o) => { labOpen = o; render(store.get()); });
+  lab.onToggle((o) => { labOpen = o; if (o && store.get().ui.lemmaBookOpen) store.toggleLemmaBook(false); render(store.get()); });
   const run = mountRun(layer, store, {
     toggleTranscript: () => store.setUI({ transcriptOpen: !store.get().ui.transcriptOpen }),
     toggleLab: () => lab.toggle(),
     isLabOpen: () => labOpen,
+    toggleBook: () => { const o = !store.get().ui.lemmaBookOpen; if (o) lab.toggle(false); store.toggleLemmaBook(o); },
   });
   const below = (el: HTMLElement, fallback: number) => { const r = el.getBoundingClientRect(); return r.height ? r.bottom + 10 : fallback; };
   const transcript = mountTranscript(layer, store, { top: () => below(order.el, 120) });
+  const book = mountLemmaBook(layer, store, { top: () => below(run.el, 140) });
+  const concepts = mountConcepts(layer, store);
   const lens = mountLens(layer, store, { dockTop: () => below(run.el, 120), keepClear: () => [order.el, run.el] });
   lensRef = lens.el;
   const hints = mountHints(layer, store, { slotRect: (k: MachineKind) => hotbar.slotRect(k), avoid: () => [lens.el, transcript.el, labEl] });
@@ -129,44 +135,42 @@ export function mountApp(root: HTMLElement, store: FactoryStore, opts: AppOpts =
     if (s.ui.screen === 'map') { try { renderMap(s); } catch (err) { console.warn('[hud] map', err); } return; }
     labEl.style.top = `${below(run.el, 140)}px`;
     for (const [name, fn] of [['hotbar', hotbar.render], ['order', order.render], ['run', run.render], ['lens', lens.render], ['transcript', transcript.render],
-      ['hints', hints.render], ['lab', lab.render], ['ceremony', renderCeremony], ['follow', follow.render]] as const) {
+      ['hints', hints.render], ['lab', lab.render], ['ceremony', renderCeremony], ['follow', follow.render], ['lemma book', book.render], ['cards', concepts.render]] as const) {
       try { fn(s); } catch (err) { console.warn(`[hud] ${name} render failed`, err); }
     }
     if (s.ui.toast && s.ui.toast !== lastToast) { toastEl.dataset.kind = s.ui.toast.kind ?? 'refused'; toast(s.ui.toast.text); }
     lastToast = s.ui.toast;
   };
   store.subscribe(render);
-  // Apply sizes its premise inlets to the card routed into it, once, when that card changes (not on undo/load)
-  const cardSeen = new Map<string, string>();
-  const cardKeys = (s: S) => {
-    const out: [string, string, number][] = [];
-    for (const m of s.canvas.machines) {
-      if (m.config.kind !== 'apply') continue;
-      const v = s.compiled?.machines?.[m.id]?.inputs?.['rule'];
-      const card = v && v.k === 'card' ? v.card : null;
-      out.push([m.id, card ? JSON.stringify(card) : '', card ? (card.k === 'cond' ? card.premises.length : 0) : -1]);
-    }
-    return out;
-  };
-  const rememberCards = () => { cardSeen.clear(); for (const [id, k] of cardKeys(store.get())) cardSeen.set(id, k); };
-  rememberCards();
+  // v4: a placed verb opens its lens on the recipe picker; a hotbar preset configures its recipe at once.
+  let known = new Set(store.get().canvas.machines.map((m) => m.id));
   store.on((e) => {
-    if (e.type === 'level-opened') { lab.toggle(false); hotbar.closePopovers(); rememberCards(); if (store.get().ui.follow) store.setUI({ follow: null }); return; }
+    if (e.type === 'level-opened') {
+      lab.toggle(false); hotbar.closePopovers(); pending.preset = null;
+      known = new Set(store.get().canvas.machines.map((m) => m.id));
+      if (store.get().ui.follow) store.setUI({ follow: null });
+      return;
+    }
     if (e.type !== 'edited') return;
     const s = store.get();
     // a refusal is stale once an edit succeeds
     if (toastEl.dataset.kind === 'refused' && toastEl.classList.contains('on')) { clearTimeout(toastT); toastEl.classList.remove('on'); if (s.ui.toast?.kind !== 'note') setTimeout(() => store.clearToast(), 0); }
-    for (const [id, key, n] of cardKeys(s)) {
-      const before = cardSeen.get(id);
-      cardSeen.set(id, key);
-      if (!key || key === before) continue;
-      const m = s.canvas.machines.find((x) => x.id === id);
-      if (m && m.config.kind === 'apply' && n >= 0 && m.config.premises !== n) {
-        const cfg = { ...m.config, premises: n };
-        setTimeout(() => store.configure(id, cfg), 0);
-      }
-    }
+    const added = s.canvas.machines.filter((m) => !known.has(m.id));
+    known = new Set(s.canvas.machines.map((m) => m.id));
+    const t = s.ui.tool;
+    if (added.length !== 1 || t.k !== 'place' || added[0]!.kind !== t.kind) return; // undo, paste, moves: leave alone
+    const m = added[0]!;
+    const p = pending.preset;
+    setTimeout(() => {
+      if (p && p.kind === m.kind && !(m.config as { recipe?: unknown }).recipe) store.configure(m.id, withRecipe(m.config, p.recipe));
+      if (VERBS.includes(m.kind) || m.kind === 'tower' || m.kind === 'forall') store.openLens(m.id);
+    }, 0);
   });
+  addEventListener('pointerdown', (ev) => {
+    // a HUD text field never keeps the keyboard once the player works on the floor (Q, hotkeys)
+    const a = document.activeElement as HTMLElement | null;
+    if (a && a.matches('input, textarea') && layer.contains(a) && (ev.target as HTMLElement | null)?.closest?.('#floor')) a.blur();
+  }, true);
   render(store.get());
 
   // ── one rAF loop: simulation clock + anchored cards follow the camera
@@ -202,11 +206,13 @@ export function mountApp(root: HTMLElement, store: FactoryStore, opts: AppOpts =
       if (s.ui.tool.k !== 'select') { store.setTool({ k: 'select' }); return; }
       if (s.ui.transcriptOpen) { store.setUI({ transcriptOpen: false }); return; }
       if (labOpen) { lab.toggle(false); return; }
+      if (s.ui.lemmaBookOpen) { store.toggleLemmaBook(false); return; }
       if (s.ui.selection.length) store.select([]);
       return;
     }
     if (k === '.') { e.preventDefault(); store.stepOnce(); return; }
     if (k.toLowerCase() === 't') { e.preventDefault(); store.setUI({ transcriptOpen: !s.ui.transcriptOpen }); return; }
+    if (k.toLowerCase() === 'l') { e.preventDefault(); const o = !s.ui.lemmaBookOpen; if (o) lab.toggle(false); store.toggleLemmaBook(o); return; }
     if (k.toLowerCase() === 'b') { e.preventDefault(); store.setTool({ k: 'belt' }); return; }
     if (k.toLowerCase() === 'g') { e.preventDefault(); hotbar.openRoomPopover(); return; }
     if (/^[0-9]$/.test(k)) {

@@ -1,19 +1,32 @@
-// LEMMA WORKS v3 — the inspector lens: anchored to the selected machine (docked at the right edge
-// when the floor cannot tell us where it is). A live worked line, not a form: the incoming item as
-// big bead rails with every candidate bracketed, the output preview, the status reason, the controls.
+// COMMUTATOR v4 — the inspector lens, anchored to the selected machine (docked at the right edge when the
+// floor cannot say where it is). The recipe is chosen INSIDE the machine from the library (rules, never
+// results); then the incoming beads show every candidate bracket; Towers, ∀ and gates explain themselves.
 // Every change goes through store.configure; the kernel decides what it means.
 import * as F from '../factory';
 import * as K from '../kernel';
-import type { Addr, GapAddr, MetaId, Pallet, Term } from '../kernel/types';
-import type { Anchor, GapTarget, ItemValue, Machine, MachineConfig, MachineResult, Param, SpanTarget } from '../factory/types';
-import { renderRail, beadsInline } from '../bench/render';
+import type { Addr, Card, Fact, Family, GapAddr, MetaId, Pallet, Term } from '../kernel/types';
+import type { Anchor, GapTarget, ItemValue, LibRef, Machine, MachineConfig, MachineResult, Param, SpanTarget, TheoremRecipe } from '../factory/types';
+import { beads as beadsInline, rail } from './beads';
 import { FAMILY } from '../ui/tokens';
 import {
-  KIND_WORD, REGISTRY, esc, fH, h, hues as huesOf, itemHTML, labels, machineName, machineRect, richHTML, safe, spec, tH,
-  type S, type Store,
+  KIND_WORD, atomsAll, atomsIn, esc, fH, h, huesAll, itemHTML, labelsAll, machineName, machineRect, nameHTML, richHTML, safe, spec, tH,
+  towerVars, varIdsOf, type S, type Store,
 } from './util';
+import { GROUP_ORDER, libCard, libraryFor, recipeKey, type AnyRecipe, type LibEntry } from './library';
+import { armPreset, isPinned, pin, presetKey, unpin, withRecipe } from './presets';
+import { openConceptFor } from './concept';
+import { hasDistinctMirror } from '../factory/catalog';
 
 const pathKey = (p: number[]) => p.join('.');
+/** Tower variables are striped "any" beads everywhere. */
+function markVars<T extends HTMLElement>(el: T, vars: Set<string>): T {
+  if (vars.size) el.querySelectorAll<HTMLElement>('.bn-f[data-leaf], .bn-f').forEach((f) => {
+    const leaf = f.dataset.leaf ?? '';
+    const id = leaf.startsWith('a:') ? leaf.slice(2) : leaf.startsWith('i:') ? (/"id":"([^"]+)"/.exec(leaf)?.[1] ?? '') : '';
+    if (id && vars.has(id)) f.classList.add('h3-varbead');
+  });
+  return el;
+}
 const wordOf = (t: Term): Term[] => (t.k === 'mul' ? t.fs : [t]);
 const isGapAddr = (a: Addr | GapAddr): a is GapAddr => 'gap' in a;
 const slice = (fs: Term[], s: number, e: number): Term => (e - s === 1 ? fs[s]! : { k: 'mul', fs: fs.slice(s, e) });
@@ -96,6 +109,11 @@ export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () 
       lastKey = key; curId = id;
       position();
     }
+    // the floor's "Ready to save" badge asks for the name field (ui.lensFocus = 'save')
+    if (s.ui.lensFocus === 'save') {
+      const f = el.querySelector<HTMLInputElement>('.h3-lname');
+      queueMicrotask(() => { if (f) { f.focus({ preventScroll: true }); f.select(); } store.setUI({ lensFocus: null }); });
+    }
     const live = s.run?.live?.[id] ?? '';
     if (live !== lastLive || structural) { lastLive = live; paintStatus(s, m, res); }
   };
@@ -110,24 +128,54 @@ export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () 
   };
 
   // ───────── build ─────────
+  /** Machines whose recipe picker is open even though a recipe is set ("change"). */
+  const pickerOpen = new Set<string>();
+  const recipeOf = (m: Machine): AnyRecipe | null => {
+    const c = m.config as { kind: string; recipe?: AnyRecipe | null; ref?: LibRef | null };
+    if (c.kind === 'carddock') return c.ref ? { k: 'ref', ref: c.ref } : null;
+    return c.recipe ?? null;
+  };
+  const famOf = (m: Machine): Family => {
+    const r = recipeOf(m) as { k: string; ref?: LibRef } | null;
+    if (m.kind === 'theorem' || m.kind === 'forall' || m.kind === 'carddock') return 'lemma';
+    if (m.kind === 'tower') return 'scope';
+    if (m.kind === 'rewriter' && r) {
+      if (r.k === 'cancel' || r.k === 'insertPair') return 'inverse';
+      if (r.k === 'pop' || r.k === 'insertE') return 'identity';
+      if (r.k === 'routed') return 'given';
+      if (r.ref?.k === 'given') return 'given';
+      return 'lemma';
+    }
+    if (m.kind === 'joiner' && r?.k === 'clash') return 'contradiction';
+    return spec(m.kind).family;
+  };
+
   const build = (s: S, m: Machine, res: MachineResult | undefined) => {
     const sp = spec(m.kind);
-    const L = labels(s.level);
-    const H = huesOf(s.level);
-    const fam = m.config.kind === 'stamp' || m.config.kind === 'carddock' ? 'lemma' : sp.family;
+    const L = labelsAll(s);
+    const H = huesAll(s);
+    const fam = famOf(m);
     el.innerHTML = '';
     el.style.setProperty('--ink', FAMILY[fam].ink);
     el.style.setProperty('--ink-text', FAMILY[fam].text);
     el.dataset.kind = m.kind;
     el.dataset.family = fam;
+    const cfg = m.config;
+    const recipe = recipeOf(m);
+    const entry = recipe ? libraryFor(s, m.kind === 'carddock' ? 'carddock' : m.kind).find((x) => x.key === recipeKey(recipe)) : undefined;
 
     // head
     const close = h('button', { class: 'h3-x', title: 'Close (Esc)', 'aria-label': 'Close inspector' }, '×');
     close.addEventListener('click', () => store.openLens(null));
+    const help = h('button', { class: 'h3-icon h3-help', title: 'Explain this machine (concept cards)', 'aria-label': 'Explain' }, '?');
+    help.addEventListener('click', () => openConceptFor(store, m.kind));
+    const tcfg0 = cfg.kind === 'tower' ? cfg : null;
+    const sub = tcfg0 ? `<span class="math">Let ${tH({ k: 'atom', id: tcfg0.varId }, L)} ∈ ${tcfg0.sort === 'Z' ? 'ℤ' : '<i>G</i>'}</span> · ${tcfg0.sort === 'Z' ? 'an arbitrary integer, for exponents' : 'an arbitrary element'}`
+      : entry ? `${entry.nameHTML}` : richHTML(sp.blurb, s.level);
     const head = h('header', { class: 'h3-lens-head' },
-      h('span', { class: `h3-glyph fam-${fam}${fam === 'lemma' ? ' earned' : ''}`, style: `--ink:${FAMILY[fam].ink}` }, sp.glyph),
-      h('span', { class: 'h3-lens-title' }, h('b', {}, machineName(m)), h('span', { class: 'h3-lens-sub', html: richHTML(sp.blurb, s.level) })),
-      h('span', { class: 'h3-status' }));
+      h('span', { class: `h3-glyph fam-${fam}${fam === 'lemma' ? ' earned' : ''}`, style: `--ink:${FAMILY[fam].ink}`, html: tcfg0 ? `${tH({ k: 'atom', id: tcfg0.varId }, L)}${tcfg0.sort === 'Z' ? '∈ℤ' : '∈<i>G</i>'}` : esc(sp.glyph) }),
+      h('span', { class: 'h3-lens-title' }, h('b', {}, machineName(m)), h('span', { class: 'h3-lens-sub', html: sub })),
+      h('span', { class: 'h3-status' }), help);
     if (!m.locked) {
       const rot = h('button', { class: 'h3-icon', title: 'Rotate (R)', 'aria-label': 'Rotate' }, '↻');
       rot.addEventListener('click', () => store.rotate(m.id));
@@ -140,72 +188,350 @@ export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () 
 
     const body = h('div', { class: 'h3-lens-body' });
     el.append(body);
-    const cfg = m.config;
     const setCfg = (patch: Partial<MachineConfig>) => { store.configure(m.id, { ...cfg, ...patch } as MachineConfig); };
     const inputs = res?.inputs ?? {};
-    const isApply = cfg.kind === 'apply' || cfg.kind === 'stamp';
-    const workPort = isApply ? 'p0' : 'q';
-    const work = inputs[workPort];
-    const workFact = work && work.k === 'fact' && (work.fact.k === 'eq' || work.fact.k === 'neq') ? work.fact : null;
 
-    // ── the incoming workpiece with brackets
-    const targeting = 'target' in cfg;
-    if (m.kind === 'socket' && cfg.kind === 'socket') body.append(socketView(s, cfg.socketId, work, L, H));
-    else if (m.kind === 'given' && cfg.kind === 'given') {
-      const g = s.level.givens.find((x) => x.id === cfg.givenId);
-      body.append(h('div', { class: 'h3-sec' }, h('div', { class: 'h3-label' }, 'Given'),
-        h('div', { class: 'h3-bigmath math', html: g ? `<i>${esc(g.name)}</i>:&ensp;${fH(g.fact, L)}` : '—' }),
-        g && (g.fact.k === 'eq' || g.fact.k === 'neq') ? twin(g.fact, L, H, false).el : null,
-        h('p', { class: 'h3-note' }, 'A hypothesis of this order. Branch its belt as often as you like; every copy carries the same certificate.')));
-    } else if (workFact) {
+    // ── machines without a workpiece of their own
+    if (cfg.kind === 'socket') { body.append(socketView(s, cfg.socketId, inputs['q'], L, H)); return finish(s, m, res, body, L); }
+    if (cfg.kind === 'given') { body.append(givenView(s, cfg.givenId, L, H)); return finish(s, m, res, body, L); }
+    if (cfg.kind === 'tower') { body.append(towerView(s, m, cfg, setCfg)); return finish(s, m, res, body, L); }
+
+    // ── the recipe: chosen inside the machine, from the library (rules, never results)
+    const isVerb = m.kind === 'rewriter' || m.kind === 'operator' || m.kind === 'joiner' || m.kind === 'theorem' || m.kind === 'carddock';
+    if (isVerb) {
+      if (!recipe || pickerOpen.has(m.id)) body.append(recipePicker(s, m, (r) => { pickerOpen.delete(m.id); store.configure(m.id, withRecipe(cfg, r)); }, !!recipe));
+      else body.append(recipeChip(s, m, recipe, entry));
+    }
+
+    // ── the incoming workpiece: rewriter/operator 'q', theorem 'p0', ∀ its input; joiner shows both
+    const workPort = m.kind === 'theorem' ? 'p0' : 'q';
+    const work = inputs[workPort] ?? (m.kind === 'forall' ? Object.values(inputs).find(Boolean) : undefined);
+    const workFact = work && work.k === 'fact' && (work.fact.k === 'eq' || work.fact.k === 'neq') ? work.fact : null;
+    const targeting = m.kind === 'rewriter' && !!recipe;
+    if (m.kind === 'joiner') {
+      const sec = h('div', { class: 'h3-sec h3-others' });
+      for (const p of ['a', 'b']) { const v = inputs[p]; sec.append(h('div', { class: 'h3-inrow' }, h('span', { class: 'h3-portname' }, p === 'a' ? 'first' : 'second'), v ? h('span', { class: 'math h3-inval', html: itemHTML(v, L) }) : h('span', { class: 'h3-dim' }, 'nothing routed yet'))); }
+      body.append(sec);
+    } else if (workFact && m.kind !== 'forall') {
       const sec = h('div', { class: 'h3-sec' });
-      const gapMode = cfg.kind === 'expander';
-      const tw = twin(workFact, L, H, gapMode);
-      const inLabel = isApply ? (Object.keys(inputs).filter((p) => /^p\d+$/.test(p)).length > 1 ? 'premise 1' : 'premise') : 'in';
-      sec.append(h('div', { class: 'h3-label' }, h('span', {}, `${inLabel} · ${KIND_WORD[workFact.k]}`),
-        targeting ? targetChip(cfg as { target: SpanTarget | GapTarget }, res) : isApply && res?.choices?.length ? h('span', { class: 'h3-tchip h3-dim' }, res.choices.length > 1 ? 'hover a handle to preview · click to cut there' : 'the only way this premise fits') : null), tw.el);
+      const rk = (recipe as { k?: string } | null)?.k;
+      const gapMode = rk === 'insertE' || rk === 'insertPair' || !!res?.candidates?.some((c) => isGapAddr(c.addr));
+      const tw = twin(workFact, L, H, gapMode && targeting);
+      const isThm = m.kind === 'theorem';
+      const tcfg = cfg as { target?: SpanTarget; gap?: GapTarget; choice?: number };
+      const cur: SpanTarget | GapTarget = gapMode ? (tcfg.gap ?? { k: 'first' }) : (tcfg.target ?? { k: 'first' });
+      const applyPin = (t: SpanTarget | GapTarget) => setCfg((gapMode ? { gap: t } : { target: t }) as Partial<MachineConfig>);
+      sec.append(h('div', { class: 'h3-label' }, h('span', {}, `${isThm ? 'premise' : 'in'} · ${KIND_WORD[workFact.k]}`),
+        targeting ? targetChip(cur, gapMode, res, applyPin) : isThm && res?.choices?.length ? h('span', { class: 'h3-tchip h3-dim' }, res.choices.length > 1 ? 'hover a handle to preview · click to cut there' : 'the only way this premise fits') : null), tw.el);
       body.append(sec);
       if (targeting && res?.candidates?.length) {
-        requestAnimationFrame(() => drawBrackets(tw, res, workFact, (t) => setCfg({ target: t } as Partial<MachineConfig>), (cfg as { target: SpanTarget | GapTarget }).target));
-        if (res.candidates.length > 1 && !res.candidates.some((c) => isGapAddr(c.addr))) sec.append(candidateChips(tw, res, workFact, L, H, (t) => setCfg({ target: t } as Partial<MachineConfig>)));
+        requestAnimationFrame(() => drawBrackets(tw, res, workFact, applyPin, cur));
+        if (res.candidates.length > 1 && !gapMode) sec.append(candidateChips(tw, res, workFact, L, H, applyPin));
       }
-      if (isApply && res?.choices?.length) {
+      // Literal Power: show the opened stack — the r copies it writes out — on its own "after" rails
+      const rref = (recipe as { k?: string; ref?: LibRef } | null)?.ref;
+      const litR = rref?.k === 'schema' && rref.id.startsWith('power.literal:') ? Number(rref.id.split(':')[1]) : 0;
+      const outF = res?.out && res.out.k === 'fact' && (res.out.fact.k === 'eq' || res.out.fact.k === 'neq') ? res.out.fact : null;
+      if (litR && outF) {
+        const after = twin(outF, L, H, false);
+        body.append(h('div', { class: 'h3-sec h3-after' }, h('div', { class: 'h3-label' }, h('span', {}, `after · the stack opened into ${litR} copies`)), after.el));
+        const addr = res?.candidates?.[res.chosen ?? 0]?.addr;
+        if (addr && !isGapAddr(addr)) requestAnimationFrame(() => {
+          const t = safe(() => K.termAt(workFact, addr), null);
+          const bl = t && t.k === 'pow' ? wordOf(t.base).length : 1;
+          const span: Addr = addr.range ? { side: addr.side, path: addr.path, range: [addr.range[0], addr.range[0] + litR * bl] } : { side: addr.side, path: addr.path };
+          factorsFor(after, span).forEach((f) => f.classList.add('h3-flash'));
+        });
+      }
+      if (isThm && res?.choices?.length) {
         const preview = h('div', { class: 'h3-preview math' });
         sec.append(preview);
-        requestAnimationFrame(() => drawHandles(tw, res, workFact, cfg.choice, (i) => setCfg({ choice: i } as Partial<MachineConfig>), (i) => {
-          if (i === null || i === cfg.choice) { preview.innerHTML = ''; return; }
+        const chosen = tcfg.choice ?? 0;
+        requestAnimationFrame(() => drawHandles(tw, res, workFact, chosen, (i) => setCfg({ choice: i } as Partial<MachineConfig>), (i) => {
+          if (i === null || i === chosen) { preview.innerHTML = ''; return; }
           const c = conclusionOf(s, m, res, workFact, i, L);
           preview.innerHTML = c ? `<span class="h3-arrow">cut here →</span> ${c}` : '';
         }));
       }
-    } else if (work) {
+    } else if (work && m.kind !== 'forall') {
       body.append(h('div', { class: 'h3-sec' }, h('div', { class: 'h3-label' }, `in · ${KIND_WORD[work.k === 'fact' ? work.fact.k : work.k === 'card' ? work.card.k : 'term'] ?? ''}`), itemView(work, L, H)));
-    } else if (hasWorkPort(m, s)) {
-      body.append(h('div', { class: 'h3-sec h3-empty' }, h('div', { class: 'h3-label' }, 'in'), h('p', { class: 'h3-note' }, 'Nothing arrives yet. Drag a belt from an output port into this machine’s input.')));
+    } else if (isVerb && recipe && m.kind !== 'carddock') {
+      body.append(h('div', { class: 'h3-sec h3-empty' }, h('p', { class: 'h3-note' }, m.kind === 'theorem' ? 'Route the premise into this machine: drag from a fact’s output to its premise port.' : 'Nothing arrives yet. Drag a belt from an output port into this machine’s input.')));
     }
 
-    // ── other inputs (rule, premises, params routed by belt)
-    const others = Object.entries(inputs).filter(([p]) => p !== workPort);
-    if (others.length) {
-      const sec = h('div', { class: 'h3-sec h3-others' });
-      for (const [p, v] of others) sec.append(h('div', { class: 'h3-inrow' }, h('span', { class: 'h3-portname' }, portLabel(p)), v ? h('span', { class: 'math h3-inval', html: itemHTML(v, L) }) : h('span', { class: 'h3-dim' }, 'nothing routed')));
-      body.append(sec);
+    // ── other routed inputs (rule/card ports, parameters)
+    if (m.kind !== 'joiner' && m.kind !== 'forall') {
+      const others = Object.entries(inputs).filter(([p]) => p !== workPort);
+      if (others.length) {
+        const sec = h('div', { class: 'h3-sec h3-others' });
+        for (const [p, v] of others) sec.append(h('div', { class: 'h3-inrow' }, h('span', { class: 'h3-portname' }, portLabel(p)), v ? h('span', { class: 'math h3-inval', html: itemHTML(v, L) }) : h('span', { class: 'h3-dim' }, 'nothing routed')));
+        body.append(sec);
+      }
     }
 
+    if (m.kind === 'forall' || m.kind === 'gate') body.append(generalizeView(s, m, res, work, L));
     // ── controls
     const ctl = controls(s, m, res, setCfg, L, H, workFact);
     if (ctl) body.append(ctl);
+    finish(s, m, res, body, L);
+  };
 
-    // ── output preview
-    if (res?.out && m.kind !== 'socket') {
+  /** Output, then the reason (with a "?" to the relevant concept card). */
+  const finish = (s: S, m: Machine, res: MachineResult | undefined, body: HTMLElement, L: Record<string, string>) => {
+    if (res?.out && m.kind !== 'socket' && m.kind !== 'forall' && m.kind !== 'gate') {
       const o = res.out;
       body.append(h('div', { class: 'h3-sec h3-out' }, h('div', { class: 'h3-label' }, `out · ${KIND_WORD[o.k === 'fact' ? o.fact.k : o.k === 'card' ? o.card.k : 'term'] ?? ''}`), h('div', { class: 'h3-outmath math', html: `<span class="h3-arrow">→</span> ${itemHTML(o, L)}` })));
     }
-    // ── the reason, in maths
     const stat = res?.status;
-    if (stat && stat.k !== 'ok') body.append(h('p', { class: `h3-reason ${stat.k}`, html: richHTML(stat.reason, s.level) }));
-    else if (!res) body.append(h('p', { class: 'h3-reason starved' }, 'The compiler has not reported on this machine yet.'));
+    if (stat && stat.k !== 'ok') {
+      const p = h('p', { class: `h3-reason ${stat.k}`, html: richHTML(stat.reason, s.level) });
+      const q = h('button', { class: 'h3-qlink', title: 'Open the concept card that explains this' }, '?');
+      q.addEventListener('click', () => openConceptFor(store, m.kind, stat.reason));
+      p.append(' ', q);
+      body.append(p);
+    } else if (!res) body.append(h('p', { class: 'h3-reason starved' }, 'The compiler has not reported on this machine yet.'));
     el.append(notch);
+  };
+
+  // ───────── recipe picker: the library, grouped, searchable; statements typeset ─────────
+  const GROUP_LABEL: Record<string, string> = {
+    Operations: 'Operations', Axioms: 'Axioms', 'Given here': 'Given here', 'Proven theorem': 'Proven theorem · earned · Lemma Book', Imported: 'Imported', 'Fact made here': 'Fact made here',
+  };
+  const recipePicker = (s: S, m: Machine, pick: (r: AnyRecipe) => void, canCancel: boolean) => {
+    const kind = m.kind === 'carddock' ? 'carddock' : m.kind;
+    const all = libraryFor(s, kind);
+    const wrap = h('div', { class: 'h3-sec h3-picker' });
+    const search = h('input', { class: 'h3-search h3-psearch', placeholder: kind === 'operator' || kind === 'joiner' ? 'Filter operations' : 'Search rules by name or statement', 'aria-label': 'Search recipes', autocomplete: 'off', spellcheck: 'false' });
+    const list = h('div', { class: 'h3-plist', role: 'listbox' });
+    const top = h('div', { class: 'h3-label' }, h('span', {}, 'Recipe · choose the rule this machine uses'));
+    if (canCancel) {
+      const back = h('button', { class: 'h3-tag' }, 'keep current');
+      back.addEventListener('click', () => { pickerOpen.delete(m.id); lastKey = ''; render(store.get()); });
+      top.append(back);
+    }
+    wrap.append(top, all.length > 6 ? search : '', list);
+    const draw = () => {
+      const q = search.value.trim().toLowerCase();
+      list.innerHTML = '';
+      const shown = all.filter((e) => !q || `${e.name} ${e.group} ${e.note ?? ''}`.toLowerCase().includes(q) || h('i', { html: e.stmt }).textContent!.toLowerCase().includes(q));
+      for (const g of GROUP_ORDER) {
+        const items = shown.filter((e) => e.group === g);
+        if (!items.length) continue;
+        list.append(h('div', { class: 'h3-group' }, GROUP_LABEL[g] ?? g));
+        for (const e of items) {
+          const row = h('button', { class: 'h3-prow', role: 'option', 'data-key': e.key },
+            h('span', { class: 'h3-prow-name', html: e.nameHTML }),
+            e.stmt ? h('span', { class: 'h3-prow-stmt math', html: e.stmt }) : null,
+            e.note ? h('span', { class: 'h3-prow-note' }, e.note) : null);
+          row.addEventListener('click', () => pick(e.recipe));
+          list.append(row);
+        }
+      }
+      if (!list.childElementCount) list.append(h('p', { class: 'h3-note' }, all.length ? 'No rule matches. Every rule this order allows is listed here; try a shorter word.' : 'Nothing in the library fits this machine yet: route a card into its card port, or earn a theorem.'));
+    };
+    search.addEventListener('input', draw);
+    search.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') { e.preventDefault(); list.querySelector<HTMLButtonElement>('.h3-prow')?.click(); }
+      if (e.key === 'Escape') { e.preventDefault(); search.blur(); if (canCancel) { pickerOpen.delete(m.id); lastKey = ''; render(store.get()); } else store.openLens(null); }
+    });
+    draw();
+    return wrap;
+  };
+
+  const recipeChip = (s: S, m: Machine, recipe: AnyRecipe, entry: LibEntry | undefined) => {
+    const key = presetKey(m.kind, recipe);
+    const pinnedNow = isPinned(key);
+    const change = h('button', { class: 'h3-tag', title: 'Choose another rule' }, 'change');
+    change.addEventListener('click', () => { pickerOpen.add(m.id); lastKey = ''; render(store.get()); });
+    const star = h('button', { class: `h3-tag h3-pin${pinnedNow ? ' on' : ''}`, title: pinnedNow ? 'Unpin from the hotbar' : 'Pin this machine + recipe to the hotbar' }, pinnedNow ? '★ pinned' : '☆ pin');
+    star.addEventListener('click', () => {
+      if (isPinned(key)) unpin(key); else pin({ key, kind: m.kind, recipe, label: entry ? h('i', { html: entry.nameHTML }).textContent ?? 'recipe' : 'recipe' });
+      lastKey = ''; store.setUI({});
+    });
+    const sec = h('div', { class: 'h3-sec h3-recipe' },
+      h('div', { class: 'h3-label' }, h('span', {}, 'Recipe'), h('span', { class: 'h3-tchip' }, star, change)),
+      h('div', { class: 'h3-recipe-row' }, h('span', { class: 'h3-recipe-name', html: entry?.nameHTML ?? esc(recipeKey(recipe)) }), entry?.stmt ? h('span', { class: 'h3-recipe-stmt math', html: entry.stmt }) : null),
+      entry?.note ? h('div', { class: 'h3-prow-note' }, entry.note) : null);
+    if ((recipe as { k: string }).k === 'routed' && !safe(() => localStorage.getItem('commutator/seen-routed'), null)) {
+      sec.append(h('p', { class: 'h3-note h3-first' }, 'A fact made on this floor is a product: it reaches a machine only by belt. Route it into this machine’s rule port; its provenance and scope travel with it.'));
+      safe(() => localStorage.setItem('commutator/seen-routed', '1'), undefined);
+    }
+    return sec;
+  };
+
+  // ───────── given: start a belt vs cite in a machine ─────────
+  const givenView = (s: S, givenId: string, L: Record<string, string>, H: Record<string, number>) => {
+    const g = s.level.givens.find((x) => x.id === givenId);
+    const sec = h('div', { class: 'h3-sec' }, h('div', { class: 'h3-label' }, 'Given here'),
+      h('div', { class: 'h3-bigmath math', html: g ? `<i>${nameHTML(g.name)}</i>:&ensp;${fH(g.fact, L)}` : '—' }));
+    if (g && (g.fact.k === 'eq' || g.fact.k === 'neq')) sec.append(twin(g.fact, L, H, false).el);
+    if (!g) return sec;
+    const two = h('div', { class: 'h3-twoways' });
+    const canStart = g.fact.k === 'eq' || g.fact.k === 'neq' || g.fact.k === 'size';
+    if (canStart) two.append(h('div', { class: 'h3-way' }, h('b', {}, 'Start a belt'), h('span', {}, 'drag from this inlet’s output to make it the workpiece of a machine')));
+    const citeKind = g.fact.k === 'cond' ? 'theorem' : g.fact.k === 'eq' || g.fact.k === 'law' ? 'rewriter' : null;
+    if (citeKind) {
+      const b = h('button', { class: 'lw-key small' }, citeKind === 'theorem' ? 'Cite in a Theorem' : 'Cite in a Rewriter');
+      const recipe: AnyRecipe = citeKind === 'theorem' ? { k: 'library', ref: { k: 'given', givenId } } : { k: 'law', ref: { k: 'given', givenId } };
+      b.addEventListener('click', () => { store.openLens(null); armPreset(store, { key: presetKey(citeKind, recipe), kind: citeKind, recipe, label: g.name }); });
+      two.append(h('div', { class: 'h3-way' }, h('b', {}, citeKind === 'theorem' ? 'Cite it as a theorem' : 'Cite it as a rule'), h('span', {}, 'no belt needed: choose it as the recipe inside a machine (the dependency on it is kept)'), b));
+    }
+    sec.append(two);
+    return sec;
+  };
+
+  // ───────── Tower: name, sort, where its symbol is used ─────────
+  const SUB = '₀₁₂₃₄₅₆₇₈₉';
+  const subOf = (n: number) => String(n).split('').map((d) => SUB[+d]).join('');
+  const towerView = (s: S, m: Machine, cfg: { kind: 'tower'; varId: string; label: string; sort: 'G' | 'Z' }, setCfg: (p: Partial<MachineConfig>) => void) => {
+    const sec = h('div', { class: 'h3-sec h3-tower' });
+    const others = towerVars(s).filter((v) => v.id !== cfg.varId).map((v) => v.label);
+    const unique = (raw: string, sortNow: 'G' | 'Z' = cfg.sort) => {
+      const typed = raw.trim().replace(/_(\d+)/g, (_x, d: string) => subOf(+d));
+      const base = typed.replace(/[₀-₉]+$/, '') || (sortNow === 'Z' ? 'n' : 'x');
+      if (/[₀-₉]$/.test(typed) && !others.includes(typed)) return typed;
+      for (let i = 1; i < 100; i++) if (!others.includes(base + subOf(i))) return base + subOf(i);
+      return base;
+    };
+    const input = h('input', { class: 'h3-term h3-tname', value: cfg.label, 'aria-label': 'variable name', autocomplete: 'off', spellcheck: 'false' });
+    const commit = () => { const v = unique(input.value); input.value = v; if (v !== cfg.label) setCfg({ label: v } as Partial<MachineConfig>); };
+    input.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') { e.preventDefault(); commit(); input.blur(); } if (e.key === 'Escape') { input.value = cfg.label; input.blur(); } });
+    input.addEventListener('blur', commit);
+    const isZ = cfg.sort === 'Z';
+    const sortG = h('button', { class: `h3-seg${!isZ ? ' on' : ''}`, 'aria-pressed': String(!isZ), title: 'an arbitrary group element' }, h('span', { class: 'math', html: '∈ <i>G</i>' }));
+    const sortZ = h('button', { class: `h3-seg${isZ ? ' on' : ''}`, 'aria-pressed': String(isZ), title: 'an arbitrary integer, used in exponents' }, h('span', { class: 'math', html: '∈ ℤ' }));
+    const setSort = (sort: 'G' | 'Z') => {
+      if (sort === cfg.sort) return;
+      const base = cfg.label.replace(/[₀-₉]+$/, '');
+      const keep = base && base !== 'x' && base !== 'n'; // a name the player chose survives the change of sort
+      setCfg({ sort, label: unique(keep ? base : sort === 'Z' ? 'n' : 'x', sort) } as Partial<MachineConfig>);
+    };
+    sortG.addEventListener('click', () => setSort('G'));
+    sortZ.addEventListener('click', () => setSort('Z'));
+    sec.append(
+      h('div', { class: 'h3-label' }, h('span', {}, 'Declares'), h('span', { class: 'h3-tchip h3-dim' }, 'broadcast to the whole floor')),
+      h('div', { class: 'h3-ctl' }, h('span', { class: 'math h3-let' }, 'Let'), input, h('span', { class: 'h3-segs' }, sortG, sortZ)),
+      h('p', { class: 'h3-note' }, isZ
+        ? 'An arbitrary integer: it may appear only in exponents, as in a^(5k₁). Whatever you prove about it holds for every integer, and a ∀ machine can say so. Different Towers name independently arbitrary values — not necessarily distinct ones.'
+        : 'An arbitrary element: no given mentions it, so whatever you prove about it holds for every element, and a ∀ machine can say so. Different Towers name independently arbitrary elements — not necessarily distinct ones.'));
+    // where it is used: machines whose inputs or output mention the symbol
+    const users: { id: string; name: string }[] = [];
+    for (const mm of s.canvas.machines) {
+      const r = s.compiled?.machines?.[mm.id];
+      if (!r || mm.id === m.id) continue;
+      const vals = [...Object.values(r.inputs ?? {}), r.out].filter(Boolean) as ItemValue[];
+      const cfgTerms = JSON.stringify(mm.config).includes(`"${cfg.varId}"`);
+      const hit = cfgTerms || vals.some((v) => JSON.stringify(v).includes(`"id":"${cfg.varId}"`));
+      if (hit) users.push({ id: mm.id, name: machineName(mm) });
+    }
+    const list = h('div', { class: 'h3-uses' }, h('span', { class: 'h3-ctl-k' }, 'used by'));
+    if (!users.length) list.append(h('span', { class: 'h3-dim' }, 'no machine yet: type its name in a Spool, a knob or a room’s assumption'));
+    for (const u of users) {
+      const b = h('button', { class: 'h3-tag' }, u.name);
+      b.addEventListener('pointerenter', () => store.setHover({ k: 'machine', id: u.id }));
+      b.addEventListener('pointerleave', () => store.setHover(null));
+      b.addEventListener('click', () => { store.select([u.id]); store.openLens(u.id); });
+      list.append(b);
+    }
+    sec.append(list);
+    return sec;
+  };
+
+  // ───────── ∀ machine / gate: input → card, eligibility, Save to the Lemma Book ─────────
+  const generalizeView = (s: S, m: Machine, res: MachineResult | undefined, work: ItemValue | undefined, L: Record<string, string>) => {
+    const sec = h('div', { class: 'h3-sec h3-gen' });
+    const out = res?.out;
+    const vars = varIdsOf(s);
+    if (m.kind === 'forall') {
+      sec.append(h('div', { class: 'h3-label' }, 'Generalize'));
+      const inHTML = work ? itemHTML(work, L) : '<span class="h3-dim">a fact about Tower variables</span>';
+      sec.append(h('div', { class: 'h3-genline math', html: `<span class="h3-gin">${inHTML}</span><span class="h3-arrow">⟹</span><span class="h3-gout">${out ? itemHTML(out, L) : '<span class="h3-dim">∀ …</span>'}</span>` }));
+    } else {
+      const room = s.canvas.rooms.find((r) => r.id === (m.config as { room?: string }).room);
+      if (room) {
+        const P = `${tH(room.l, L)} <span class="m-rel">${(room.kind === 'suppose' || (room.kind === 'assume' && room.rel !== 'neq')) ? '=' : '≠'}</span> ${tH(room.r, L)}`;
+        const what = room.kind === 'assume' ? `any fact <i>Q</i> made inside leaves as <span class="math">${P} <span class="m-rel">⇒</span> <i>Q</i></span>`
+          : `⊥ arriving here leaves the room as <span class="math">${tH(room.l, L)} <span class="m-rel">${room.kind === 'suppose' ? '≠' : '='}</span> ${tH(room.r, L)}</span>${room.kind === 'classical' ? ' <span class="t-classical">classical</span>' : ''}`;
+        sec.append(h('div', { class: 'h3-label' }, `${room.kind === 'assume' ? 'Assume' : room.kind === 'suppose' ? 'Suppose' : 'Classical'} room · gate`), h('p', { class: 'h3-roominfo', html: what }));
+        if (out) sec.append(h('div', { class: 'h3-outmath math', html: `<span class="h3-arrow">→</span> ${itemHTML(out, L)}` }));
+      }
+    }
+    // why it cannot generalize / save — named, with the dependency path lit on the floor
+    const depsOf = (): string[] => {
+      const nodes = res?.nodes ?? [];
+      const last = nodes[nodes.length - 1];
+      return last ? s.compiled?.check?.nodes?.[last]?.deps ?? [] : [];
+    };
+    const culpritOf = (dep: string): string | null => {
+      if (dep.startsWith('g:')) return s.canvas.machines.find((x) => x.config.kind === 'given' && x.config.givenId === dep.slice(2))?.id ?? null;
+      if (dep.startsWith('a:')) return s.canvas.machines.find((x) => x.config.kind === 'desk' && x.config.room === dep.slice(2))?.id ?? null;
+      return null;
+    };
+    const lit = (el2: HTMLElement, ids: string[]) => {
+      el2.addEventListener('pointerenter', () => { if (ids[0]) store.setHover({ k: 'machine', id: ids[0] }); });
+      el2.addEventListener('pointerleave', () => store.setHover(null));
+    };
+    const why: { text: string; culprits: string[] }[] = [];
+    // every symbol the input mentions: element atoms and Tower variables in its sides, a card's premises and
+    // conclusion, and the ℤ Towers inside exponents (k₁ in (ab)^(5k₁))
+    const symbols = new Set<string>();
+    const walkT = (t: Term) => {
+      if (t.k === 'atom') symbols.add(t.id);
+      else if (t.k === 'inv') walkT(t.arg);
+      else if (t.k === 'mul') t.fs.forEach(walkT);
+      else if (t.k === 'pow') { walkT(t.base); for (const term of t.exp) for (const x of term.monomial) if (x.ref.k === 'zvar') symbols.add(x.ref.id); }
+    };
+    const walkF = (f: Fact) => {
+      if (f.k === 'eq' || f.k === 'neq' || f.k === 'law') { walkT(f.l); walkT(f.r); }
+      else if (f.k === 'cond') { for (const p of f.premises) if (p.k === 'eq' || p.k === 'neq') { walkT(p.l); walkT(p.r); } if (f.concl.k === 'eq' || f.concl.k === 'neq') { walkT(f.concl.l); walkT(f.concl.r); } }
+    };
+    if (work && work.k === 'fact') walkF(work.fact); else if (work && work.k === 'card') walkF(work.card);
+    const boundVars = [...symbols].filter((a) => vars.has(a));
+    const consts = [...symbols].filter((a) => !vars.has(a) && s.level.atoms.some((x) => x.id === a));
+    const inMetas = work && work.k === 'card' ? work.card.metas.length : 0;
+    const bindsNothing = m.kind === 'forall' && work && (out && out.k === 'card' ? out.card.metas.length <= inMetas : !boundVars.length);
+    if (bindsNothing) {
+      why.push({ text: consts.length
+        ? `Nothing to generalize: this statement mentions only level constant${consts.length > 1 ? 's' : ''} ${consts.map((a) => L[a] ?? a).join(', ')}. ∀ does not turn a constant into an arbitrary element; build with a Tower.`
+        : 'Nothing to generalize: no Tower variable occurs here. Declare one with a Tower and build with it.', culprits: [] });
+    } else if (m.kind === 'forall' && out && out.k === 'card' && boundVars.length) {
+      sec.append(h('p', { class: 'h3-okline', html: `Generalized <span class="math">${boundVars.map((v) => tH({ k: 'atom', id: v }, L)).join(', ')}</span>: ${boundVars.length > 1 ? 'they were' : 'it was'} arbitrary, so the statement holds for every choice.` }));
+    }
+    const stat = res?.status;
+    const deps = depsOf();
+    const rooms = deps.filter((d) => d.startsWith('a:'));
+    if (m.kind === 'forall' && stat?.k === 'jammed' && rooms.length) {
+      const r = s.canvas.rooms.find((x) => `a:${x.id}` === rooms[0]);
+      why.push({ text: `This result rests on the assumption ${r ? `${safe(() => K.termText(r.l, L), '')} ${r.rel === 'neq' || r.kind === 'classical' ? '≠' : '='} ${safe(() => K.termText(r.r, L), '')}` : 'of a room'}. Feed it through that room’s Assume gate first to obtain a conditional theorem, then generalize.`, culprits: rooms.map(culpritOf).filter(Boolean) as string[] });
+    }
+    // eligibility for the Lemma Book
+    if (out && out.k === 'card') {
+      const r = safe(() => F.lemmaFrom(s.compiled, s.canvas, m.id, s.ctx), null);
+      const given = deps.filter((d) => d.startsWith('g:'));
+      if (r?.ok) {
+        const name = h('input', { class: 'h3-term h3-lname', placeholder: 'name it, e.g. Double Flip', 'aria-label': 'lemma name', autocomplete: 'off', spellcheck: 'false' });
+        const save = h('button', { class: 'lw-key small primary' }, 'Save to Lemma Book');
+        const doSave = () => { const res2 = store.saveLemma(m.id, name.value.trim() || 'Lemma'); if (res2.ok) { save.textContent = 'Saved ✓'; save.disabled = true; } };
+        save.addEventListener('click', doSave);
+        name.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') doSave(); if (e.key === 'Escape') { e.preventDefault(); name.blur(); store.openLens(null); } });
+        const already = s.save.lemmas.some((l) => JSON.stringify(l.card) === JSON.stringify(out.card));
+        sec.append(h('div', { class: 'h3-save' }, h('span', { class: 'h3-badge-ok' }, already ? 'In the Lemma Book' : 'Ready to save'), already ? null : name, already ? null : save),
+          h('p', { class: 'h3-note' }, 'A theorem of group theory: it rests on no given and no assumption. Saved, it becomes a recipe in every later order.'));
+      } else {
+        const t = given.length
+          ? `Can’t save globally: it uses given ${given.map((g) => { const gd = s.level.givens.find((x) => `g:${x.id}` === g); return gd ? `${gd.name}: ${safe(() => K.factText(gd.fact as never, L), '')}` : g.slice(2); }).join(', ')}. Global lemmas rest on no level givens.`
+          : rooms.length ? 'Valid here, but it still depends on a room’s assumption: export it through the room’s gate first.'
+          : r && !r.ok ? r.reason : '';
+        if (t) why.push({ text: t, culprits: [...given, ...rooms].map(culpritOf).filter(Boolean) as string[] });
+      }
+    }
+    for (const w of why) {
+      const p = h('p', { class: 'h3-reason h3-why', html: richHTML(w.text, s.level) });
+      if (w.culprits.length) { p.classList.add('traced'); p.title = 'hover: light the dependency on the floor'; lit(p, w.culprits); }
+      sec.append(p);
+    }
+    return sec;
   };
 
   const hasWorkPort = (m: Machine, s: S) => safe(() => F.portsOf(m, s.ctx).some((p) => p.id === 'q'), m.kind !== 'spool' && m.kind !== 'hopper' && m.kind !== 'given' && m.kind !== 'carddock');
@@ -214,8 +540,9 @@ export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () 
   // ───────── twin rails ─────────
   interface Twin { el: HTMLElement; overlay: HTMLElement; rails: Record<'l' | 'r', HTMLElement> }
   const twin = (p: { k: 'eq' | 'neq'; l: Term; r: Term }, L: Record<string, string>, H: Record<string, number>, gaps: boolean): Twin => {
-    const rl = renderRail(p.l, { side: 'l', L, hues: H, sealed: false, src: 'pallet', gaps });
-    const rr = renderRail(p.r, { side: 'r', L, hues: H, sealed: false, src: 'pallet', gaps });
+    const vs = varIdsOf(store.get());
+    const rl = markVars(rail(p.l, { side: 'l', L, hues: H, gaps }), vs);
+    const rr = markVars(rail(p.r, { side: 'r', L, hues: H, gaps }), vs);
     const overlay = h('div', { class: 'h3-brackets' });
     const box = h('div', { class: `h3-twin${p.k === 'neq' ? ' neq' : ''}` },
       h('span', { class: 'h3-rung math' }, p.k === 'eq' ? '=' : '≠'),
@@ -263,6 +590,7 @@ export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () 
       const b = h('button', {
         class: `h3-br ${side}${chosen ? ' chosen' : ''}${isGapAddr(a) ? ' gap' : ''}`, title: `${chosen ? 'Acting here' : 'Act here instead'}: ${c.label}`,
         'aria-label': `${chosen ? 'Chosen target' : 'Pin target'} ${c.label} on the ${side === 'l' ? 'left' : 'right'} rail`, 'aria-pressed': String(chosen), 'data-i': i,
+        'data-side': side, 'data-path': pathKey(a.path), ...(isGapAddr(a) ? { 'data-gap': a.gap } : { 'data-range': a.range ? a.range.join('-') : '' }),
         style: `left:${x0}px;top:${y}px;width:${x1 - x0}px`,
       });
       b.addEventListener('pointerenter', () => { if (!isGapAddr(a)) factorsFor(tw, a).forEach((f) => f.classList.add('is-lit')); });
@@ -403,28 +731,29 @@ export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () 
   const conclusionOf = (s: S, m: Machine, res: MachineResult, fact: Pallet, i: number, L: Record<string, string>): string => {
     const ch = res.choices?.[i];
     if (!ch) return '';
-    const c = m.config;
-    let card = c.kind === 'stamp' ? REGISTRY[c.schema]?.card : res.inputs['rule']?.k === 'card' ? (res.inputs['rule'] as { card: import('../kernel/types').Card }).card : undefined;
-    if (card && c.kind === 'stamp' && c.mirror) card = safe(() => K.mirrorCard(card!), card);
+    const c = m.config as { kind: string; recipe?: TheoremRecipe | null; values?: Record<MetaId, Param> };
+    const ref = c.recipe && c.recipe.k === 'library' ? c.recipe.ref : null;
+    const lc = ref ? libCard(s, ref) : null;
+    const routed = Object.values(res.inputs).find((v) => v?.k === 'card');
+    const card = (lc && (lc.k === 'cond' || lc.k === 'law') ? lc : routed && routed.k === 'card' ? routed.card : null) as Card | null;
     const sub: Record<string, Term> = {};
     for (const b of ch.bindings) { const t = safe(() => K.termAt(fact, b.addr), null); if (t) sub[b.meta] = t; }
-    if (c.kind === 'apply' || c.kind === 'stamp') for (const [mm, pv] of Object.entries(c.values)) if (pv.k === 'knob' && pv.term && !sub[mm]) sub[mm] = pv.term;
+    for (const [mm, pv] of Object.entries(c.values ?? {})) if (pv.k === 'knob' && pv.term && !sub[mm]) sub[mm] = pv.term;
     if (card) {
       const concl = card.k === 'cond' ? card.concl : { k: 'eq' as const, l: card.l, r: card.r };
       const done = safe(() => ({ k: concl.k, l: K.instantiate(concl.l, sub), r: K.instantiate(concl.r, sub) }), null);
       if (done && K.isGround(done.l) && K.isGround(done.r)) return fH(done as Pallet, L);
     }
-    const txt = ch.label.split('  (')[0] ?? '';
-    return esc(txt);
+    return esc(ch.label.split('  (')[0] ?? '');
   };
 
-  const targetChip = (cfg: { target: SpanTarget | GapTarget }, res: MachineResult | undefined) => {
-    const first = cfg.target.k === 'first';
+  const targetChip = (cur: SpanTarget | GapTarget, gap: boolean, res: MachineResult | undefined, apply: (t: SpanTarget | GapTarget) => void) => {
     const wrap = h('span', { class: 'h3-tchip' });
-    if (first) wrap.append(h('span', { class: 'h3-tag on', title: 'Default: right rail first, then left; shortest span at each start' }, 'first match'), h('span', { class: 'h3-dim' }, res?.candidates?.length ? `· ${res.candidates.length} candidate${res.candidates.length === 1 ? '' : 's'} · click a bracket to pin` : ''));
+    const n = res?.candidates?.length ?? 0;
+    if (cur.k === 'first') wrap.append(h('span', { class: 'h3-tag on', title: 'Default: right rail first, then left; shortest span at each start' }, 'first match'), h('span', { class: 'h3-dim' }, n ? `· ${n} ${gap ? 'gap' : 'candidate'}${n === 1 ? '' : 's'} · click ${gap ? 'a caret' : 'a bracket'} to pin` : ''));
     else {
       const reset = h('button', { class: 'h3-tag', title: 'Go back to the first match' }, 'use first match');
-      reset.addEventListener('click', () => { const s = store.get(); const m = s.canvas.machines.find((x) => x.id === curId); if (m) store.configure(m.id, { ...m.config, target: { k: 'first' } } as MachineConfig); });
+      reset.addEventListener('click', () => apply({ k: 'first' }));
       wrap.append(h('span', { class: 'h3-tag on pinned' }, 'pinned'), reset);
     }
     return wrap;
@@ -456,63 +785,65 @@ export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () 
     switch (c.kind) {
       case 'spool': knob('t', c.t, (t) => setCfg({ t })); break;
       case 'hopper': sec.append(paramKnob(s, 't', { k: 'knob', term: c.t }, (p) => setCfg({ t: p.k === 'knob' ? p.term : null }), L, H, quick, false)); break;
-      case 'canceller': sec.append(toggle('tidy', c.tidy, 'pop the e left behind', (tidy) => setCfg({ tidy }))); break;
-      case 'popper': break;
-      case 'expander': {
-        sec.append(seg('insert', [['e', '<i class="math">e</i>'], ['pair', '<i class="math">x x</i><sup>−1</sup>'], ['pairInv', '<i class="math">x</i><sup>−1</sup><i class="math">x</i>'], ['rule', 'rule’s <i class="math">e</i>-side']], c.insert, (insert) => setCfg({ insert })));
-        if (c.insert === 'pair' || c.insert === 'pairInv') knob('x', c.x, (x) => setCfg({ x }));
-        if (c.insert === 'rule') sec.append(seg('direction', [['fwd', 'L → R'], ['rev', 'R → L']], c.dir, (dir) => setCfg({ dir })));
-        break;
-      }
       case 'rewriter': {
-        sec.append(seg('direction', [['fwd', 'L → R'], ['rev', 'R → L']], c.dir, (dir) => setCfg({ dir })));
-        for (const meta of freeMetas(res?.inputs['rule'], c.dir, c.values)) knob(meta, c.values[meta] ?? { k: 'knob', term: null }, (p) => setCfg({ values: { ...c.values, [meta]: p } }));
-        sec.append(toggle('tidy', c.tidy, 'pop any e the rewrite leaves', (tidy) => setCfg({ tidy })));
+        const r = c.recipe;
+        if (!r) return null;
+        if (r.k === 'insertPair') knob('x', r.x, (x) => setCfg({ recipe: { ...r, x } }));
+        if (r.k === 'law' || r.k === 'routed') {
+          sec.append(seg('direction', [['fwd', 'L → R'], ['rev', 'R → L']], c.dir, (dir) => setCfg({ dir })));
+          const card = r.k === 'law' ? libCard(s, r.ref) : (res?.inputs['rule'] ? (res.inputs['rule'].k === 'card' ? res.inputs['rule'].card : res.inputs['rule'].k === 'fact' ? res.inputs['rule'].fact : null) : null);
+          const zs = zMetas(card);
+          for (const meta of freeMetas(card, c.dir, c.values)) {
+            const set = (p: Param) => setCfg({ values: { ...c.values, [meta]: p } });
+            if (zs.has(meta)) sec.append(intKnob(s, meta, c.values[meta] ?? { k: 'knob', term: null }, set, L));
+            else knob(meta, c.values[meta] ?? { k: 'knob', term: null }, set);
+          }
+          // the literal-power family: choose r (x^r = r copies of x)
+          if (r.k === 'law' && r.ref.k === 'schema' && r.ref.id.startsWith(`${K.POWER_LITERAL_FAMILY}:`) && s.level.tools.schemas.includes(K.POWER_LITERAL_FAMILY)) {
+            const rv = r.ref.id.split(':')[1] ?? '2';
+            const inp = h('input', { class: 'h3-term h3-rnum', value: rv, inputmode: 'numeric', 'aria-label': 'r, a positive whole number', autocomplete: 'off' });
+            const go = () => { const v = Math.trunc(Number(inp.value)); if (v >= 1 && String(v) !== rv) setCfg({ recipe: { k: 'law', ref: { k: 'schema', id: `${K.POWER_LITERAL_FAMILY}:${v}` } } }); else inp.value = rv; };
+            inp.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') go(); });
+            inp.addEventListener('blur', go);
+            sec.append(h('div', { class: 'h3-ctl' }, h('span', { class: 'h3-ctl-k math', html: '<i>r</i> =' }), inp, h('span', { class: 'h3-dim' }, 'a positive whole number: x^r becomes r copies of x')));
+          }
+        }
+        if (r.k === 'cancel' || r.k === 'law' || r.k === 'routed') sec.append(toggle('tidy', c.tidy, 'pop any e the rewrite leaves', (tidy) => setCfg({ tidy })));
         break;
       }
-      case 'multiplier':
-        sec.append(seg('side', [['left', '<i class="math">t</i>·L = <i class="math">t</i>·R'], ['right', 'L·<i class="math">t</i> = R·<i class="math">t</i>']], c.side, (side) => setCfg({ side })));
-        knob('t', c.t, (t) => setCfg({ t }));
-        break;
-      case 'apply': case 'stamp': {
-        if (c.kind === 'stamp') {
-          const sc = REGISTRY[c.schema];
-          if (sc) sec.append(h('div', { class: 'h3-card math', html: fH(c.mirror ? safe(() => K.mirrorCard(sc.card), sc.card) : sc.card, {}) }));
-          if (sc?.mirrorable) sec.append(seg('hand', [['plain', sc.name], ['op', `${sc.name} ᵒᵖ`]], c.mirror ? 'op' : 'plain', (v) => setCfg({ mirror: v === 'op' })));
-        } else {
-          const row = h('div', { class: 'h3-ctl' }, h('span', { class: 'h3-ctl-k' }, 'premises'));
-          const minus = h('button', { class: 'h3-seg', disabled: c.premises <= 0 }, '−');
-          const plus = h('button', { class: 'h3-seg', disabled: c.premises >= 4 }, '+');
-          minus.addEventListener('click', () => setCfg({ premises: Math.max(0, c.premises - 1) }));
-          plus.addEventListener('click', () => setCfg({ premises: Math.min(4, c.premises + 1) }));
-          row.append(h('span', { class: 'h3-segs' }, minus, h('span', { class: 'h3-count' }, String(c.premises)), plus));
-          sec.append(row);
+      case 'operator': {
+        const r = c.recipe;
+        if (r?.k === 'multiply') {
+          sec.append(seg('side', [['left', '<i class="math">t</i>·L = <i class="math">t</i>·R'], ['right', 'L·<i class="math">t</i> = R·<i class="math">t</i>']], r.side, (side) => setCfg({ recipe: { ...r, side } })));
+          knob('t', r.t, (t) => setCfg({ recipe: { ...r, t } }));
         }
-        const card = c.kind === 'stamp' ? REGISTRY[c.schema]?.card : (res?.inputs['rule'] && res.inputs['rule'].k === 'card' ? res.inputs['rule'].card : undefined);
-        if (card) {
-          // metas the premises cannot determine (all of a law card's) are set here, as knobs or ports
+        break;
+      }
+      case 'theorem': {
+        const r = c.recipe;
+        if (!r) return null;
+        if (r.k === 'library' && r.ref.k === 'schema') {
+          const sc = s.ctx.registry[r.ref.id];
+          if (sc?.mirrorable && safe(() => hasDistinctMirror(sc.card), true)) sec.append(seg('hand', [['plain', esc(sc.name)], ['op', `${esc(sc.name)} ᵒᵖ`]], r.ref.mirror ? 'op' : 'plain', (v) => setCfg({ recipe: { k: 'library', ref: { ...r.ref as { k: 'schema'; id: string }, mirror: v === 'op' } }, choice: 0 })));
+        }
+        const card = (r.k === 'library' ? libCard(s, r.ref) : Object.values(res?.inputs ?? {}).find((v) => v?.k === 'card') && (Object.values(res!.inputs).find((v) => v?.k === 'card') as { card: Card }).card) as Card | null;
+        if (card && (card.k === 'cond' || card.k === 'law')) {
           const inPrem = new Set(card.k === 'cond' ? card.premises.flatMap((p) => (p.k === 'eq' || p.k === 'neq' ? [...K.metasOf(p.l), ...K.metasOf(p.r)] : [])) : []);
           const free = [...new Set([...card.metas.filter((x) => !inPrem.has(x)), ...Object.keys(c.values)])].sort();
-          for (const meta of free) knob(meta, c.values[meta] ?? { k: 'knob', term: null }, (p) => setCfg({ values: { ...c.values, [meta]: p } }));
-          if (card.k === 'law' && !free.length) sec.append(h('p', { class: 'h3-note' }, 'This law has no variables: it emits itself.'));
-        } else if (c.kind === 'apply') sec.append(h('p', { class: 'h3-note' }, 'Route a card (a law or a conditional theorem) into the card port; its variables appear here.'));
+          const zs = zMetas(card);
+          for (const meta of free) {
+            const set = (p: Param) => setCfg({ values: { ...c.values, [meta]: p } });
+            if (zs.has(meta)) sec.append(intKnob(s, meta, c.values[meta] ?? { k: 'knob', term: null }, set, L));
+            else knob(meta, c.values[meta] ?? { k: 'knob', term: null }, set);
+          }
+        }
         break;
       }
-      case 'carddock': {
-        const laws = Object.values(REGISTRY).filter((x) => x.card.k === 'law' && s.ctx.level.tools.schemas.includes(x.id));
-        if (laws.length > 1) sec.append(seg('card', laws.map((x) => [x.id, x.name] as [string, string]), c.schema, (schema) => setCfg({ schema })));
-        const sc = REGISTRY[c.schema];
-        if (sc) sec.append(h('div', { class: 'h3-card math', html: fH(sc.card, {}) }));
-        break;
-      }
-      case 'desk': case 'gate': {
+      case 'desk': {
         const room = s.canvas.rooms.find((r) => r.id === c.room);
         if (room) {
-          const assume = room.kind === 'suppose' ? `${tH(room.l, L)} <span class="m-rel">=</span> ${tH(room.r, L)}` : `${tH(room.l, L)} <span class="m-rel">≠</span> ${tH(room.r, L)}`;
-          const exp = room.kind === 'suppose' ? `${tH(room.l, L)} <span class="m-rel">≠</span> ${tH(room.r, L)}` : `${tH(room.l, L)} <span class="m-rel">=</span> ${tH(room.r, L)}`;
-          sec.append(h('div', { class: 'h3-roominfo', html: c.kind === 'desk'
-            ? `Emits the room’s assumption <span class="math">${assume}</span> to machines inside it.`
-            : `⊥ arriving here leaves the room as <span class="math">${exp}</span>${room.kind === 'classical' ? ' <span class="t-classical">classical</span>' : ''}.` }));
+          const eq = room.kind === 'suppose' || (room.kind === 'assume' && room.rel !== 'neq');
+          sec.append(h('div', { class: 'h3-roominfo', html: `Emits the room’s assumption <span class="math">${tH(room.l, L)} <span class="m-rel">${eq ? '=' : '≠'}</span> ${tH(room.r, L)}</span> to machines inside it. It is evidence only inside this room.` }));
         }
         break;
       }
@@ -521,15 +852,71 @@ export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () 
     return sec.childElementCount ? sec : null;
   };
 
-  /** Metas of a routed law that the matched side does not bind: the player must supply them. */
-  const freeMetas = (rule: ItemValue | undefined, dir: 'fwd' | 'rev', values: Record<MetaId, Param>): MetaId[] => {
+  /** Metas of a rule that the matched side does not bind: the player supplies them. */
+  const freeMetas = (rule: Fact | null | undefined, dir: 'fwd' | 'rev', values: Record<MetaId, Param>): MetaId[] => {
     const out = new Set(Object.keys(values));
-    if (rule && rule.k === 'card' && rule.card.k === 'law') {
-      const src = dir === 'fwd' ? rule.card.l : rule.card.r;
+    if (rule && rule.k === 'law') {
+      const src = dir === 'fwd' ? rule.l : rule.r;
       const bound = new Set(safe(() => K.metasOf(src), [] as MetaId[]));
-      for (const m of rule.card.metas) if (!bound.has(m)) out.add(m);
+      // an exponent like m·n on the matched side does not determine m and n separately: ask for them
+      const walk = (t: Term) => {
+        if (t.k === 'pow') {
+          for (const term of t.exp) if (term.monomial.length > 1 || term.monomial.some((x) => x.degree > 1)) for (const x of term.monomial) if (x.ref.k === 'zmeta') bound.delete(x.ref.id);
+          walk(t.base);
+        } else if (t.k === 'inv') walk(t.arg); else if (t.k === 'mul') t.fs.forEach(walk);
+      };
+      walk(src);
+      for (const mm of rule.metas) if (!bound.has(mm)) out.add(mm);
     }
     return [...out].sort();
+  };
+
+  /** ℤ-sorted metas of a card: those occurring inside exponents. */
+  const zMetas = (f: Fact | null | undefined): Set<string> => {
+    const out = new Set<string>();
+    const walk = (t: Term) => {
+      if (t.k === 'pow') { for (const term of t.exp) for (const m of term.monomial) if (m.ref.k === 'zmeta') out.add(m.ref.id); walk(t.base); }
+      else if (t.k === 'inv') walk(t.arg); else if (t.k === 'mul') t.fs.forEach(walk);
+    };
+    if (f && (f.k === 'law' || f.k === 'eq' || f.k === 'neq')) { walk(f.l); walk(f.r); }
+    if (f && f.k === 'cond') { for (const p of f.premises) if (p.k === 'eq' || p.k === 'neq') { walk(p.l); walk(p.r); } if (f.concl.k === 'eq' || f.concl.k === 'neq') { walk(f.concl.l); walk(f.concl.r); } }
+    return out;
+  };
+  const subs = (src: string) => src.replace(/_(\d+)/g, (_x, d: string) => [...d].map((c) => '₀₁₂₃₄₅₆₇₈₉'[+c]).join(''));
+  /** An integer knob (a ℤ meta: an exponent): integer polynomials in ℤ Towers, validated by the kernel. */
+  const intKnob = (s: S, name: string, p: Param, set: (p: Param) => void, L: Record<string, string>) => {
+    const row = h('div', { class: 'h3-knob h3-intknob' });
+    const label = h('span', { class: 'h3-knob-k math', html: `<i>${esc(name)}</i> :=` });
+    const cur = p.k === 'knob' && p.term && p.term.k === 'int' ? safe(() => K.exponentText(p.term!.k === 'int' ? p.term!.val : [], L), '') : '';
+    const input = h('input', { class: 'h3-term', value: cur, placeholder: 'an integer: 5, -1, 5k₁, n₁ + 1', 'aria-label': `integer ${name}`, autocomplete: 'off', spellcheck: 'false' });
+    const view = h('span', { class: 'h3-knob-view math' });
+    const msg = h('span', { class: 'h3-knob-msg' });
+    let parsed: Term | null = p.k === 'knob' ? p.term : null;
+    const update = () => {
+      const src = input.value.trim();
+      view.innerHTML = ''; msg.textContent = ''; input.classList.remove('bad');
+      if (!src) { parsed = null; return; }
+      const r = safe(() => K.parseInteger(subs(src), atomsAll(s)), { ok: false as const, error: 'integer entry is not ready' });
+      if (r.ok) { parsed = r.term; view.innerHTML = r.term.k === 'int' ? `<span class="h3-zval">${esc(K.exponentText(r.term.val, L))}</span>` : ''; }
+      else { parsed = null; msg.textContent = r.error; input.classList.add('bad'); }
+    };
+    const commit = () => { update(); if (JSON.stringify(parsed) !== JSON.stringify(p.k === 'knob' ? p.term : null) && (parsed || !input.value.trim())) set({ k: 'knob', term: parsed }); };
+    input.addEventListener('input', update);
+    input.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') { e.preventDefault(); commit(); } if (e.key === 'Escape') { e.preventDefault(); input.value = cur; update(); input.blur(); } });
+    input.addEventListener('blur', () => { if (input.value.trim() !== cur) commit(); });
+    const chips = h('div', { class: 'h3-chips' });
+    const zs = towerVars(s).filter((v) => v.sort === 'Z');
+    for (const t of [...zs.map((v) => v.label), '1', '2', '-1', '+', '·']) {
+      const b = h('button', { class: `bn-chip h3-chip txt${zs.some((v) => v.label === t) ? ' h3-var' : ''}`, title: `append ${t}` }, t);
+      b.addEventListener('pointerdown', (e) => e.preventDefault());
+      b.addEventListener('click', () => { input.value += t === '·' ? '' : t === '+' ? ' + ' : t; update(); if (t !== '+' && t !== '·') commit(); });
+      chips.append(b);
+    }
+    if (!zs.length) chips.append(h('span', { class: 'h3-dim' }, 'a ℤ Tower (Let n₁ ∈ ℤ) makes an arbitrary integer'));
+    update();
+    row.append(h('div', { class: 'h3-knob-top' }, label, input, view), msg, chips);
+    if (!parsed) row.classList.add('unset');
+    return row;
   };
 
   // ───────── term knob: beads + typed parse, or "use a port" ─────────
@@ -551,8 +938,9 @@ export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () 
       const src = input.value.trim();
       view.innerHTML = ''; msg.textContent = ''; input.classList.remove('bad');
       if (!src) { parsed = null; return; }
-      const r = safe(() => K.parseTerm(src, s.level.atoms), { ok: false as const, error: 'term entry is not ready' });
-      if (r.ok) { parsed = r.term; view.append(beadsInline(r.term, L, H)); }
+      const src2 = src.replace(/_(\d+)/g, (_x, d: string) => [...d].map((c) => '₀₁₂₃₄₅₆₇₈₉'[+c]).join(''));
+      const r = safe(() => K.parseTerm(src2, atomsAll(s)), { ok: false as const, error: 'term entry is not ready' });
+      if (r.ok) { parsed = r.term; view.append(markVars(beadsInline(r.term, L, H), varIdsOf(s))); }
       else { parsed = null; msg.textContent = r.error; input.classList.add('bad'); }
     };
     const commit = () => {
@@ -568,10 +956,13 @@ export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () 
     });
     input.addEventListener('blur', () => { if (input.value.trim() !== plainOf(p.term)) commit(); });
     const chips = h('div', { class: 'h3-chips' });
-    const chipTerms: Term[] = [...s.level.atoms.map((a) => ({ k: 'atom', id: a.id } as Term)), ...s.level.atoms.map((a) => ({ k: 'inv', arg: { k: 'atom', id: a.id } } as Term)), { k: 'e' }];
+    const allA = atomsAll(s).filter((a) => (a as { sort?: string }).sort !== 'Z'); // ℤ Towers live in exponents, not as beads
+    const chipTerms: Term[] = [...allA.map((a) => ({ k: 'atom', id: a.id } as Term)), ...allA.map((a) => ({ k: 'inv', arg: { k: 'atom', id: a.id } } as Term)), { k: 'e' }];
+    const vset = varIdsOf(s);
     for (const t of chipTerms) {
-      const b = h('button', { class: 'bn-chip h3-chip', title: `append ${plainOf(t)}` });
-      b.append(beadsInline(t, L, H));
+      const isVar = (t.k === 'atom' && vset.has(t.id)) || (t.k === 'inv' && t.arg.k === 'atom' && vset.has(t.arg.id));
+      const b = h('button', { class: `bn-chip h3-chip${isVar ? ' h3-var' : ''}`, title: `append ${plainOf(t)}${isVar ? ' (a Tower variable)' : ''}` });
+      b.append(markVars(beadsInline(t, L, H), vset));
       b.addEventListener('pointerdown', (e) => e.preventDefault());
       b.addEventListener('click', () => { input.value += plainOf(t); update(); commit(); });
       chips.append(b);
@@ -599,7 +990,7 @@ export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () 
 
   // ───────── item views ─────────
   const itemView = (v: ItemValue, L: Record<string, string>, H: Record<string, number>) => {
-    if (v.k === 'term') { const w = h('div', { class: 'h3-termview' }); w.append(beadsInline(v.term, L, H)); return w; }
+    if (v.k === 'term') { const w = h('div', { class: 'h3-termview' }); w.append(markVars(beadsInline(v.term, L, H), varIdsOf(store.get()))); return w; }
     if (v.k === 'fact' && (v.fact.k === 'eq' || v.fact.k === 'neq')) return twin(v.fact, L, H, false).el;
     return h('div', { class: 'h3-bigmath math', html: itemHTML(v, L) });
   };
@@ -623,38 +1014,82 @@ export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () 
   };
 
   // ───────── positioning ─────────
+  /** The selected machine's port hit areas on the floor (the floor tags them .fl-p-hit[data-p="m|port"]). */
+  const portRects = (id: string): { r: DOMRect; out: boolean }[] => {
+    const out: { r: DOMRect; out: boolean }[] = [];
+    document.getElementById('floor')?.querySelectorAll<SVGElement>(`.fl-p-hit[data-p^="${CSS.escape(id)}|"]`).forEach((p) => {
+      const r = p.getBoundingClientRect();
+      if (r.width || r.height) out.push({ r, out: (p.getAttribute('data-p') ?? '').endsWith('|out') });
+    });
+    return out;
+  };
+  let guard: DOMRect[] = []; // port areas (+24 px) the lens could not avoid: pointer passes through there
+
+  /**
+   * Place the lens beside the machine, never over its footprint or its ports (24 px clearance), preferring
+   * the side away from its output; the order chip and run cluster stay readable. If nothing fits, the lens
+   * goes where it overlaps least and lets the pointer through over the ports it still covers.
+   */
   const position = () => {
     if (el.hidden || !curId) return;
-    const r = machineRect(curId, store.get());
+    const s = store.get();
+    const r = machineRect(curId, s);
     const w = el.offsetWidth, hh = el.offsetHeight;
-    const top0 = 64, bottom0 = innerHeight - 92;
+    const top0 = 64, bottom0 = innerHeight - 92, left0 = 12, right0 = innerWidth - 12;
+    guard = [];
     if (!r) {
-      el.classList.add('docked'); el.classList.remove('above', 'below');
+      el.classList.add('docked'); el.classList.remove('above', 'below', 'left', 'right');
       el.style.left = `${innerWidth - w - 16}px`;
       el.style.top = `${Math.max(top0, opts.dockTop())}px`;
       return;
     }
     el.classList.remove('docked');
-    const cx = r.left + r.width / 2;
-    let left = cx - w / 2;
-    left = Math.max(12, Math.min(innerWidth - w - 12, left));
-    let top: number; let above: boolean;
-    if (r.top - 14 - hh >= top0) { top = r.top - 14 - hh; above = true; }
-    else if (r.top + r.height + 14 + hh <= bottom0) { top = r.top + r.height + 14; above = false; }
-    else { top = Math.max(top0, Math.min(bottom0 - hh, r.top - hh / 2)); above = true; left = r.left + r.width + 14 + w < innerWidth ? r.left + r.width + 14 : Math.max(12, r.left - w - 14); }
-    // keep the order chip and run cluster readable: slide sideways off them, or drop below them
+    const ports = portRects(curId);
+    const pad = 24;
+    // the zone to keep clear: the machine and every port hit area, inflated by the clearance
+    let zx0 = r.left, zy0 = r.top, zx1 = r.left + r.width, zy1 = r.top + r.height;
+    for (const p of ports) { zx0 = Math.min(zx0, p.r.left); zy0 = Math.min(zy0, p.r.top); zx1 = Math.max(zx1, p.r.right); zy1 = Math.max(zy1, p.r.bottom); }
+    zx0 -= pad; zy0 -= pad; zx1 += pad; zy1 += pad;
+    const cx = (zx0 + zx1) / 2, cy = (zy0 + zy1) / 2;
+    const outP = ports.find((p) => p.out)?.r;
+    const ox = outP ? outP.left + outP.width / 2 - cx : 1, oy = outP ? outP.top + outP.height / 2 - cy : 0;
+    const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+    type Cand = { side: 'above' | 'below' | 'left' | 'right'; left: number; top: number };
+    const cands: Cand[] = [
+      { side: 'above', left: clamp(cx - w / 2, left0, right0 - w), top: zy0 - hh },
+      { side: 'below', left: clamp(cx - w / 2, left0, right0 - w), top: zy1 },
+      { side: 'left', left: zx0 - w, top: clamp(cy - hh / 2, top0, bottom0 - hh) },
+      { side: 'right', left: zx1, top: clamp(cy - hh / 2, top0, bottom0 - hh) },
+    ];
+    // away from the output first: if it points right, try left; if down, above; …
+    const away = (c: Cand) => (c.side === 'left' ? ox : c.side === 'right' ? -ox : c.side === 'above' ? oy : -oy);
+    cands.sort((a, b) => away(b) - away(a));
     const clear = (opts.keepClear?.() ?? []).map((x) => x.getBoundingClientRect()).filter((q) => q.width);
-    for (const q of clear) {
-      if (!(left < q.right && left + w > q.left && top < q.bottom && top + hh > q.top)) continue;
-      const toRight = q.right + 10, toLeft = q.left - w - 10;
-      if (q.left < innerWidth / 2 && toRight + w <= innerWidth - 12) left = toRight;
-      else if (q.left >= innerWidth / 2 && toLeft >= 12) left = toLeft;
-      else top = Math.min(bottom0 - hh, q.bottom + 10);
-    }
-    el.classList.toggle('above', above); el.classList.toggle('below', !above);
+    const overlap = (l: number, t: number, q: { left: number; top: number; right: number; bottom: number }) =>
+      Math.max(0, Math.min(l + w, q.right) - Math.max(l, q.left)) * Math.max(0, Math.min(t + hh, q.bottom) - Math.max(t, q.top));
+    const zone = { left: zx0, top: zy0, right: zx1, bottom: zy1 };
+    const score = (c: Cand) => {
+      const off = Math.max(0, left0 - c.left) + Math.max(0, c.left + w - right0) + Math.max(0, top0 - c.top) + Math.max(0, c.top + hh - bottom0);
+      return overlap(c.left, c.top, zone) * 4 + clear.reduce((n, q) => n + overlap(c.left, c.top, q), 0) + off * 400;
+    };
+    let best = cands[0]!, bestScore = Infinity;
+    for (const c of cands) { const sc = score(c); if (sc < bestScore - 1) { best = c; bestScore = sc; } if (sc === 0) break; }
+    let left = clamp(best.left, left0, right0 - w), top = clamp(best.top, top0, bottom0 - hh);
+    // still covering a port? let the pointer through there
+    guard = ports.map((p) => new DOMRect(p.r.left - pad, p.r.top - pad, p.r.width + 2 * pad, p.r.height + 2 * pad))
+      .filter((q) => overlap(left, top, q) > 0);
+    for (const c of ['above', 'below', 'left', 'right']) el.classList.toggle(c, best.side === c);
     el.style.left = `${left}px`; el.style.top = `${top}px`;
-    notch.style.left = `${Math.max(16, Math.min(w - 16, cx - left))}px`;
+    const mcx = r.left + r.width / 2, mcy = r.top + r.height / 2;
+    if (best.side === 'above' || best.side === 'below') { notch.style.left = `${Math.max(16, Math.min(w - 16, mcx - left))}px`; notch.style.top = ''; }
+    else { notch.style.top = `${Math.max(16, Math.min(hh - 16, mcy - top))}px`; notch.style.left = ''; }
   };
+  // pointer-transparent over the ports the lens could not avoid: the drag from a port reaches the floor
+  addEventListener('pointermove', (e) => {
+    if (el.hidden || !guard.length) { if (el.style.pointerEvents) el.style.pointerEvents = ''; return; }
+    const over = guard.some((q) => e.clientX >= q.left && e.clientX <= q.right && e.clientY >= q.top && e.clientY <= q.bottom);
+    el.style.pointerEvents = over ? 'none' : '';
+  }, { capture: true, passive: true });
 
   return { render, position, el };
 }

@@ -36,6 +36,8 @@ function leafSig(t: Term): string {
     case 'meta': return `m:${t.id}`;
     case 'inv': return `i:${sig(t.arg)}`;
     case 'mul': return 'mul';
+    case 'pow': return `p:${sig(t.base)}^${JSON.stringify(t.exp)}`;
+    case 'int': return `z:${JSON.stringify(t.val)}`;
   }
 }
 

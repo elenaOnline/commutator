@@ -33,6 +33,7 @@ export const CHAPTERS: Record<number, { roman: string; name: string }> = {
   1: { roman: 'I', name: 'The Bench' },
   2: { roman: 'II', name: 'Suppose' },
   3: { roman: 'III', name: 'Clockwork' },
+  4: { roman: 'IV', name: 'Powers' },
 };
 export const MAIN = LEVELS.filter((l) => !l.side);
 export const isSolved = (save: Save, id: string) => !!save.levels[id]?.solvedAt;
@@ -109,6 +110,9 @@ function typeset(t: Term, L: Record<string, string>, mode: Mode, pen: Pen): stri
       case 'e': return pen.e;
       case 'inv': return simpleT(x.arg) ? one(x.arg) + pen.sup(`${pen.neg}1`) : `(${typeset(x.arg, L, mode, pen)})${pen.sup(`${pen.neg}1`)}`;
       case 'mul': return word(x.fs);
+      // v4 Phase B: base with its exponent polynomial as a superscript, e.g. (ab)^{5k₁}
+      case 'pow': return (simpleT(x.base) ? one(x.base) : `(${typeset(x.base, L, mode, pen)})`) + pen.sup(K.exponentText(x.exp, L, pen === TEX_PEN));
+      case 'int': return K.exponentText(x.val, L, pen === TEX_PEN);
     }
   };
   return t.k === 'mul' ? word(t.fs) : one(t);

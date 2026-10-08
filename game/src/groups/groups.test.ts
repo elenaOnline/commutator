@@ -109,7 +109,11 @@ describe('conjecture lab', () => {
     expect(testClaim({ k: 'size', n: 2 }, [], []).k).toBe('counterexample');
   });
   for (const level of LEVELS) it(`${level.id}: declared goal survives its givens`, () => {
-    for (const socket of level.sockets) expect(testClaim(socket.target, level.atoms, level.givens.map(g => g.fact), level).k).toBe('survives');
+    for (const socket of level.sockets) {
+      const t = socket.target;
+      if (t.k === 'law' || t.k === 'cond') continue; // ∀ goals are checked by the oracle, not as claims
+      expect(testClaim(t, level.atoms, level.givens.map(g => g.fact), level).k).toBe('survives');
+    }
   });
   it('enumerates two atoms across the full catalogue in under 30 ms', () => {
     const claim = eq(inv(mul(a, b)), mul(inv(b), inv(a)));

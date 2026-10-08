@@ -13,6 +13,8 @@ function fallbackFamily(n: ProofNode, g: ProofGraph): Family {
     case 'clash': return 'contradiction';
     case 'press': return 'lemma';
     case 'merge': return 'equation';
+    case 'product': return 'structure';
+    case 'generalize': return 'lemma';
     case 'apply': {
       if (n.rule.k === 'schema') return 'lemma';
       return 'given';
@@ -20,7 +22,7 @@ function fallbackFamily(n: ProofNode, g: ProofGraph): Family {
     case 'step': {
       const op = n.op;
       if (op.k === 'swap') return 'equation';
-      if (op.k === 'lift') return 'structure';
+      if (op.k === 'lift' || op.k === 'invert') return 'structure';
       if (op.k === 'insertE') {
         const st = n.meta?.station;
         const pair = st && g.nodes.some((m) => m.meta?.station === st && m.k === 'step' && m.op.k === 'rewrite' && m.op.rule.k === 'axiom' && (m.op.rule.id === 'invL' || m.op.rule.id === 'invR'));
@@ -49,6 +51,8 @@ export function justify(n: ProofNode, g: ProofGraph, ctx: K.KernelCtx): string {
     case 'exit': return 'discharge';
     case 'press': return 'Lagrange (imported)';
     case 'merge': return 'transitivity';
+    case 'product': return 'multiply the two equations';
+    case 'generalize': return 'generalize';
     case 'apply': return n.rule.k === 'schema' ? n.rule.id : 'given';
     case 'step': return n.op.k;
   }

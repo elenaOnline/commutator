@@ -11,34 +11,48 @@ import type { Labels } from '../board/mathsvg';
 import type { Geo } from './geo';
 import { faceVec } from './adapt';
 import { ORANGE, esc } from './svg';
+import { polyText } from './math';
 
 const R = 6.5;           // bead radius px
 const PITCH = 2 * R + 1.9;
 const LANE = 0.2;       // grid offset of each rail from the belt centre-line
 
-type Tok = { k: 'atom'; label: string; slot: number } | { k: 'inv'; label: string; slot: number } | { k: 'e' } | { k: 'crate'; inv: boolean; inner: Tok[] } | { k: 'more'; n: number };
+type Tok = { k: 'atom'; label: string; slot: number } | { k: 'inv'; label: string; slot: number } | { k: 'var'; label: string; inv: boolean } | { k: 'e' } | { k: 'crate'; inv: boolean; inner: Tok[]; exp?: string } | { k: 'more'; n: number };
 
+let VARS: Set<string> = new Set();
 function toks(t: Term, L: Labels, S: Record<string, number>): Tok[] {
   const word = t.k === 'mul' ? t.fs : [t];
   return word.map((f): Tok => {
     switch (f.k) {
-      case 'atom': return { k: 'atom', label: L[f.id] ?? f.id, slot: S[f.id] ?? 0 };
+      case 'atom': return VARS.has(f.id) ? { k: 'var', label: L[f.id] ?? f.id, inv: false } : { k: 'atom', label: L[f.id] ?? f.id, slot: S[f.id] ?? 0 };
       case 'meta': return { k: 'atom', label: f.id, slot: 0 };
       case 'e': return { k: 'e' };
       case 'inv':
+        if (f.arg.k === 'atom' && VARS.has(f.arg.id)) return { k: 'var', label: L[f.arg.id] ?? f.arg.id, inv: true };
         if (f.arg.k === 'atom' || f.arg.k === 'meta') return { k: 'inv', label: f.arg.k === 'atom' ? L[f.arg.id] ?? f.arg.id : f.arg.id, slot: f.arg.k === 'atom' ? S[f.arg.id] ?? 0 : 0 };
         return { k: 'crate', inv: true, inner: toks(f.arg, L, S) };
       case 'mul': return { k: 'crate', inv: false, inner: toks(f, L, S) };
+      // a stack: base^exponent (symbolic exponents) — a crate with its exponent printed on its corner
+      case 'pow': return { k: 'crate', inv: false, inner: toks(f.base, L, S), exp: polyText(f.exp, L) };
+      case 'int': return { k: 'atom', label: polyText(f.val, L), slot: 0 };
     }
   });
 }
-const units = (t: Tok): number => (t.k === 'crate' ? t.inner.reduce((s, x) => s + units(x), 0) + 0.5 : t.k === 'more' ? 1.6 : 1);
+const units = (t: Tok): number => (t.k === 'crate' ? t.inner.reduce((s, x) => s + units(x), 0) + 0.5 + (t.exp ? 0.35 + t.exp.length * 0.32 : 0) : t.k === 'more' ? 1.6 : 1);
 const count = (t: Tok): number => (t.k === 'crate' ? t.inner.reduce((s, x) => s + count(x), 0) : t.k === 'more' ? t.n : 1);
 function compress(ts: Tok[], MAXU = 6): Tok[] {
   const total = ts.reduce((s, t) => s + units(t), 0);
   if (total <= MAXU) return ts;
   const kept: Tok[] = []; let u = 0;
-  for (const t of ts) { if (u + units(t) > MAXU - 1.6 && kept.length) break; if (t.k === 'crate' && units(t) > MAXU - 1.6) break; kept.push(t); u += units(t); }
+  for (const t of ts) {
+    if (u + units(t) > MAXU - 1.6 && kept.length) break;
+    if (t.k === 'crate' && units(t) > MAXU - 1.6) {
+      // too wide to show whole: keep the crate (and its exponent) with its contents counted, never a bare "+n"
+      if (!kept.length) { kept.push({ ...t, inner: [{ k: 'more', n: count(t) }] }); u += units(kept[0]!); }
+      break;
+    }
+    kept.push(t); u += units(t);
+  }
   const hidden = ts.slice(kept.length).reduce((s, t) => s + count(t), 0);
   return hidden ? [...kept, { k: 'more', n: hidden }] : kept;
 }
@@ -53,6 +67,14 @@ function bead(t: Tok, x: number, y: number): string {
   if (t.k === 'e') return `<circle cx="${f1(x)}" cy="${f1(y)}" r="${R - 0.5}" fill="${FAMILY.identity.ink}"/><circle cx="${f1(x)}" cy="${f1(y)}" r="${R - 0.5}" fill="none" stroke="${FAMILY.identity.text}" stroke-width=".8" opacity=".7"/>${tx} fill="${INK.navy}">e</text>`;
   if (t.k === 'inv') return shape(t.slot, R - 0.8, `fill="#fff" stroke="${INK.navy}" stroke-width="1.7"`) + `${tx} fill="${INK.navy}">${esc(t.label)}</text>`;
   if (t.k === 'atom') return shape(t.slot, R, `fill="${INK.navy}"`) + `${tx} fill="#fff">${esc(t.label)}</text>`;
+  if (t.k === 'var') {
+    // a striped "any" bead: an arbitrary element, named by its tower (x₁); hollow ring + ⁻¹ when inverted
+    const m = /^(.*?)([₀-₉0-9]+)$/.exec(t.label);
+    const base = m ? m[1]! : t.label, sub = m ? m[2]!.replace(/[₀-₉]/g, (c) => String(c.charCodeAt(0) - 0x2080)) : '';
+    return `<circle cx="${f1(x)}" cy="${f1(y)}" r="${R}" fill="url(#fl-any)" stroke="${INK.navy}" stroke-width="${t.inv ? 2 : 1.3}"${t.inv ? ' stroke-dasharray="2.2 1.4"' : ''}/>` +
+      `<text x="${f1(x - (sub ? 1.4 : 0))}" y="${f1(y + 3.6)}" text-anchor="middle" font-family="${FONT.math}" font-style="italic" font-size="11" fill="${INK.navy}" paint-order="stroke" stroke="#fff" stroke-width="2.6">${esc(base)}${sub ? `<tspan font-style="normal" font-size="7.5" baseline-shift="-28%">${sub}</tspan>` : ''}</text>` +
+      (t.inv ? `<text x="${f1(x + R - 1)}" y="${f1(y - R + 2)}" font-family="${FONT.math}" font-size="7.5" fill="${INK.navy}" paint-order="stroke" stroke="#fff" stroke-width="2">−1</text>` : '');
+  }
   return '';
 }
 
@@ -71,6 +93,7 @@ function word(ts: Tok[], c: S2, d: S2, angle: number): { svg: string; len: numbe
         const mid = at(s + w / 2), wpx = w * PITCH - 1, hpx = 2 * R + 3;
         under += `<g transform="translate(${f1(mid[0])},${f1(mid[1])}) rotate(${f1(angle)})"><rect x="${f1(-wpx / 2)}" y="${f1(-hpx / 2)}" width="${f1(wpx)}" height="${f1(hpx)}" rx="${f1(hpx / 2)}" fill="${FAMILY.structure.ink}" opacity=".24" class="mul"/>${t.inv ? `<rect x="${f1(-wpx / 2 + 1)}" y="${f1(-hpx / 2 + 1)}" width="${f1(wpx - 2)}" height="${f1(hpx - 2)}" rx="${f1(hpx / 2 - 1)}" fill="none" stroke="${INK.navy}" stroke-width="1.6"/>` : ''}</g>`;
         if (t.inv) { const e = at(s + w); out += `<text x="${f1(e[0] - 1)}" y="${f1(e[1] - R - 2)}" font-family="${FONT.math}" font-size="8.5" fill="${INK.navy}">−1</text>`; }
+        if (t.exp) { const e = at(s + w - t.exp.length * 0.32 - 0.1); out += `<text x="${f1(e[0])}" y="${f1(e[1] - R + 1)}" font-family="${FONT.math}" font-style="italic" font-size="9.5" fill="${INK.navy}" paint-order="stroke" stroke="#fff" stroke-width="2.4">${esc(t.exp)}</text>`; }
         const s0 = s; s += 0.25; put(t.inner); s = s0 + w;
       } else if (t.k === 'more') {
         const m = at(s + w / 2);
@@ -101,8 +124,9 @@ export const valueKey = (v: ItemValue) => JSON.stringify(v);
  * backed-up belt: the rung and the leading bead of each rail only, so a full belt reads as a queue.
  * Returns the svg and its run length in px.
  */
-export function packetSVG(v: ItemValue, axis: Axis, L: Labels, S: Record<string, number>, compact = false): { svg: string; len: number } {
-  const key = axis + (compact ? 'c' : '') + valueKey(v);
+export function packetSVG(v: ItemValue, axis: Axis, L: Labels, S: Record<string, number>, compact = false, vars?: Set<string>): { svg: string; len: number } {
+  VARS = vars ?? new Set();
+  const key = axis + (compact ? 'c' : '') + [...VARS].join(',') + valueKey(v);
   const hit = cache.get(key); if (hit) return hit;
   const A = AX[axis];
   const MAX = compact ? 2.7 : 6;

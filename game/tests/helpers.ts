@@ -14,7 +14,15 @@ export const schema=(id:string,mirror=false):RuleRef=>({k:'schema',id,...(mirror
 export const at=(side:'l'|'r'='r',range?:[number,number],path:number[]=[]):Addr=>({side,path,...(range?{range}:{})});
 export const rw=(rule:RuleRef,subst:Subst={},side:'l'|'r'='r',range?:[number,number],dir:'fwd'|'rev'='fwd',path:number[]=[]):StepOp=>({k:'rewrite',rule,subst,dir,at:at(side,range,path)});
 export function level(givens:Fact[]=[],target:Pallet=eq(A('a'),E)):LevelManifest{return {id:'fixture',index:0,chapter:1,title:'fixture',memo:'',atoms:['a','b','c','d','e1','p','q','r','s','x'].map((id,hue)=>({id,label:id,hue})),givens:givens.map((fact,i)=>({id:`h${i}`,name:`h${i}`,fact})),sockets:[{id:'s',target,allowedGivens:givens.map((_,i)=>`h${i}`)}],tools:{lift:true,merge:true,suppose:true,classical:true,press:true,schemas:[],conjecture:false},unlocks:[],idea:'',par:{parts:0,axioms:0},uses:[]};}
-export const ctx=(l:LevelManifest,registry:KernelCtx['registry']={}):KernelCtx=>({level:l,registry});
+/** v4: the player's own Double Flip, saved to the Lemma Book in S01 (shape as factoryStore.ctxFor builds it). */
+export const DOUBLE_FLIP={id:'lemma:double-flip-1',name:'Double Flip',textbook:'Double Flip',card:{k:'law',metas:['u'],l:I(I(M('u'))),r:M('u')} as Card,origin:'authored' as const,mirrorable:true};
+/** Orders that rely on a lemma the campaign asks the player to save earlier (the built-in 'dbl' is retired). */
+const AUTHORED_FOR:Record<string,(typeof DOUBLE_FLIP)[]>={T01:[DOUBLE_FLIP],T02:[DOUBLE_FLIP]};
+export const ctx=(l:LevelManifest,registry:KernelCtx['registry']={}):KernelCtx=>{
+ const lemmas=AUTHORED_FOR[l.id]??[];
+ if(!lemmas.length)return {level:l,registry};
+ return {level:{...l,tools:{...l.tools,schemas:[...l.tools.schemas,...lemmas.map(x=>x.id)]}},registry:{...registry,...Object.fromEntries(lemmas.map(x=>[x.id,x]))}};
+};
 export class Builder {
  g:ProofGraph={nodes:[],rooms:[]}; scope='root'; serial=0; station=0;
  add(n:Omit<ProofNode,'id'|'scope'>|Record<string,unknown>,id?:string):string {const key=id??`n${++this.serial}`;this.g.nodes.push({...n,id:key,scope:this.scope} as ProofNode);return key;}

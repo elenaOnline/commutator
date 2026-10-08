@@ -3,7 +3,7 @@ import * as K from '../kernel';
 import { axiomCard } from '../kernel/logic';
 import * as F from './index';
 import { cancelCandidates } from './targeting';
-import { Floor, I, P, a, b, c, eq, knob, order, status } from './compiler.testkit';
+import { Floor, I, P, a, b, c, eq, knob, order, status, cancel } from './compiler.testkit';
 
 const d: K.Term = { k: 'atom', id: 'd' };
 const key = (l: F.SpanLoc) => `${l.side}${l.wordPath.join('.')}:${l.s}-${l.e}`;
@@ -80,7 +80,7 @@ describe('structural pins', () => {
     const f = new Floor(lv);
     const sp = f.add({ kind: 'spool', t: knob(P(c, I(a), a, b, I(b))) });
     const pin = F.pinFromAddr(eq(P(c, I(a), a, b, I(b)), P(c, I(a), a, b, I(b))), { side: 'r', path: [], range: [1, 3] })!;
-    const can = f.add({ kind: 'canceller', target: pin, tidy: true });
+    const can = f.add(cancel(pin));
     f.wire(sp, can);
     let comp = f.compile();
     expect(comp.machines[can]!.chosen).toBe(0);

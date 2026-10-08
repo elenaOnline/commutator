@@ -2,9 +2,8 @@
 // The live textbook proof of the compiled graph, via the v2 transcript (shell/proof.ts) through an adapter.
 // Hover a line → its machine lights on the floor; Copy as LaTeX.
 import type { NodeId, ProofGraph } from '../kernel/types';
-import type { State } from '../state/store';
-import { buildTranscript, standaloneTeX, transcriptHTML, transcriptTeX } from '../shell/proof';
-import { copyText, h, safe, type S, type Store } from './util';
+import { buildTranscript, standaloneTeX, transcriptHTML, transcriptTeX, type State } from './proof';
+import { copyText, h, safe, towerVars, type S, type Store } from './util';
 
 /** The v2 transcript reads {graph, check, level, ctx}; one machine = one station (rewrite + tidy is one line). */
 function adapt(s: S): { st: State; nodeToMachine: Map<NodeId, string> } {
@@ -12,9 +11,12 @@ function adapt(s: S): { st: State; nodeToMachine: Map<NodeId, string> } {
   for (const [mid, r] of Object.entries(s.compiled?.machines ?? {})) for (const n of r.nodes ?? []) nodeToMachine.set(n, mid);
   const g0: ProofGraph = s.compiled?.graph ?? { nodes: [], rooms: [] };
   const graph: ProofGraph = {
+    ...g0,
     rooms: g0.rooms,
     nodes: g0.nodes.map((n) => (n.k === 'step' && !n.meta?.station && nodeToMachine.has(n.id) ? { ...n, meta: { ...n.meta, station: `m:${nodeToMachine.get(n.id)}` } } : n)),
   };
+  // Tower variables: the compiled graph's vars, else the floor's Tower declarations (labels x₁, y₁ …)
+  if (!graph.vars?.length) { const tv = towerVars(s); if (tv.length) graph.vars = tv.map((v, i) => ({ id: v.id, label: v.label, hue: i % 6, variable: true })); }
   const st = { graph, check: s.compiled?.check ?? { ok: true, nodes: {}, sockets: [], solved: false }, level: s.level, ctx: s.ctx } as unknown as State;
   return { st, nodeToMachine };
 }

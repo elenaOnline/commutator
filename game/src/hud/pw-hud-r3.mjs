@@ -36,13 +36,16 @@ try {
       return after.machines.find((m) => !before.includes(m.id))?.id ?? null;
     };
     const seed = (save) => page.evaluate((sv) => { localStorage.clear(); if (sv) localStorage.setItem('lemma-works/v3', JSON.stringify(sv)); }, save);
-    const boot = async (save) => { await page.goto(BASE); await seed(save); await page.reload(); await page.waitForSelector('.fl-m'); await page.evaluate(() => document.fonts.ready); await page.waitForTimeout(400); };
+    const boot = async (save) => { await page.goto(BASE); await seed(save); await page.reload(); await page.waitForSelector('.fl-m'); await page.evaluate(() => document.fonts.ready); await page.waitForTimeout(400); await page.keyboard.press('Enter'); await page.waitForTimeout(150); };
 
     const camOf = () => page.evaluate(() => JSON.stringify(window.__lw.get().ui.camera));
     const buildL01 = async () => {
       const s0 = await st();
       const spool = s0.machines.find((m) => m.kind === 'spool'), sock = s0.machines.find((m) => m.kind === 'socket');
       const canc = await placeAt('2', Math.round((spool.at.x + sock.at.x) / 2), spool.at.y);
+      await page.waitForTimeout(250);
+      await page.locator('.h3-lens .h3-prow[data-key="cancel"]').click(); await page.waitForTimeout(200);
+      await page.keyboard.press('Escape'); await page.keyboard.press('Escape');
       await drag(await port(spool.id, 'out'), await port(canc, 'q'));
       await drag(await port(canc, 'out'), await port(sock.id, 'q'));
       return { spool, sock, canc };

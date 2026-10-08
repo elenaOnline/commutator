@@ -3,19 +3,19 @@
 // Port layout convention (unrotated, rot 0 = output faces +x / east):
 //   • work input  'q'              back face  (W), local (0,0)
 //   • output      'out'            front face (E), local (w-1,0)
-//   • rule / card 'rule'           left side  (N), local (0,0)
-//   • params 't' 'x' 'meta:<m>'    right side (S), local (i,h-1), i = 0.. in order
-//   • premises    'p0','p1',…      back face  (W), local (0,i)          (Apply, stamps)
-//   • two inputs  'a','b'          back face  (W), local (0,0),(0,1)    (Meet, Anvil, Joiner)
-// Sizes (w×h before rotation): sources/hopper/carddock/desk/gate/inverter 1×1 · given 1×1 or 2×1 (long
-// statements / cards) · canceller/popper/swapper/press/expander/multiplier 2×1 · rewriter max(2,#meta ports)×1 ·
-// meet/anvil/joiner 2×2 · socket 2×1 · apply/stamp max(2,#meta ports)×max(1,#premises).
+//   • rule / card 'rule' | 'card'  left side  (N), local (0,0)      (Rewriter recipe 'routed' / Theorem 'routed')
+//   • params 'x' 't' 'meta:<m>'    right side (S), local (i,h-1), i = 0.. in order (only for Param {k:'port'})
+//   • premises    'p0','p1',…      back face  (W), local (0,i)          (Theorem)
+//   • two inputs  'a','b'          back face  (W), local (0,0),(0,1)    (Joiner)
+// Sizes (w×h before rotation): spool/tower/hopper/carddock/desk/gate 1×1 (a Tower has NO ports) · given 1×1 or
+// 2×1 (long statements / cards) · rewriter max(2,#params)×1 · operator 2×1 · forall 2×1 · joiner 2×2 ·
+// theorem max(2,#params)×max(1,#premises) · socket 2×1.
 // Rotation r turns the rectangle, every port tile and every face r quarter turns clockwise (E→S→W→N);
 // `machine.at` is the minimum corner of the rotated rectangle. Port ids never change with rotation.
 import * as K from '../kernel';
 import type { KernelCtx } from '../kernel';
 import type { Face, ItemKind, Machine, MachineConfig, Param, Port, Rect, Rot, Tile } from './types';
-import { schemaPremises } from './catalog';
+import { libCard, libPremises } from './catalog';
 
 export const FACES: Face[] = ['E', 'S', 'W', 'N'];
 export const FACE_DELTA: Record<Face, Tile> = { E: { x: 1, y: 0 }, S: { x: 0, y: 1 }, W: { x: -1, y: 0 }, N: { x: 0, y: -1 } };
@@ -49,82 +49,75 @@ function givenWidth(givenId: string, ctx: KernelCtx): number {
   return K.factText(g.fact, K.labelsOf(ctx.level.atoms)).length > 6 ? 2 : 1;
 }
 
-/** Unrotated layout of a machine: its w×h rectangle and local ports. Deterministic in (kind, config, ctx). */
+/** Unrotated layout of a machine: its w×h rectangle and local ports. Deterministic in (config, ctx). */
 export function layoutOf(config: MachineConfig, ctx: KernelCtx): Layout {
   const ports: LocalPort[] = [];
   const P = (id: string, dir: 'in' | 'out', role: Port['role'], accepts: ItemKind[], label: string, x: number, y: number, face: Face) =>
     ports.push({ id, dir, role, accepts, label, x, y, face });
-  const work = (accepts: ItemKind[]) => P('q', 'in', 'work', accepts, 'in', 0, 0, 'W');
+  const work = (accepts: ItemKind[], label = 'in') => P('q', 'in', 'work', accepts, label, 0, 0, 'W');
   const out = (accepts: ItemKind[], w: number) => P('out', 'out', 'out', accepts, 'out', w - 1, 0, 'E');
-  const param = (id: string, label: string, i: number, h: number) => P(id, 'in', 'param', ['term'], label, i, h - 1, 'S');
-  const rule = (accepts: ItemKind[], label = 'rule') => P('rule', 'in', 'rule', accepts, label, 0, 0, 'N');
+  const params = (ids: { id: string; label: string }[], h: number) => ids.forEach((q, i) => P(q.id, 'in', 'param', ['term'], q.label, i, h - 1, 'S'));
+  const metaIds = (values: Record<string, Param>) => metaPorts(values).map((m) => ({ id: `meta:${m}`, label: m }));
 
   switch (config.kind) {
     case 'spool':
       out(['eq'], 1);
       if (isPort(config.t)) P('t', 'in', 'param', ['term'], 't', 0, 0, 'W');
       return { w: 1, h: 1, ports };
-    case 'canceller': case 'popper':
-      work(['eq']); out(['eq'], 2);
-      return { w: 2, h: 1, ports };
-    case 'swapper':
-      work(['eq', 'neq']); out(['eq', 'neq'], 2);
-      return { w: 2, h: 1, ports };
-    case 'press':
-      work(['size']); out(['law'], 2);
-      return { w: 2, h: 1, ports };
-    case 'expander':
-      work(['eq']); out(['eq'], 2);
-      if (config.insert === 'rule') rule(['eq', 'law']);
-      if (isPort(config.x)) param('x', 'x', 0, 1);
-      return { w: 2, h: 1, ports };
-    case 'multiplier':
-      work(['eq']); out(['eq'], 2);
-      if (isPort(config.t)) param('t', 't', 0, 1);
-      return { w: 2, h: 1, ports };
+    case 'tower':
+      return { w: 1, h: 1, ports };
     case 'rewriter': {
-      const ms = metaPorts(config.values);
-      const w = Math.max(2, ms.length);
-      work(['eq']); out(['eq'], w); rule(['eq', 'law']);
-      ms.forEach((m, i) => param(`meta:${m}`, m, i, 1));
+      const r = config.recipe;
+      const ps = [
+        ...(r?.k === 'insertPair' && isPort(r.x) ? [{ id: 'x', label: 'x' }] : []),
+        ...metaIds(config.values),
+      ];
+      const w = Math.max(2, ps.length);
+      work(['eq']); out(['eq'], w);
+      if (r?.k === 'routed') P('rule', 'in', 'rule', ['eq', 'law'], 'rule', 0, 0, 'N');
+      params(ps, 1);
       return { w, h: 1, ports };
     }
-    case 'apply': case 'stamp': {
-      const p = config.kind === 'apply'
-        ? Math.max(0, Math.min(8, Math.floor(config.premises)))
-        : schemaPremises(ctx, config.schema);
-      const ms = metaPorts(config.values);
-      const w = Math.max(2, ms.length), h = Math.max(1, p);
+    case 'operator': {
+      const r = config.recipe;
+      const k: ItemKind[] = r?.k === 'multiply' || r?.k === 'invert' ? ['eq'] : ['eq', 'neq'];
+      work(k); out(k, 2);
+      if (r?.k === 'multiply' && isPort(r.t)) params([{ id: 't', label: 't' }], 1);
+      return { w: 2, h: 1, ports };
+    }
+    case 'joiner': {
+      const r = config.recipe;
+      const lab = r?.k === 'chain' ? ['X=M', 'Y=M'] : r?.k === 'product' ? ['A=B', 'C=D'] : r?.k === 'clash' ? ['=', '≠'] : ['A', 'B'];
+      const ins: ItemKind[] = r?.k === 'chain' || r?.k === 'product' ? ['eq'] : ['eq', 'neq'];
+      const o: ItemKind[] = r?.k === 'clash' ? ['bot'] : r ? ['eq'] : ['eq', 'bot'];
+      P('a', 'in', 'work', ins, lab[0]!, 0, 0, 'W'); P('b', 'in', 'work', ins, lab[1]!, 0, 1, 'W'); out(o, 2);
+      return { w: 2, h: 2, ports };
+    }
+    case 'theorem': {
+      const r = config.recipe;
+      const card = r?.k === 'library' ? libCard(ctx, r.ref) : null;
+      const p = r?.k === 'library' ? libPremises(ctx, r.ref) : 1;
+      const ps = metaIds(config.values);
+      const w = Math.max(2, ps.length), h = Math.max(1, p);
       let premKinds: ItemKind[][] = Array.from({ length: p }, () => ['eq', 'neq']);
       let outKinds: ItemKind[] = ['eq', 'neq'];
-      if (config.kind === 'stamp') {
-        const card = ctx.registry[config.schema]?.card;
-        if (card?.k === 'cond') { premKinds = card.premises.map((q) => [q.k]); outKinds = [card.concl.k]; }
-        else if (card?.k === 'law') outKinds = ['eq'];
-      } else rule(['cond', 'law'], 'card');
+      if (card?.k === 'cond') { premKinds = card.premises.map((q) => [q.k]); outKinds = [card.concl.k]; }
+      else if (card?.k === 'law') outKinds = ['eq'];
+      if (r?.k === 'routed') P('card', 'in', 'rule', ['cond', 'law'], 'card', 0, 0, 'N');
       for (let i = 0; i < p; i++) P(`p${i}`, 'in', 'premise', premKinds[i]!, `P${sub(i + 1)}`, 0, i, 'W');
       out(outKinds, w);
-      ms.forEach((m, i) => param(`meta:${m}`, m, i, h));
+      params(ps, h);
       return { w, h, ports };
     }
-    case 'meet':
-      P('a', 'in', 'work', ['eq'], 'X=M', 0, 0, 'W'); P('b', 'in', 'work', ['eq'], 'Y=M', 0, 1, 'W'); out(['eq'], 2);
-      return { w: 2, h: 2, ports };
-    case 'anvil':
-      P('a', 'in', 'work', ['eq'], '=', 0, 0, 'W'); P('b', 'in', 'work', ['neq'], '≠', 0, 1, 'W'); out(['bot'], 2);
-      return { w: 2, h: 2, ports };
-    case 'joiner':
-      P('a', 'in', 'work', ['term'], 's', 0, 0, 'W'); P('b', 'in', 'work', ['term'], 't', 0, 1, 'W'); out(['term'], 2);
-      return { w: 2, h: 2, ports };
-    case 'inverter':
-      work(['term']); out(['term'], 1);
-      return { w: 1, h: 1, ports };
+    case 'forall':
+      work(['eq', 'neq', 'law', 'cond'], 'fact'); out(['law', 'cond'], 2);
+      return { w: 2, h: 1, ports };
     case 'hopper':
       out(['term'], 1);
       return { w: 1, h: 1, ports };
     case 'carddock': {
-      const card = ctx.registry[config.schema]?.card;
-      out(card ? [card.k] : ['law'], 1);
+      const card = config.ref?.k === 'axiom' ? null : libCard(ctx, config.ref);
+      out(card ? [card.k] : config.ref?.k === 'axiom' || config.ref?.k === 'lagrange' ? ['law'] : ['law', 'cond'], 1);
       return { w: 1, h: 1, ports };
     }
     case 'given': {
@@ -136,15 +129,19 @@ export function layoutOf(config: MachineConfig, ctx: KernelCtx): Layout {
     case 'socket': {
       const s = ctx.level.sockets.find((d) => d.id === config.socketId);
       // 2×1 so the goal inlet is open on three faces (W doorstep, N and S sides): belts arrive the short way.
-      P('q', 'in', 'work', s ? [s.target.k] : ['eq', 'neq'], 'goal', 0, 0, 'W');
+      P('q', 'in', 'work', s ? [s.target.k as ItemKind] : ['eq', 'neq', 'law', 'cond'], 'goal', 0, 0, 'W');
       return { w: 2, h: 1, ports };
     }
     case 'desk':
       out(['eq', 'neq'], 1);
       return { w: 1, h: 1, ports };
     case 'gate':
-      // Placed on the room's boundary ring, rotated so `out` faces out of the room and `q` faces in.
-      P('q', 'in', 'work', ['bot'], '⊥', 0, 0, 'W'); out(['eq', 'neq'], 1);
+      // On the room's boundary ring, rotated so `out` faces out of the room and `q` faces in.
+      // Suppose/classical take ⊥ and export ¬P / P; an Assume room takes any Q and exports P ⇒ Q.
+      P('q', 'in', 'work', ['bot', 'eq', 'neq'], '⊥', 0, 0, 'W'); out(['eq', 'neq', 'cond'], 1);
+      return { w: 1, h: 1, ports };
+    default:
+      // An unknown (legacy / corrupt) config: a bare 1×1 with no ports, so nothing downstream crashes.
       return { w: 1, h: 1, ports };
   }
 }

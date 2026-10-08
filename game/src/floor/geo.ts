@@ -6,9 +6,10 @@ import type { Belt, Canvas, Compiled, ItemKind, Machine, MachineSpec, Port, Tile
 import { itemKindOf } from '../factory/types';
 import { P, type G2, type S2 } from '../board/geom';
 import { faceVec, footprint, portsOf, spec } from './adapt';
+import { lookOf, type Look } from './look';
 
 export interface MGeo {
-  m: Machine; spec: MachineSpec; fam: Family;
+  m: Machine; spec: MachineSpec; fam: Family; look: Look;
   tiles: Tile[];
   x0: number; y0: number; x1: number; y1: number; // half-open bounds
   ports: Port[];
@@ -31,6 +32,8 @@ export interface Geo {
   bs: Map<string, BGeo>;
   ports: PortGeo[];
   crossings: Crossing[];
+  /** Tower variables on this floor: var id → its tower and label (x₁). */
+  vars: Map<string, { tower: string; label: string }>;
   occ: Map<string, string>;        // tile key → machine id
   beltOcc: Map<string, string>;    // tile key → belt id
   /** World-px bounds of everything (for fit). */
@@ -58,10 +61,8 @@ export function portEnd(p: Port, t: Tile | undefined, isStart: boolean): G2[] {
   return [wall];
 }
 
-export function familyOfMachine(m: Machine, s: MachineSpec): Family {
-  if (m.kind === 'given') return 'given';
-  if (m.kind === 'stamp' || m.kind === 'carddock' || m.kind === 'press' || m.kind === 'socket') return 'lemma';
-  if (m.kind === 'desk' || m.kind === 'gate') return 'scope';
+export function familyOfMachine(m: Machine, s: MachineSpec, ctx?: KernelCtx): Family {
+  if (ctx) return lookOf(m, ctx).fam;
   return s.family;
 }
 
@@ -72,7 +73,8 @@ export function buildGeo(c: Canvas, comp: Compiled | null, ctx: KernelCtx): Geo 
     const s = spec(m.kind);
     const tiles = footprint(m, ctx);
     const xs = tiles.map((t) => t.x), ys = tiles.map((t) => t.y);
-    const g: MGeo = { m, spec: s, fam: familyOfMachine(m, s), tiles, x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs) + 1, y1: Math.max(...ys) + 1, ports: portsOf(m, ctx) };
+    const look = lookOf(m, ctx);
+    const g: MGeo = { m, spec: s, fam: look.fam, look, tiles, x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs) + 1, y1: Math.max(...ys) + 1, ports: portsOf(m, ctx) };
     ms.set(m.id, g);
     for (const t of tiles) occ.set(tkey(t), m.id);
   }
@@ -134,5 +136,7 @@ export function buildGeo(c: Canvas, comp: Compiled | null, ctx: KernelCtx): Geo 
     : { x0: -300, y0: -200, x1: 300, y1: 200 };
   // room for labels left of inlets / right of sockets
   bounds.x0 -= 150; bounds.x1 += 190; bounds.y0 -= 50; bounds.y1 += 40;
-  return { ms, bs, ports, crossings, occ, beltOcc, bounds };
+  const vars = new Map<string, { tower: string; label: string }>();
+  for (const m of c.machines) if (m.config.kind === 'tower') vars.set(m.config.varId, { tower: m.id, label: m.config.label });
+  return { ms, bs, ports, crossings, vars, occ, beltOcc, bounds };
 }

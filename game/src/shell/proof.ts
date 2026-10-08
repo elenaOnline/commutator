@@ -36,6 +36,8 @@ const same = (a: Term, b: Term) => JSON.stringify(a) === JSON.stringify(b);
 function fallbackFamily(n: ProofNode): Family {
   switch (n.k) {
     case 'start': case 'merge': return 'equation';
+    case 'product': return 'structure';
+    case 'generalize': return 'lemma';
     case 'given': return 'given';
     case 'assume': case 'exit': return 'scope';
     case 'clash': return 'contradiction';
@@ -43,7 +45,7 @@ function fallbackFamily(n: ProofNode): Family {
     case 'step': {
       const op = n.op;
       if (op.k === 'swap') return 'equation';
-      if (op.k === 'lift') return 'structure';
+      if (op.k === 'lift' || op.k === 'invert') return 'structure';
       if (op.k === 'insertE') return 'identity';
       const r = op.rule;
       if (r.k === 'axiom') return r.id.startsWith('unit') ? 'identity' : 'inverse';
@@ -272,7 +274,8 @@ export function buildTranscript(s: State): Transcript {
   const walkP = (its: Item[]) => its.forEach((it) => (it.t === 'room' ? walkP(it.items) : it.t === 'prose' ? it.nodes.forEach((id) => proseOf.set(id, it)) : undefined));
   walkP(items);
   for (const sk of s.check.sockets) if (sk.ok && sk.filledBy) { const l = lineOf.get(sk.filledBy) ?? proseOf.get(sk.filledBy); if (l) l.qed = true; }
-  const goals = level.sockets.filter((d) => !s.check.sockets.find((x) => x.id === d.id)?.ok).map((d) => d.target);
+  const goals = level.sockets.filter((d) => !s.check.sockets.find((x) => x.id === d.id)?.ok).map((d) => d.target)
+    .filter((t): t is Pallet => t.k !== 'law' && t.k !== 'cond');
   return { items, goals, solved: s.check.solved, tags };
 
   function refsField(ids: NodeId[]): { refs?: NodeId[] } { return ids.length ? { refs: ids } as never : {}; }
@@ -295,12 +298,15 @@ function fallbackJust(n: ProofNode, s: State): string {
     case 'clash': return 'contradiction';
     case 'exit': return 'discharge';
     case 'press': return "Lagrange's theorem (imported)";
+    case 'product': return 'multiply the two equations';
+    case 'generalize': return 'generalize';
     case 'apply': return n.rule.k === 'node' ? (s.level.givens.find((g) => `g:${g.id}` === (n.rule as { id: string }).id)?.name ?? 'hypothesis') : 'lemma';
     case 'step': {
       const op = n.op;
       if (op.k === 'swap') return 'symmetry';
       if (op.k === 'insertE') return 'unit';
       if (op.k === 'lift') return `multiply on the ${op.side} by ${tt(op.term)}`;
+      if (op.k === 'invert') return 'invert both sides';
       if (op.rule.k === 'axiom') return op.rule.id.startsWith('unit') ? 'unit' : 'inverse';
       if (op.rule.k === 'node') { const id = op.rule.id; return s.level.givens.find((g) => `g:${g.id}` === id)?.name ?? 'above'; }
       return 'lemma';

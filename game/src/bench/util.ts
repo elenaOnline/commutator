@@ -1,6 +1,7 @@
 // LEMMA WORKS — bench helpers. Pure display helpers only: no legality decisions
 // live here (the kernel owns those). Owner: bench builder.
 import type { Addr, Fact, GapAddr, Offer, Pallet, RuleRef, Side, Term } from '../kernel/types';
+import { exponentText as K_exponentText } from '../kernel';
 
 export type Labels = Record<string, string>;
 export type Sel = Addr | GapAddr | null;
@@ -45,6 +46,13 @@ export function plain(t: Term, L: Labels): string {
       return a.k === 'mul' || a.k === 'inv' ? `(${plain(a, L)})${SUP_M1}` : `${plain(a, L)}${SUP_M1}`;
     }
     case 'mul': return t.fs.map((f) => plain(f, L)).join('');
+    // v4 Phase B: always bracket the exponent so the text re-parses as a power node, never a word
+    case 'pow': {
+      const b = t.base;
+      const bs = b.k === 'atom' || b.k === 'meta' || b.k === 'e' ? plain(b, L) : `(${plain(b, L)})`;
+      return `${bs}^(${K_exponentText(t.exp, L)})`;
+    }
+    case 'int': return K_exponentText(t.val, L);
   }
 }
 

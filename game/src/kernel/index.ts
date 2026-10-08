@@ -70,6 +70,8 @@ export function labelsOf(atoms: AtomDecl[]): Labels {
 /** Unicode text, e.g. "(ab)⁻¹ = b⁻¹a⁻¹". Powers of a single atom run ≥ 3 may compress to a³. */
 export function termText(t: Term, L: Labels): string { return P.termText(t, L); }
 export function factText(f: Fact, L: Labels): string { return P.factText(f, L); }
+/** v4 Phase B: an exponent polynomial as text ("5k₁", "n₁k₁", "-3") or TeX ("5k_{1}"). */
+export function exponentText(p: import('./types').Poly, L: Labels, tex = false): string { return P.exponentText(p, L, tex); }
 /** TeX, e.g. "(ab)^{-1} = b^{-1}a^{-1}". */
 export function termTex(t: Term, L: Labels): string { return P.termTex(t, L); }
 export function factTex(f: Fact, L: Labels): string { return P.factTex(f, L); }
@@ -109,6 +111,25 @@ export function check(g: ProofGraph, ctx: KernelCtx): CheckResult { return Lg.ch
 
 /** The universal theorem a solved socket proves (params → metas, allowed givens → premises), for tests. */
 export function generalize(level: LevelManifest, socketId: string): Card | null { return Lg.generalize(level, socketId); }
+
+/** v4: the context extended with a graph's declared variables (Towers), plus any declaration error. */
+export function withVars(ctx: KernelCtx, g: ProofGraph | null | undefined): { ctx: KernelCtx; vars: AtomDecl[]; error?: string } { return Lg.withVars(ctx, g); }
+/** v4: ∀-introduction on a fact (what a 'generalize' node computes). Throws a maths-language Error on
+ *  failure (nothing to bind, or the eigenvariable condition: a bound variable appears in a hypothesis). */
+export function generalizeFact(f: Fact, vars: AtomDecl[], hyps: import('./types').Room[] = [], reserved?: Set<string>, L?: Labels): Card {
+  return Lg.generalizeFact(f, vars, hyps, reserved, L);
+}
+
+/** v4 Phase B: may this checked fact be saved to the Lemma Book? (statement-level gate; see logic.ts) */
+export function lemmaEligibility(fact: Fact | undefined, deps: string[], g: ProofGraph, ctx: KernelCtx) { return Lg.lemmaEligibility(fact, deps, g, ctx); }
+/** v4 Phase B exports: exact exponent polynomials, imported power laws, parsing of integer knobs. */
+export { polyNorm, polyAdd, polySub, polyMul, polyNeg, polyPowNat, polyConst, polyZvar, polyZmeta, polyEq, polyEval, POLY_LIMITS } from './poly';
+export { POWER_SCHEMAS, powerSchema, powerLiteralSchema, POWER_LITERAL_FAMILY } from './powers';
+export { parseInteger } from './print';
+export { power, intVal, repeatWord, matchOpen } from './terms';
+
+/** v4 Phase B: the ℤ-sorted metas of a card (those used inside exponents). Throws if a meta has both sorts. */
+export function cardZmetas(c: Card): Set<MetaId> { return Lg.cardZmetas(c); }
 
 /** Extra (test helper): card equality up to a bijective renaming of metas. */
 export function sameCardUpToRenaming(a: Card, b: Card): boolean { return Lg.sameCardUpToRenaming(a, b); }

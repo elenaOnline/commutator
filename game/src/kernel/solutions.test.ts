@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import * as K from './index';
 import type { NodeId, Offer, ProofGraph, ProofNode, StepOp, Subst, Term } from './types';
 import { ROOT } from './types';
-import { Player, ctxOf, gap, span } from './testkit';
+import { DOUBLE_FLIP, Player, ctxOf, gap, span, withAuthored } from './testkit';
 import { LEVELS } from '../levels/levels';
 
 const a = K.atom('a'), b = K.atom('b');
@@ -47,14 +47,16 @@ describe('campaign via offers only', () => {
     expect(solved(p)).toMatchObject({ parts: 2, axioms: 4 });
   });
 
-  it('L04 Conjugate Pair: shifted frame', () => {
+  it('L04 Conjugate Pair (∀ goal): towers + assume room + shifted frame + ∀', () => {
     const p = new Player(ctxOf('L04'));
-    let n = p.start('(ba)^5');
-    n = p.play(n, gap('r', 0), 'insert x⁻¹x', { x: 'a' });
-    n = p.play(n, span('r', 1, 11), /\(ab\)⁵ → e \(by h\)/);
-    expect(p.text(n)).toBe('(ba)⁵ = a⁻¹a');
-    n = p.play(n, span('r', 0, 2), 'cancel a⁻¹a');
-    expect(solved(p)).toMatchObject({ parts: 3, axioms: 5 });
+    p.declareVar('x₁'); p.declareVar('y₁');
+    const { room } = p.openRoom('assume', '(x₁ y₁)^5', 'e', ROOT, 'eq');
+    let n = p.start('(y₁ x₁)^5', room);
+    n = p.play(n, gap('r', 0), 'insert x⁻¹x', { x: 'x₁' });
+    n = p.play(n, span('r', 1, 11), /→ e \(by the supposition\)/);
+    n = p.play(n, span('r', 0, 2), 'cancel x₁⁻¹x₁');
+    p.generalize(p.exit(room, n));
+    expect(solved(p)).toMatchObject({ parts: 4, axioms: 7 });
   });
 
   it('L05 Cancellation: lift then cancel both sides', () => {
@@ -174,13 +176,40 @@ describe('campaign via offers only', () => {
     expect(solved(p)).toMatchObject({ parts: 8, axioms: 14 });
   });
 
-  it('S01 Undo the Undo: Witness Stamp on a compound part', () => {
+  it('S01 Undo the Undo (∀ goal): Witness Stamp on a compound part, then ∀', () => {
     const p = new Player(ctxOf('S01'));
-    let n = p.start('a^-1 a');
-    n = p.play(n, span('r', 0, 2), 'cancel a⁻¹a');
-    n = p.play(n, null, 'Witness Stamp: a = (a⁻¹)⁻¹');
-    expect(p.text(n)).toBe('(a⁻¹)⁻¹ = a');
-    expect(solved(p)).toMatchObject({ parts: 2, axioms: 6 });
+    p.declareVar('x₁');
+    let n = p.start('x₁^-1 x₁');
+    n = p.play(n, span('r', 0, 2), 'cancel x₁⁻¹x₁');
+    n = p.play(n, null, 'Witness Stamp: x₁ = (x₁⁻¹)⁻¹');
+    n = p.play(n, null, 'swap sides');
+    const g = p.generalize(n);
+    expect(p.text(g)).toBe('∀x. (x⁻¹)⁻¹ = x');
+    expect(solved(p)).toMatchObject({ parts: 4 });
+  });
+
+  it('T01 Matched Pair (∀ goal): assume, invert, Double Flip, ∀', () => {
+    const p = new Player(withAuthored(ctxOf('T01'), DOUBLE_FLIP));
+    p.declareVar('x₁'); p.declareVar('y₁');
+    const { room, assume } = p.openRoom('assume', 'x₁^-1', 'y₁', ROOT, 'eq');
+    let n = p.play(assume, null, 'invert both sides');
+    n = p.play(n, span('l', 0, 1), /Double Flip/);
+    expect(p.text(n)).toBe('x₁ = y₁⁻¹');
+    const g = p.generalize(p.exit(room, n));
+    expect(p.text(g)).toBe('∀x, y. x⁻¹ = y ⇒ x = y⁻¹');
+    expect(solved(p)).toBeTruthy();
+  });
+
+  it('T02 Returning a Return (∀ goal): Sock Drawer backwards inside the crate, saved Double Flip, ∀', () => {
+    const p = new Player(withAuthored(ctxOf('T02'), DOUBLE_FLIP));
+    p.declareVar('x₁'); p.declareVar('y₁');
+    let n = p.start('(y₁^-1 x₁^-1)^-1');
+    n = p.play(n, { side: 'r', path: [0], range: [0, 2] }, /→ \(x₁y₁\)⁻¹ \(Sock Drawer/);
+    expect(p.text(n)).toBe('(y₁⁻¹x₁⁻¹)⁻¹ = ((x₁y₁)⁻¹)⁻¹');
+    n = p.play(n, span('r', 0, 1), /→ x₁y₁ \(Double Flip/);
+    const g = p.generalize(n);
+    expect(p.text(g)).toBe('∀y, x. (y⁻¹x⁻¹)⁻¹ = xy');
+    expect(solved(p)).toMatchObject({ parts: 3 });
   });
 
   it('S02 Disguised Clock', () => {

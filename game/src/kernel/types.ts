@@ -19,8 +19,30 @@ export type Term =
   /** Flat product: fs.length >= 2 and no element of fs is a 'mul'. */
   | { k: 'mul'; fs: Term[] }
   /** Only inside patterns (laws/conds/axioms). A ground term has none. */
-  | { k: 'meta'; id: MetaId };
+  | { k: 'meta'; id: MetaId }
+  /**
+   * v4 Phase B (kernel-owned, design/v4/proposals/sol-exponents.md): an integer power base^exp, one
+   * factor of its enclosing word. Never expanded/combined by norm; use the imported power recipes.
+   * Addr.path child 0 enters the base (like inv). The exponent has no address.
+   */
+  | { k: 'pow'; base: Term; exp: Poly }
+  /**
+   * v4 Phase B: an INTEGER value, never a group element. Valid only as the value of a ℤ-sorted meta
+   * in a Subst (an exponent knob). Rejected anywhere a group element is expected.
+   */
+  | { k: 'int'; val: Poly };
 
+/** v4 Phase B sorts: G = group elements, Z = integers. */
+export type Sort = 'G' | 'Z';
+/** A reference inside an exponent: a ℤ Tower (rigid, graph-declared) or a ℤ meta of the enclosing card. */
+export type ZRef = { k: 'zvar'; id: string } | { k: 'zmeta'; id: MetaId };
+/** Sorted distinct refs with positive degrees; [] is the constant monomial. */
+export type Monomial = { ref: ZRef; degree: number }[];
+/** Exact integer polynomial, canonical after norm: sparse, sorted, no zero coefficients ([] is 0).
+ *  Coefficients are decimal strings (BigInt in arithmetic); JSON numbers are rejected. */
+export type Poly = { coefficient: string; monomial: Monomial }[];
+
+/** G metas map to group terms; ℤ metas (those occurring in exponents) map to { k: 'int' } values. */
 export type Subst = Record<MetaId, Term>;
 
 // ───────────────────────────── Facts ─────────────────────────────
@@ -86,10 +108,14 @@ export const ROOT: ScopeId = 'root';
 export interface Room {
   id: ScopeId;
   parent: ScopeId;
-  /** suppose: assumes eq(l,r), exits neq(l,r). classical: assumes neq(l,r), exits eq(l,r). */
-  kind: 'suppose' | 'classical';
+  /** suppose: assumes eq(l,r), exits neq(l,r). classical: assumes neq(l,r), exits eq(l,r).
+   *  v4 assume (implication-intro): assumes `assumes` (eq or neq), exit accepts ANY eq/neq fact Q
+   *  produced in the room and exports cond(metas [], premises [assumes], concl Q). */
+  kind: 'suppose' | 'classical' | 'assume';
   l: Term;
   r: Term;
+  /** For kind 'assume': whether the assumption is l = r (default) or l ≠ r. */
+  rel?: 'eq' | 'neq';
 }
 
 export type StepOp =
@@ -101,7 +127,9 @@ export type StepOp =
   /** Multiply both rails by term on the given side. */
   | { k: 'lift'; side: 'left' | 'right'; term: Term }
   /** L = R ⟹ R = L (eq) ; also L ≠ R ⟹ R ≠ L (neq). */
-  | { k: 'swap' };
+  | { k: 'swap' }
+  /** v4: L = R ⟹ L⁻¹ = R⁻¹ (congruence with inverse); also L ≠ R ⟹ L⁻¹ ≠ R⁻¹ (inverse is injective). */
+  | { k: 'invert' };
 
 /** UI-only annotations. The kernel ignores them entirely. */
 export interface NodeMeta {
@@ -127,12 +155,21 @@ export type ProofNode =
   | (NodeBase & { k: 'clash'; inputs: [NodeId, NodeId] })
   /** scope === room.parent; input is a bot node with scope === room. */
   | (NodeBase & { k: 'exit'; room: ScopeId; input: NodeId })
-  /** size(n) ⟹ law ∀x. xⁿ = e  (imported: Lagrange corollary). */
-  | (NodeBase & { k: 'press'; input: NodeId });
+  /** size(n) ⟹ law ∀x. xⁿ = e  (imported: Lagrange corollary). xⁿ is the n-factor word, or with
+   *  v4 Phase B `power: true` the power node x^n. */
+  | (NodeBase & { k: 'press'; input: NodeId; power?: boolean })
+  /** v4: A = B , C = D ⟹ AC = BD (congruence of multiplication). */
+  | (NodeBase & { k: 'product'; inputs: [NodeId, NodeId] })
+  /** v4 ∀-intro: bind every graph variable occurring free in the input fact (order of first
+   *  occurrence) as metas. eq → law; neq → cond(no premises); law/cond → same kind, metas prepended.
+   *  Eigenvariable condition: no room assumption among the input's deps mentions a bound variable. */
+  | (NodeBase & { k: 'generalize'; input: NodeId });
 
 export interface ProofGraph {
   nodes: ProofNode[];   // any order; must be acyclic
   rooms: Room[];
+  /** v4: player-declared variables (Towers). Each has variable: true and a unique id/label. */
+  vars?: AtomDecl[];
 }
 
 // ───────────────────────────── Level manifest ─────────────────────────────
@@ -143,6 +180,15 @@ export interface AtomDecl {
   label: string;
   /** Palette slot 0..5 for bead hue. */
   hue: number;
+  /**
+   * v4: a player-declared variable (a Tower's `Let x₁ ∈ G`). Variables are FRESH — no given
+   * mentions them — so a fact about them can be generalized (∀-intro) subject to the
+   * eigenvariable condition. Level atoms (a, b, e′) are constants and never generalize.
+   */
+  variable?: boolean;
+  /** v4 Phase B: the sort of a Tower variable. 'Z' Towers (n₁, k₁) are integers that occur only inside
+   *  exponents (as zvar refs). Default 'G'. Level atoms are always G constants. */
+  sort?: Sort;
 }
 
 export interface GivenDecl {
@@ -154,7 +200,8 @@ export interface GivenDecl {
 
 export interface SocketDecl {
   id: string;
-  target: Pallet; // eq | neq
+  /** eq | neq pallet; v4: or a law/cond card (a ∀ goal), matched up to meta renaming. */
+  target: Pallet | Card;
   /** Given ids a proof at this socket may depend on. */
   allowedGivens: string[];
 }
@@ -167,7 +214,8 @@ export interface Schema {
   /** Textbook name in the transcript, e.g. 'uniqueness of inverses'. */
   textbook: string;
   card: Card;
-  origin: 'earned' | 'import';
+  /** v4 'authored': a player lemma from the Lemma Book (re-verified from its saved proof on load). */
+  origin: 'earned' | 'import' | 'authored';
   /** Level that earns it (earned only). */
   fromLevel?: string;
   /** Whether a mirror (Gᵒᵖ) variant is offered. */
@@ -193,7 +241,7 @@ export interface Toolset {
 export interface LevelManifest {
   id: string;            // 'L01' ...
   index: number;         // display number
-  chapter: 1 | 2 | 3;
+  chapter: 1 | 2 | 3 | 4; // 4 = Powers (v4 Phase B)
   side?: boolean;        // side order
   title: string;
   memo: string;          // one dry work-order line
@@ -279,6 +327,11 @@ export interface Offer {
    * draw the choice on the beads (cut line between u|v, common prefix bracket, …).
    */
   bindings?: { meta: MetaId; addr: Addr }[];
+  /**
+   * v4 Phase B: the sort of every meta in `needs` — 'G' wants a group term (parseTerm), 'Z' an integer
+   * value { k: 'int' } (parseInteger), e.g. power.identity's n. Present whenever `needs` is non-empty.
+   */
+  needSorts?: Record<MetaId, Sort>;
 }
 
 export type Family =

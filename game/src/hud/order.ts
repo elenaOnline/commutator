@@ -25,11 +25,13 @@ export function mountOrder(layer: HTMLElement, store: Store, hooks: { armRoom: (
     const mapBtn = h('button', { class: 'h3-pill', title: 'Theorem map (M)' }, '◇ Map');
     mapBtn.addEventListener('click', () => store.openMap());
     const more = h('button', { class: 'h3-more', 'aria-expanded': String(open), title: open ? 'Collapse' : 'Read the work order' }, open ? '▴' : '▾');
+    const help = h('button', { class: 'h3-qbtn', title: 'Concept cards for this order', 'aria-label': 'Concept cards' }, '?');
+    help.addEventListener('click', () => store.openCards(0));
     more.addEventListener('click', () => { open = !open; lastKey = ''; render(store.get()); });
     const ch = CHAPTERS[lv.chapter];
     el.append(h('div', { class: 'h3-order-top' }, mapBtn,
       h('span', { class: 'h3-badge' }, lv.side ? `S${lv.index - LEVELS.filter((l) => !l.side).length}` : String(lv.index)),
-      h('span', { class: 'h3-order-title' }, lv.title), more));
+      h('span', { class: 'h3-order-title' }, lv.title), help, more));
 
     const goals = h('div', { class: `h3-goals${lv.sockets.length > 1 ? ' multi' : ''}` });
     for (const sk of lv.sockets) {

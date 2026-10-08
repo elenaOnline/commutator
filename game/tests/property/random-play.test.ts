@@ -43,11 +43,14 @@ describe('seeded random player / finite-group soundness', () => {
       const count = long ? 6000 : 1500;
       const seed = (0x51a7c0de + index * 997 + (long ? 0x10000 : 0)) >>> 0;
       const random = rng(seed);
-      const letters = original.atoms.map(a => a.id);
+      // v4 ∀-goal levels declare no constants: play them with two graph variables (Towers) instead.
+      const noAtoms = original.atoms.length === 0;
+      const letters = noAtoms ? ['v:x₁', 'v:y₁'] : original.atoms.map(a => a.id);
+      const newPlayer = () => { const q = new Player(ctx); if (noAtoms) { q.declareVar('x₁'); q.declareVar('y₁'); } return q; };
       const checked = new Set<string>();
       const errors: string[] = [];
       const coverage: Record<string, number> = {};
-      let p = new Player(ctx), moves = 0, attempts = 0;
+      let p = newPlayer(), moves = 0, attempts = 0;
       function validate() {
         const res = K.check(p.graph, ctx);
         expect(res.ok, `seed=${seed} move=${moves} graph=${JSON.stringify(p.graph)}`).toBe(true);
@@ -60,14 +63,14 @@ describe('seeded random player / finite-group soundness', () => {
             ? [h.kind, h.l, h.r] : h)]);
           if (!checked.has(key)) { fresh[id] = result; checked.add(key); }
         }
-        const bad = oracleCheck(ctx.level, fresh, p.graph.rooms);
+        const bad = oracleCheck(ctx.level, fresh, p.graph.rooms, K.withVars(ctx, p.graph).vars);
         expect(bad, `seed=${seed} move=${moves} graph=${JSON.stringify(p.graph)}`).toEqual([]);
       }
       validate();
       while (moves < count && attempts++ < count * 8) {
         // Short independent episodes bound graph/word growth, preserving branching
         // and nested rooms inside each episode. Nothing is removed before checking.
-        if (moves % 24 === 0 || p.graph.nodes.length > 65) p = new Player(ctx);
+        if (moves % 24 === 0 || p.graph.nodes.length > 65) p = newPlayer();
         let detail: unknown;
         try {
           const scopes = [K.ROOT, ...p.graph.rooms.map(r => r.id)];
@@ -94,10 +97,20 @@ describe('seeded random player / finite-group soundness', () => {
             const offers = K.offersAt(p.graph, p.res, at, sel, ctx);
             if (!offers.length) continue;
             let offer: Offer = offers[random(offers.length)]!;
-            const values = Object.fromEntries(offer.needs.map(m => [m, term(random, letters)]));
+            // ℤ metas (power exponents) need integers over declared ℤ Towers and literals; G metas need terms
+            const zTowers = K.withVars(ctx, p.graph).ctx.level.atoms.filter(a => a.sort === 'Z').map(a => a.id);
+            const intPoly = () => {
+              let q = K.polyConst(random(9) - 4);
+              if (zTowers.length && random(2)) q = K.polyAdd(q, K.polyMul(K.polyConst(random(5) - 2), K.polyZvar(zTowers[random(zTowers.length)]!)));
+              return K.intVal(q);
+            };
+            const values = Object.fromEntries(offer.needs.map(m => [m, offer.needSorts?.[m] === 'Z' ? intPoly() : term(random, letters)]));
             detail = { at, sel, offer, values, graph: p.graph };
             if (offer.needs.length) {
               const filled = K.fillOffer(offer, values, p.graph, p.res, at, ctx);
+              // ℤ knobs can be jointly constrained (e² → (e^m)^n needs mn = 2): a refused random integer
+              // choice is a correct refusal, not an unsound offer. Group-term fills must always succeed.
+              if (!filled.ok && Object.values(offer.needSorts ?? {}).includes('Z')) continue;
               if (!filled.ok) throw new Error(`offered fill rejected: ${filled.error}`);
               offer = filled.offer;
             }
@@ -108,7 +121,7 @@ describe('seeded random player / finite-group soundness', () => {
           moves++; validate();
         } catch (e) {
           errors.push(`seed=${seed} attempt=${attempts}: ${String(e)} repro=${JSON.stringify(detail)}`);
-          p = new Player(ctx);
+          p = newPlayer();
           // Keep exploring after the first failure; report bounded reproducible evidence.
           if (errors.length >= 3) break;
         }

@@ -362,3 +362,123 @@
 .h3-toast[data-kind="note"]::before { content: ''; display: inline-block; width: 7px; height: 8px; background: var(--navy); margin-right: 7px; vertical-align: 0; }
 .h3-slot .h3-rotb { position: absolute; top: 1px; right: 2px; font: 600 9px/1 var(--font-ui); color: #fff; background: var(--navy); border-radius: 6px; padding: 2px 4px; }
 .h3-receipt { pointer-events: none; }
+
+/* ═════════ v4 — recipe picker, towers, ∀, Lemma Book, concept cards ═════════ */
+.h3-picker .h3-label { margin-bottom: 6px; }
+.h3-psearch { width: 100%; height: 30px; font-size: 13px; margin-bottom: 4px; }
+.h3-plist { max-height: min(34vh, 290px); overflow: auto; scrollbar-width: thin; display: flex; flex-direction: column; gap: 1px; padding-right: 2px; }
+.h3-plist .h3-group { margin: 8px 0 2px; }
+.h3-prow { display: grid; grid-template-columns: minmax(90px, max-content) 1fr; column-gap: 12px; row-gap: 0; align-items: baseline; width: 100%; text-align: left; border: 0; background: none; padding: 5px 7px; border-radius: 8px; cursor: pointer; color: var(--navy); }
+.h3-prow:hover, .h3-prow:focus-visible { background: var(--wash); box-shadow: inset 0 0 0 1px #DADDE5; }
+.h3-prow-name { font-size: 13px; font-weight: 600; white-space: nowrap; }
+.h3-prow-name i { font-family: var(--font-math); font-weight: 400; font-size: 15px; }
+.h3-prow-stmt { font-size: 16px; white-space: nowrap; overflow-x: auto; scrollbar-width: none; }
+.h3-prow-note { grid-column: 1 / -1; font-size: 11px; color: var(--text-dim); }
+.h3-recipe { border-left: 3px solid var(--ink); padding-left: 9px; border-radius: 2px; }
+[data-family="identity"] .h3-recipe { border-left-color: var(--identity-text); }
+.h3-recipe-row { display: flex; align-items: baseline; gap: 12px; }
+.h3-recipe-name { font-size: 14px; font-weight: 600; white-space: nowrap; }
+.h3-recipe-name i { font-family: var(--font-math); font-weight: 400; font-size: 16px; }
+.h3-recipe-stmt { font-size: 18px; white-space: nowrap; overflow-x: auto; scrollbar-width: none; }
+.h3-pin.on { background: #FFF6DD; border-color: var(--gold); color: var(--gold-ink); }
+.h3-first { background: #F2FBF9; border-radius: 8px; padding: 6px 8px; color: var(--navy); }
+.h3-icon.h3-help { width: 24px; height: 24px; font-size: 12px; font-weight: 600; border-radius: 50%; }
+.h3-qlink { border: 1px solid currentColor; background: none; color: inherit; border-radius: 50%; width: 18px; height: 18px; font: 600 11px/1 var(--font-ui); cursor: pointer; vertical-align: 1px; padding: 0; }
+.h3-qbtn { border: 1px solid #DADDE5; background: #fff; border-radius: 50%; width: 22px; height: 22px; font: 600 12px/1 var(--font-ui); color: var(--navy); cursor: pointer; }
+.h3-qbtn:hover { background: var(--wash); }
+.h3-twoways { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.h3-way { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--text-dim); border: 1px solid var(--hair); border-radius: 9px; padding: 6px 9px; }
+.h3-way b { color: var(--navy); font-size: 12.5px; }
+.h3-way .lw-key { align-self: flex-start; margin-top: 4px; }
+.h3-tower .h3-ctl { gap: 8px; }
+.h3-let { font-size: 18px; font-style: italic; }
+.h3-tname { flex: 0 0 90px; font-size: 20px; }
+.h3-soon { font-size: 9px; letter-spacing: .06em; text-transform: uppercase; margin-left: 4px; color: var(--text-dim); }
+.h3-uses { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.h3-genline { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; font-size: 18px; }
+.h3-gin { color: var(--text-dim); font-size: 16px; }
+.h3-gout { font-size: 20px; color: var(--navy); }
+.h3-save { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.h3-badge-ok { font: 600 10.5px/1 var(--font-ui); letter-spacing: .06em; text-transform: uppercase; color: #fff; background: #11806C; border-radius: 999px; padding: 4px 8px; white-space: nowrap; }
+.h3-badge-off { font: 600 10.5px/1 var(--font-ui); letter-spacing: .06em; text-transform: uppercase; color: var(--contradiction-text); border: 1px solid var(--contradiction-text); border-radius: 999px; padding: 3px 7px; }
+.h3-lname { flex: 1; font-size: 15px; font-style: normal; font-family: var(--font-ui); }
+.h3-why.traced { cursor: help; text-decoration: underline dotted rgba(27, 35, 64, .35); text-underline-offset: 3px; }
+.h3-tag.danger { color: #fff; background: var(--contradiction-text); border-color: var(--contradiction-text); }
+.h3-rel.live { cursor: pointer; border: 1px dashed var(--scope); border-radius: 6px; background: #F7F4FD; padding: 0 6px; }
+button.h3-rel { border: 0; background: none; color: var(--navy); }
+/* Tower variables: striped "any" beads and letters (DESIGN v4 §1) */
+.h3-varbead > .bn-disc { background: repeating-linear-gradient(-45deg, rgba(85, 40, 194, .55) 0 2px, rgba(255, 255, 255, 0) 2px 5px); border-radius: 50%; box-shadow: inset 0 0 0 2px var(--scope); }
+.h3-varbead > .bn-disc .bn-shape { opacity: .55; }
+.h3-chip.h3-var { box-shadow: inset 0 0 0 1.5px var(--scope); }
+.lw3 .m-atom.any sub { font-size: .7em; }
+
+/* Lemma Book */
+.h3-book { right: 14px; left: auto; }
+.h3-book-list { overflow: auto; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.h3-lemma { border: 1px solid #DADDE5; border-left: 5px solid var(--gold); border-radius: 10px; padding: 7px 10px; display: flex; flex-direction: column; gap: 3px; }
+.h3-lemma.off { border-left-color: #D5D8E0; opacity: .8; }
+.h3-lemma-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.h3-lemma-stmt { font-size: 18px; white-space: nowrap; overflow-x: auto; scrollbar-width: none; }
+.h3-lemma-act { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
+.h3-tog[data-count]:not([data-count="0"])::after { content: attr(data-count); position: absolute; top: -5px; right: -4px; min-width: 15px; height: 15px; border-radius: 8px; background: var(--gold); color: var(--navy); font: 600 9.5px/15px var(--font-ui); text-align: center; padding: 0 3px; }
+
+/* concept cards: a calm stack over the floor, above the hotbar, never over it */
+.h3-cards { position: absolute; z-index: 26; left: 50%; top: 84px; transform: translateX(-50%); width: min(600px, calc(100vw - 40px)); max-height: calc(100vh - 84px - 104px); overflow: auto;
+  background: #fff; border: 1px solid #DADDE5; border-radius: 16px; padding: 14px 18px 12px; box-shadow: 0 2px 0 rgba(27, 35, 64, .04), 0 18px 50px rgba(27, 35, 64, .16); }
+.h3-cards::before, .h3-cards::after { content: ''; position: absolute; left: 14px; right: 14px; height: 8px; border: 1px solid #DADDE5; border-top: 0; border-radius: 0 0 14px 14px; background: #fff; bottom: -8px; z-index: -1; }
+.cf-head { display: flex; align-items: center; gap: 8px; }
+.cf-count { font-size: 11.5px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.cf-title { margin: 6px 0 6px; font-size: 21px; font-weight: 600; letter-spacing: -.01em; }
+.cf-main { display: flex; gap: 18px; align-items: flex-start; }
+.cf-body { flex: 1; font-size: 14.5px; line-height: 1.55; color: var(--navy); }
+.cf-body p { margin: 0 0 8px; }
+.h3-cards .math { font-size: 1.12em; }
+.cf-figure { flex: none; margin: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.cf-figure figcaption { font-size: 11px; color: var(--text-dim); text-align: center; max-width: 190px; }
+.cf-figure.beads { --bd: 26px; gap: 8px; padding-top: 6px; }
+.cf-table { border-collapse: collapse; font: 14px var(--font-math); }
+.cf-table caption { font: 11px var(--font-ui); color: var(--text-dim); caption-side: bottom; padding-top: 4px; }
+.cf-table th, .cf-table td { border: 1px solid #E3E5EC; padding: 2px 6px; text-align: center; font-weight: 400; }
+.cf-table th { background: var(--wash); }
+.cf-table td.id { background: #FFF3D1; }
+.cf-legend { display: flex; gap: 10px; font: 12px var(--font-math); }
+.cf-line { display: inline-block; width: 16px; border-top: 1.5px solid var(--navy); vertical-align: middle; margin-right: 3px; }
+.cf-line.s1 { border-top-style: dashed; } .cf-line.s2 { border-top-color: #8A90A3; }
+.cf-parts { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.cf-part { display: grid; grid-template-columns: 104px 1fr; gap: 10px; font-size: 13.5px; line-height: 1.5; border-top: 1px solid var(--hair); padding-top: 6px; }
+.cf-part p { margin: 0; }
+.cf-part-k { font-size: 10.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--text-dim); padding-top: 3px; }
+.cf-part.ex .cf-part-k { color: #11806C; } .cf-part.nm .cf-part-k { color: var(--contradiction-text); } .cf-part.ge .cf-part-k { color: var(--structure-text); }
+.cf-foot { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+.cf-dots { display: inline-flex; gap: 5px; }
+.cf-dot { width: 8px; height: 8px; border-radius: 50%; border: 1.2px solid var(--navy); background: #fff; padding: 0; cursor: pointer; }
+.cf-dot.on { background: var(--navy); }
+.h3-lens.left .h3-lens-notch { right: -7px; left: auto !important; border-bottom: 0; border-left: 0; transform: translateY(-50%) rotate(45deg); }
+.h3-lens.right .h3-lens-notch { left: -7px !important; border-top: 0; border-right: 0; transform: translateY(-50%) rotate(45deg); }
+
+/* ───────── Phase B: powers as bead stacks with an exponent tag; integer knobs ───────── */
+.h3-pow { display: inline-flex; align-items: flex-start; gap: 0; margin: 0 calc(var(--bd, 30px) * .08); padding: calc(var(--bd, 30px) * .1) calc(var(--bd, 30px) * .1) calc(var(--bd, 30px) * .08);
+  border-radius: calc(var(--bd, 30px) * .32); box-shadow: inset 0 0 0 1.5px var(--navy), 2px 2px 0 rgba(27, 35, 64, .14); background: #fff; }
+.h3-pow-base { display: inline-flex; align-items: center; }
+.h3-pow-base .bn-word-root::before { display: none; }
+.h3-pow-exp { align-self: flex-start; margin: calc(var(--bd, 30px) * -.32) calc(var(--bd, 30px) * -.22) 0 calc(var(--bd, 30px) * .06); padding: 1px 6px; border-radius: 999px; background: var(--structure); color: #fff; font-size: calc(var(--bd, 30px) * .4); line-height: 1.25; white-space: nowrap; }
+.h3-pow-exp i { font-style: italic; }
+.h3-pow-exp sub { font-size: .7em; vertical-align: -.2em; }
+.h3-intknob .h3-term { font-style: normal; }
+.h3-zval { display: inline-block; padding: 1px 8px; border-radius: 999px; background: var(--structure); color: #fff; font-size: 15px; }
+.h3-rnum { flex: 0 0 64px; font-style: normal; }
+.h3-twin .h3-pow-base .bn-mini { --bd: 26px; }
+.h3-intknob .h3-term { font-family: var(--font-ui); } .lw3 sup i.any, .lw3 .m-sup i.any { font-style: italic; }
+.h3-after .h3-twin { padding-top: 10px; padding-bottom: 10px; }
+.h3-flash > .bn-disc { animation: h3-flash 1.8s ease-out 2; }
+@keyframes h3-flash { 0%, 30% { filter: drop-shadow(0 0 0 rgba(255, 184, 28, 0)); transform: translateY(0); } 15% { filter: drop-shadow(0 0 6px rgba(255, 184, 28, .95)); transform: translateY(-3px); } }
+.h3-okline { margin: 4px 0 0; font-size: 12.5px; color: #11806C; }
+.h3-okline .math { font-size: 15px; color: var(--navy); }
+.qed-save { display: flex; flex-direction: column; align-items: center; gap: 8px; margin-top: 16px; }
+.qed-plate { position: relative; display: inline-flex; flex-direction: column; align-items: flex-start; background: var(--navy); color: #fff; border-radius: 12px; padding: 9px 18px 10px 22px; box-shadow: 0 3px 0 #0B1022; overflow: hidden; text-align: left; }
+.qed-plate .machine-band { width: 6px; }
+.qed-plate .machine-stmt { font-size: 21px; margin-top: 3px; }
+.qed-save-form { display: flex; gap: 8px; align-items: center; }
+.qed-save-form .qed-name { width: 220px; font: 15px var(--font-ui); }
+.qed-save-note { font-size: 12px; color: var(--text-dim); }
+.h3-tog.h3-landed { animation: h3-land .9s ease-out; }

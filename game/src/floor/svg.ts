@@ -163,6 +163,7 @@ export function defsSVG(): string {
     <radialGradient id="fl-gridfade"><stop offset="0" stop-color="#fff" stop-opacity="1"/><stop offset=".45" stop-color="#fff" stop-opacity=".5"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>
     <mask id="fl-gridmask" maskUnits="userSpaceOnUse" x="-100000" y="-100000" width="200000" height="200000"><circle id="fl-gridspot" cx="0" cy="0" r="250" fill="url(#fl-gridfade)"/></mask>
     <pattern id="fl-hatch" patternUnits="userSpaceOnUse" width="7" height="7" patternTransform="rotate(-30)"><rect width="7" height="7" fill="${INK.navy}"/><rect width="3.6" height="7" fill="${INK.gold}"/></pattern>
+    <pattern id="fl-any" patternUnits="userSpaceOnUse" width="3.6" height="3.6" patternTransform="rotate(45)"><rect width="3.6" height="3.6" fill="#fff"/><rect width="1.5" height="3.6" fill="${INK.navy}" opacity=".5"/></pattern>
     <pattern id="fl-jam" patternUnits="userSpaceOnUse" width="5" height="5"><rect width="5" height="5" fill="${JAM}"/><path d="M0,0L5,5M5,0L0,5" stroke="#fff" stroke-width=".9" opacity=".75"/></pattern>
     <pattern id="fl-bad" patternUnits="userSpaceOnUse" width="8" height="8" patternTransform="rotate(45)"><rect width="8" height="8" fill="${JAM}" opacity=".08"/><rect width="2" height="8" fill="${JAM}" opacity=".32"/></pattern>
   </defs>`;

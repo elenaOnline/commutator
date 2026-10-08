@@ -6,6 +6,8 @@ import { Player, ctxOf, gap, mkCtx, span } from './testkit';
 import { LEVELS } from '../levels/levels';
 
 const a = K.atom('a'), b = K.atom('b');
+/** The pre-v4 Conjugate Pair given, as a fixture: h: (ab)⁵ = e with the Witness Stamp. */
+const conj = () => mkCtx({ atoms: [{ id: 'a', label: 'a', hue: 0 }, { id: 'b', label: 'b', hue: 1 }], givens: [{ id: 'h', name: 'h', fact: { k: 'eq', l: K.pow(K.mul([a, b]), 5), r: K.E } }], tools: { schemas: ['witness'] } });
 const I = K.inv, M = (...fs: Term[]) => K.mul(fs), e = K.E;
 
 /** Every span and every gap of both rails, recursively inside crates. */
@@ -30,8 +32,11 @@ function allSelections(p: Pallet): (Addr | GapAddr | null)[] {
 function fillAll(o: Offer, p: Player, at: NodeId): Offer | null {
   if (!o.needs.length) return o;
   const vals: Subst = {};
-  const first = K.atom(p.ctx.level.atoms[0]!.id);
-  for (const m of o.needs) vals[m] = first;
+  const atoms = K.withVars(p.ctx, p.graph).ctx.level.atoms;
+  const g = atoms.find((x) => x.sort !== 'Z');
+  const z = atoms.find((x) => x.sort === 'Z');
+  // ℤ needs get a small integer polynomial (over a declared ℤ Tower when there is one); G needs a term
+  for (const m of o.needs) vals[m] = o.needSorts?.[m] === 'Z' ? K.intVal(z ? K.polyAdd(K.polyConst(2), K.polyZvar(z.id)) : K.polyConst(3)) : g ? K.atom(g.id) : K.E;
   const f = K.fillOffer(o, vals, p.graph, p.res, at, p.ctx);
   return f.ok ? f.offer : null;
 }
@@ -101,7 +106,7 @@ function checkShape(o: Offer, f: Pallet, p: Player) {
 
 describe('round 2: groups, bindings, pruning', () => {
   it('Witness Stamp cuts share a group and draw their cut on the rail', () => {
-    const p = new Player(ctxOf('L04'));
+    const p = new Player(conj());
     const offers = p.offers('g:h', null);
     const w = offers.filter((o) => o.group === 'schema:witness');
     const wm = offers.filter((o) => o.group === 'schema:witness:op');
@@ -160,7 +165,18 @@ describe('soundness: offers never include anything check() rejects', () => {
     it(`${level.id}: random walk, every offer at every selection commits`, () => {
       const ctx = ctxOf(level.id);
       const p = new Player(ctx);
-      const sock = level.sockets[0]!.target as Pallet & { k: 'eq' | 'neq' };
+      const target = level.sockets[0]!.target;
+      let sock: Pallet & { k: 'eq' | 'neq' };
+      if (target.k === 'law' || target.k === 'cond') {
+        // a ∀ goal: one tower per bound variable, the premise as an assume room, the conclusion as spools
+        const sub: Record<string, Term> = {};
+        const zs = K.cardZmetas(target);
+        for (const m of target.metas) sub[m] = zs.has(m) ? K.intVal(K.polyZvar(p.declareInt(`${m}₁`))) : K.atom(p.declareVar(`${m}₁`));
+        const inst = (t: Term) => K.instantiate(t, sub);
+        const concl = target.k === 'law' ? { k: 'eq' as const, l: target.l, r: target.r } : target.concl;
+        sock = { k: concl.k, l: inst(concl.l), r: inst(concl.r) };
+        if (target.k === 'cond') for (const pr of target.premises) p.openRoom('assume', inst(pr.l), inst(pr.r), ROOT, pr.k);
+      } else sock = target as Pallet & { k: 'eq' | 'neq' };
       p.start(sock.l); p.start(sock.r);
       if (level.tools.press) for (const g of level.givens) if (g.fact.k === 'size') p.press(`g:${g.id}`);
       if (sock.k === 'neq' && level.tools.suppose) p.openRoom('suppose', sock.l, sock.r);
@@ -282,7 +298,7 @@ describe('span offers', () => {
 
 describe('gap offers', () => {
   it('insert e, pairs (needs x), ground givens (ready), laws (needs x)', () => {
-    const p = new Player(ctxOf('L04'));
+    const p = new Player(conj());
     const s = p.start('b');
     const offers = p.offers(s, gap('r', 1));
     const labels = offers.map((o) => o.label);
@@ -322,7 +338,7 @@ describe('gap offers', () => {
 
 describe('whole-pallet offers', () => {
   it('every Witness Stamp cut, with its mirror', () => {
-    const p = new Player(ctxOf('L04'));
+    const p = new Player(conj());
     const labels = p.offers('g:h', null).map((o) => o.label);
     expect(labels.filter((l) => l.startsWith('Witness Stamp:')).length).toBe(9);
     expect(labels.filter((l) => l.startsWith('Witness Stamp ᵒᵖ:')).length).toBe(9);
@@ -363,7 +379,7 @@ describe('whole-pallet offers', () => {
     expect(K.metrics(p.graph, p.res, p.ctx).parts).toBe(4);
   });
   it('preSwap is not offered when the pallet already fits as-is', () => {
-    const p = new Player(ctxOf('L04'));
+    const p = new Player(conj());
     expect(p.offers('g:h', null).some((o) => o.kind.k === 'apply' && o.kind.preSwap)).toBe(false);
     const q = new Player(ctxOf('L07'));
     const lathe = q.offers('g:h', null).filter((o) => o.group?.startsWith('schema:cancel'));
@@ -483,4 +499,3 @@ describe('performance', () => {
   });
 });
 
-void ROOT;

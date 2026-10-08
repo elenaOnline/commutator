@@ -129,7 +129,7 @@ describe('parseTerm', () => {
     expect(P('').ok).toBe(false);
     expect(P('(ab').ok).toBe(false);
     expect(P('ab)').ok).toBe(false);
-    expect(P('a^0').ok).toBe(false);
+    expect(P('a^0')).toMatchObject({ ok: true, term: { k: 'pow', exp: [] } }); // v4 Phase B: a⁰ is a power node
     expect(P('a^').ok).toBe(false);
   });
 });

@@ -46,26 +46,58 @@ export type Param = { k: 'knob'; term: Term | null } | { k: 'port' };
 // ───────────────────────────── Machines ─────────────────────────────
 
 export type MachineKind =
-  // player-placeable
-  | 'spool' | 'canceller' | 'expander' | 'popper' | 'rewriter' | 'multiplier' | 'swapper'
-  | 'meet' | 'apply' | 'anvil' | 'press' | 'hopper' | 'joiner' | 'inverter'
-  | 'stamp'      // earned cond theorem as hardware (Witness Stamp / Cancel Lathe …): config.schema
-  | 'carddock'   // earned law card source (Sock Drawer, Double Flip): config.schema
+  // v4 player-placeable — four verbs with recipes, plus sources, towers and ∀
+  | 'spool'      // t = t
+  | 'tower'      // Let x₁ ∈ G — declares a variable, broadcast floor-wide (no ports)
+  | 'rewriter'   // acts at a bracket/gap in one equation, by a recipe
+  | 'operator'   // acts on the whole equation, by a recipe
+  | 'joiner'     // combines two facts, by a recipe
+  | 'theorem'    // premises → conclusion, by a conditional card recipe
+  | 'forall'     // ∀-intro: fact about tower variables → law / theorem card
+  | 'carddock'   // emits a library card onto a belt
+  | 'hopper'     // emits a term onto a belt
   // level / room protected (created by the system, not the hotbar)
   | 'given' | 'socket' | 'desk' | 'gate';
 
+/**
+ * A reference into the LIBRARY (no belts): axioms, level givens, earned/authored/imported theorems.
+ * The compiler lowers it to a kernel RuleRef (givens → their given node; lagrange → the press law).
+ */
+export type LibRef =
+  | { k: 'axiom'; id: 'unitL' | 'unitR' | 'invL' | 'invR' }
+  | { k: 'given'; givenId: string }
+  | { k: 'schema'; id: string; mirror?: boolean }   // earned or authored (Lemma Book)
+  | { k: 'lagrange' };                              // IMPORTED ∀x. x^{|G|} = e (needs a |G| = n given)
+
+export type RewriteRecipe =
+  | { k: 'cancel' }                               // x x⁻¹ / x⁻¹x → e at the bracket (+ tidy)
+  | { k: 'pop' }                                  // remove a lone e beside a factor
+  | { k: 'insertE' }                              // at the gap
+  | { k: 'insertPair'; inv: boolean; x: Param }   // at the gap: x x⁻¹ (inv=false) or x⁻¹x (inv=true)
+  | { k: 'law'; ref: LibRef }                     // rewrite with a library law/fact; at a gap if its source side is e
+  | { k: 'routed' };                              // rewrite with the eq/law arriving on the rule port
+
+export type OperatorRecipe =
+  | { k: 'multiply'; side: 'left' | 'right'; t: Param }
+  | { k: 'invert' }
+  | { k: 'swap' };
+
+export type JoinerRecipe = { k: 'chain' } | { k: 'product' } | { k: 'clash' };
+
+export type TheoremRecipe =
+  | { k: 'library'; ref: LibRef }   // a conditional card: earned (Witness, Lathe), authored, or a cond given
+  | { k: 'routed' };                // the card arriving on the card port
+
 export type MachineConfig =
   | { kind: 'spool'; t: Param }
-  | { kind: 'canceller'; target: SpanTarget; tidy: boolean }
-  | { kind: 'expander'; target: GapTarget; insert: 'e' | 'pair' | 'pairInv' | 'rule'; x: Param; dir: 'fwd' | 'rev' }
-  | { kind: 'popper'; target: SpanTarget }
-  | { kind: 'rewriter'; target: SpanTarget; dir: 'fwd' | 'rev'; values: Record<MetaId, Param>; tidy: boolean }
-  | { kind: 'multiplier'; side: 'left' | 'right'; t: Param }
-  | { kind: 'swapper' } | { kind: 'meet' } | { kind: 'anvil' } | { kind: 'press' }
-  | { kind: 'apply'; premises: number; choice: number; values: Record<MetaId, Param> }
-  | { kind: 'hopper'; t: Term | null } | { kind: 'joiner' } | { kind: 'inverter' }
-  | { kind: 'stamp'; schema: string; mirror: boolean; choice: number; values: Record<MetaId, Param> }
-  | { kind: 'carddock'; schema: string; mirror: boolean }
+  | { kind: 'tower'; varId: string; label: string; sort: 'G' | 'Z' }  // label unique on the floor, e.g. 'x₁'
+  | { kind: 'rewriter'; recipe: RewriteRecipe | null; dir: 'fwd' | 'rev'; target: SpanTarget; gap: GapTarget; values: Record<MetaId, Param>; tidy: boolean }
+  | { kind: 'operator'; recipe: OperatorRecipe | null }
+  | { kind: 'joiner'; recipe: JoinerRecipe | null }
+  | { kind: 'theorem'; recipe: TheoremRecipe | null; choice: number; values: Record<MetaId, Param> }
+  | { kind: 'forall' }
+  | { kind: 'carddock'; ref: LibRef | null }
+  | { kind: 'hopper'; t: Term | null }
   | { kind: 'given'; givenId: string }
   | { kind: 'socket'; socketId: string }
   | { kind: 'desk'; room: string }
@@ -113,7 +145,10 @@ export interface Belt {
 
 export interface Room {
   id: ScopeId;
-  kind: 'suppose' | 'classical';
+  /** v4 'assume': implication-intro — the gate exports `P ⇒ Q` for any fact Q made inside. */
+  kind: 'suppose' | 'classical' | 'assume';
+  /** For 'assume': the assumption is l = r (default) or l ≠ r. */
+  rel?: 'eq' | 'neq';
   /** suppose: assumes l = r, exports l ≠ r. classical: assumes l ≠ r, exports l = r. */
   l: Term;
   r: Term;

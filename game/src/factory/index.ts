@@ -14,7 +14,8 @@ const todo = (n: string): never => { throw new Error(`factory: ${n} not implemen
 // ───────────── catalog.ts + geometry.ts  (owner: EDITOR builder) ─────────────
 
 /** Static catalogue: name, family ink, glyph, blurb, hotkey, placeable. */
-export { SPECS, defaultConfig, HOTBAR, DRAWER, usableSchemas, schemaMachineName, schemaPremises } from './catalog';
+export { SPECS, defaultConfig, HOTBAR, DRAWER, usableSchemas, schemaMachineName, schemaPremises, libCard, libPremises, libName, libraryRefs, subscript, splitLabel, varLabel, schemaOf } from './catalog';
+export type { DefaultOpts } from './catalog';
 /** footprint(m, ctx): occupied cells (rotation applied). portsOf(m, ctx): ports in world space (depend on config). */
 export {
   footprint, portsOf, portOf, layoutOf, sizeOf, rectOf, frontOf, rotateFace, rotFacing,
@@ -40,7 +41,7 @@ export { initialCanvas, INITIAL_GAP } from './editor';
 /** Machine/belt at a tile (top-most), for picking. */
 export {
   place, moveMachines, rotateMachine, remove, setConfig, setConfigCtx, route, routeOrWhy, connect, connectVia, branch, branchAt, autoLinks, spliceCandidates,
-  paintRoom, resizeRoom, hit, portFacing, roomAt, roomOfMachine, freshId, copySelection, paste,
+  paintRoom, resizeRoom, hit, portFacing, roomAt, roomOfMachine, freshId, copySelection, paste, repairBelts, placementWhy,
 } from './editor';
 
 export type { Splice, Why } from './editor';
@@ -67,3 +68,14 @@ export type { RunStateX } from './runtime';
 
 /** Ticks per second at 1× speed (rendering interpolates between ticks). */
 export const TICKS_PER_SECOND = 8;
+
+// ───────────── v4 additions (contract) ─────────────
+const todo4 = (n: string): never => { throw new Error(`factory v4: ${n} not implemented yet`); };
+
+/** (EDITOR builder, migrate.ts) Best-effort v3 → v4 canvas migration (old machine kinds → recipe machines). null = give up (caller uses initialCanvas). */
+export { migrateCanvas } from './migrate';
+
+/** (COMPILER builder) lemmaFrom(comp, c, machineId, ctx): the CLOSED card a ∀ machine or Assume gate emits, if it is a theorem of
+ *  group theory (root scope, no dependencies, no constants / free variables). verifyLemma(l, ctx, earlier?): recompile the saved
+ *  canvas; the same card must come out. verifyLemmas(book, ctxOf): whole book in save order (acyclic citation). */
+export { lemmaFrom, verifyLemma, verifyLemmas, atomsOfFact } from './compile';
