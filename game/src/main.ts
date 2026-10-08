@@ -11,6 +11,8 @@ if (new URLSearchParams(location.search).has('v2')) {
   (window as unknown as { __lw: unknown }).__lw = store;
   mountShell(root, store);
 } else {
+  const { importSaveFromHash } = await import('./ui/savelink');
+  await importSaveFromHash(); // #save=… links from another copy (before the store reads localStorage)
   const [{ FactoryStore }, { mountApp }] = await Promise.all([import('./state/factoryStore'), import('./hud')]);
   const store = new FactoryStore();
   (window as unknown as { __lw: unknown }).__lw = store;

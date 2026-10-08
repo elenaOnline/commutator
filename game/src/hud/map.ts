@@ -1,6 +1,7 @@
 // LEMMA WORKS v3 — the theorem map (store.ui.screen === 'map'), adapted from shell/map.ts to the v3 store:
 // the Hasse diagram of theorems, earned vs imported, best factories as Machines · Area · Cycles.
 import type { LevelManifest } from '../kernel/types';
+import { makeSaveLink } from '../ui/savelink';
 import { hasseUses, mapLayout } from '../shell/map';
 import { CHAPTERS, LEVELS, LEVEL_BY_ID, REGISTRY, esc, fH, h, ideaOf, isOpen, isSolved, labels, nextLevel, richHTML, schemaNames, type S as State, type Store } from './util';
 
@@ -19,6 +20,15 @@ export function mountMap(el: HTMLElement, store: Store): (s: State) => void {
     h('div', { class: 'map-brand' }, h('span', { class: 'map-mark' }, 'Commutator'), h('span', { class: 'map-sub' }, 'Theorem map · edges read “used to build”')),
     h('div', { class: 'map-progress' }),
   );
+  // Carry progress to another copy of the game (e.g. dev server → live site): the save rides in the link's #fragment.
+  const share = h('button', { class: 'lw-key map-share', title: 'Copy a link that carries your progress to the live site' }, 'Copy save link');
+  share.addEventListener('click', async () => {
+    const url = await makeSaveLink();
+    try { await navigator.clipboard.writeText(url); share.textContent = 'Save link copied ✓'; }
+    catch { window.prompt('Copy this link and open it on the live site:', url); }
+    setTimeout(() => { share.textContent = 'Copy save link'; }, 2400);
+  });
+  head.append(share);
   const field = h('div', { class: 'map-field' });
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.classList.add('map-edges');
