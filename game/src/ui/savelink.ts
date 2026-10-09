@@ -39,7 +39,8 @@ export async function importSaveFromHash(): Promise<void> {
   try {
     const raw = new TextDecoder().decode(await pipe(unb64url(m[1]!), new DecompressionStream('deflate-raw')));
     const parsed = JSON.parse(raw) as { version?: number };
-    if (parsed.version !== 3) throw new Error('not a Commutator v3 save');
+    // Saves are version 4 now (v3 saves are still accepted; the store migrates them on load).
+    if (parsed.version !== 3 && parsed.version !== 4) throw new Error(`not a Commutator save (version ${String(parsed.version)})`);
     const here = localStorage.getItem(SAVE_KEY);
     const ok = !here || window.confirm(
       `Import this save? It has ${solvedCount(raw)} solved level(s); the save already in this browser has ${solvedCount(here)}.\n\nImporting replaces the save here.`);
