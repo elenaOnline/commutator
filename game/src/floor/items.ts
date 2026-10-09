@@ -5,7 +5,7 @@
 import type { Term } from '../kernel/types';
 import type { ItemValue, Packet, RunState } from '../factory/types';
 import { FAMILY, FONT, INK, VAR } from '../ui/tokens';
-import { P, f1, type G2, type S2 } from '../board/geom';
+import { P, f1, shade, type G2, type S2 } from '../board/geom';
 import { beadPath, beadShape } from '../bench/shapes';
 import type { Labels } from '../board/mathsvg';
 import type { Geo } from './geo';
@@ -38,7 +38,24 @@ function toks(t: Term, L: Labels, S: Record<string, number>): Tok[] {
     }
   });
 }
-const units = (t: Tok): number => (t.k === 'crate' ? t.inner.reduce((s, x) => s + units(x), 0) + 0.5 + (t.exp ? 0.35 + t.exp.length * 0.32 : 0) : t.k === 'more' ? 1.6 : 1);
+/** A variable's label split into its letter and a real subscript (x₁₂ → x, 12). */
+const splitVar = (label: string): { base: string; sub: string } => {
+  const m = /^(.*?)([₀-₉0-9]+)$/.exec(label);
+  return m ? { base: m[1]!, sub: m[2]!.replace(/[₀-₉]/g, (c) => String(c.charCodeAt(0) - 0x2080)) } : { base: label, sub: '' };
+};
+const SUB_W = 4.3;         // px per subscript digit (7px Latin Modern)
+const SUP_W = 7.6;         // px for a ⁻¹ (6.5px) inside an inverted variable's pill
+/** Pill width of a variable bead: a circle for x, wider for each subscript digit and for its own ⁻¹. */
+const varW = (label: string, inv = false) => 2 * R + Math.max(0, splitVar(label).sub.length * SUB_W + (inv ? SUP_W : 0) - 2);
+/** Room a crate's own ⁻¹ needs after its rim (so it never sits on an inner ⁻¹). */
+const CRATE_INV = 0.62;
+const units = (t: Tok): number => {
+  if (t.k === 'crate') return t.inner.reduce((s, x) => s + units(x), 0) + 0.5 + (t.exp ? 0.35 + t.exp.length * 0.32 : 0) + (t.inv ? CRATE_INV : 0);
+  if (t.k === 'more') return 1.6;
+  // a variable widens for its subscript and for its own ⁻¹ (the track is diagonal: 1.12 ≈ 1 / cos of its slope)
+  if (t.k === 'var') return Math.max(1, (varW(t.label, t.inv) + 1.9) * 1.12 / PITCH);
+  return 1;
+};
 const count = (t: Tok): number => (t.k === 'crate' ? t.inner.reduce((s, x) => s + count(x), 0) : t.k === 'more' ? t.n : 1);
 function compress(ts: Tok[], MAXU = 6): Tok[] {
   const total = ts.reduce((s, t) => s + units(t), 0);
@@ -70,12 +87,16 @@ function bead(t: Tok, x: number, y: number): string {
   if (t.k === 'var') {
     // a variable bead: a SOLID tinted fill (violet for elements, teal for integers), never hatching.
     // Inverted: white with a heavy ring in the same ink, plus ⁻¹ — like a hollow atom bead.
+    // The bead is a pill that widens for its label: x₁₂'s digits smaller and lowered, an inverse's ⁻¹ raised,
+    // all inside the pill (nothing spills onto a neighbour or the other rail).
     const V = VAR[t.sort];
-    const m = /^(.*?)([₀-₉0-9]+)$/.exec(t.label);
-    const base = m ? m[1]! : t.label, sub = m ? m[2]!.replace(/[₀-₉]/g, (c) => String(c.charCodeAt(0) - 0x2080)) : '';
-    return `<circle cx="${f1(x)}" cy="${f1(y)}" r="${R}" fill="${t.inv ? '#fff' : V.fill}" stroke="${V.ring}" stroke-width="${t.inv ? 2.2 : 1.4}"/>` +
-      `<text x="${f1(x - (sub ? 1.4 : 0))}" y="${f1(y + 3.6)}" text-anchor="middle" font-family="${FONT.math}" font-style="italic" font-size="11.5" fill="${V.ink}">${esc(base)}${sub ? `<tspan font-style="normal" font-size="7.5" baseline-shift="-28%">${sub}</tspan>` : ''}</text>` +
-      (t.inv ? `<text x="${f1(x + R - 1)}" y="${f1(y - R + 2)}" font-family="${FONT.math}" font-size="7.5" fill="${V.ink}" paint-order="stroke" stroke="#fff" stroke-width="2">−1</text>` : '');
+    const { base, sub } = splitVar(t.label);
+    const w = varW(t.label, t.inv);
+    const tw = 6.2 + sub.length * SUB_W + (t.inv ? SUP_W : 0); // label width: italic letter, digits, ⁻¹
+    const supDy = sub ? -6.6 : -4.4;
+    return `<rect x="${f1(x - w / 2)}" y="${f1(y - R)}" width="${f1(w)}" height="${f1(2 * R)}" rx="${R}" fill="${t.inv ? '#fff' : V.fill}" stroke="${V.ring}" stroke-width="${t.inv ? 2.2 : 1.4}"/>` +
+      `<text x="${f1(x - tw / 2 + 0.4)}" y="${f1(y + 3.6)}" font-family="${FONT.math}" font-style="italic" font-size="11.5" fill="${V.ink}">${esc(base)}` +
+      `${sub ? `<tspan font-style="normal" font-size="7" dy="2.2">${sub}</tspan>` : ''}${t.inv ? `<tspan font-style="normal" font-size="6.5" dx=".4" dy="${supDy}">−1</tspan>` : ''}</text>`;
   }
   return '';
 }
@@ -92,16 +113,18 @@ function word(ts: Tok[], c: S2, d: S2, angle: number): { svg: string; len: numbe
     for (const t of list) {
       const w = units(t);
       if (t.k === 'crate') {
-        const mid = at(s + w / 2), wpx = w * PITCH - 1, hpx = 2 * R + 3;
+        // the crate's own ⁻¹ sits after its rim, in room of its own (never on an inner bead's ⁻¹)
+        const body = w - (t.inv ? CRATE_INV : 0);
+        const mid = at(s + body / 2), wpx = body * PITCH - 1, hpx = 2 * R + 3;
         under += `<g transform="translate(${f1(mid[0])},${f1(mid[1])}) rotate(${f1(angle)})"><rect x="${f1(-wpx / 2)}" y="${f1(-hpx / 2)}" width="${f1(wpx)}" height="${f1(hpx)}" rx="${f1(hpx / 2)}" fill="${FAMILY.structure.ink}" opacity=".24" class="mul"/>${t.inv ? `<rect x="${f1(-wpx / 2 + 1)}" y="${f1(-hpx / 2 + 1)}" width="${f1(wpx - 2)}" height="${f1(hpx - 2)}" rx="${f1(hpx / 2 - 1)}" fill="none" stroke="${INK.navy}" stroke-width="1.6"/>` : ''}</g>`;
-        if (t.inv) { const e = at(s + w); out += `<text x="${f1(e[0] - 1)}" y="${f1(e[1] - R - 2)}" font-family="${FONT.math}" font-size="8.5" fill="${INK.navy}">−1</text>`; }
+        if (t.inv) { const e = at(s + body + 0.08); out += `<text x="${f1(e[0])}" y="${f1(e[1] - R + 1)}" font-family="${FONT.math}" font-size="8.5" fill="${INK.navy}" paint-order="stroke" stroke="#fff" stroke-width="2.4">−1</text>`; }
         if (t.exp) { const e = at(s + w - t.exp.length * 0.32 - 0.1); out += `<text x="${f1(e[0])}" y="${f1(e[1] - R + 1)}" font-family="${FONT.math}" font-style="italic" font-size="9.5" fill="${INK.navy}" paint-order="stroke" stroke="#fff" stroke-width="2.4">${esc(t.exp)}</text>`; }
         const s0 = s; s += 0.25; put(t.inner); s = s0 + w;
       } else if (t.k === 'more') {
         const m = at(s + w / 2);
         out += `<g transform="translate(${f1(m[0])},${f1(m[1])})"><rect x="-10" y="-6.5" width="20" height="13" rx="6.5" fill="#fff" stroke="${INK.navy}" stroke-width="1" stroke-dasharray="2 1.6"/><text y="3.3" text-anchor="middle" font-family="${FONT.ui}" font-size="8.6" font-weight="600" fill="${INK.navy}">+${t.n}</text></g>`;
         s += w;
-      } else { const p = at(s + 0.5); out += bead(t, p[0], p[1]); s += 1; }
+      } else { const p = at(s + w / 2); out += bead(t, p[0], p[1]); s += w; }
     }
   };
   put(ts);
@@ -158,13 +181,16 @@ export function packetSVG(v: ItemValue, axis: Axis, L: Labels, S: Record<string,
     o = w.svg; len = w.len + 5;
   } else if (v.k === 'card') {
     const earned = v.ref.k === 'schema';
-    const fill = earned ? INK.navy : FAMILY.given.ink;
+    // a given's card wears the given green; any other card made on the floor the equation aqua
+    const fam = v.ref.k === 'node' && v.ref.id.startsWith('lib#given:') ? FAMILY.given : FAMILY.equation;
+    const fill = earned ? INK.navy : fam.ink;
     // a flat card tile lying on the track (iso rhombus, rounded), raised a touch
     const card = [P(-0.2, -0.2, 0.08), P(0.2, -0.2, 0.08), P(0.2, 0.2, 0.08), P(-0.2, 0.2, 0.08)];
     const side = [P(-0.2, 0.2, 0.08), P(0.2, 0.2, 0.08), P(0.2, 0.2, 0), P(-0.2, 0.2, 0)];
     const side2 = [P(0.2, -0.2, 0.08), P(0.2, 0.2, 0.08), P(0.2, 0.2, 0), P(0.2, -0.2, 0)];
     const pp = (a: S2[]) => a.map((p) => `${f1(p[0])},${f1(p[1])}`).join(' ');
-    o = `<polygon points="${pp(side)}" fill="${earned ? INK.gold : '#2A9C88'}"/><polygon points="${pp(side2)}" fill="${earned ? INK.gold : '#2A9C88'}"/><polygon points="${pp(card)}" fill="${fill}" stroke="#fff" stroke-width="1" stroke-linejoin="round"/>` +
+    const edge = earned ? INK.gold : shade(fam.ink, 0.26);
+    o = `<polygon points="${pp(side)}" fill="${edge}"/><polygon points="${pp(side2)}" fill="${edge}"/><polygon points="${pp(card)}" fill="${fill}" stroke="#fff" stroke-width="1" stroke-linejoin="round"/>` +
       `<text y="${f1(P(0, 0, 0.08)[1] + 3.6)}" text-anchor="middle" font-family="${FONT.math}" font-size="11" fill="${earned ? '#fff' : INK.navy}">${v.card.k === 'cond' ? '⇒' : '∀'}</text>`;
   }
   const out = { svg: `<g transform="translate(0,-3)">${o}</g>`, len };

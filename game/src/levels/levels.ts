@@ -46,29 +46,29 @@ const cond = (metas: string[], premises: PatFact[], concl: PatFact): Card => ({ 
 
 export const REGISTRY: Record<string, Schema> = {
   witness: {
-    id: 'witness', name: 'Witness Stamp', textbook: 'uniqueness of inverses',
+    id: 'witness', name: 'unique right inverse', textbook: 'uniqueness of inverses',
     card: cond(['u', 'v'], [peq(P(u, v), e)], peq(v, I(u))),
     origin: 'earned', fromLevel: 'L03', mirrorable: true,
   },
   cancel: {
-    id: 'cancel', name: 'Cancel Lathe', textbook: 'left cancellation',
+    id: 'cancel', name: 'left cancellation', textbook: 'left cancellation',
     card: cond(['u', 'v', 'w'], [peq(P(u, v), P(u, w))], peq(v, w)),
     origin: 'earned', fromLevel: 'L05', mirrorable: true,
   },
   socks: {
-    id: 'socks', name: 'Sock Drawer', textbook: 'inverse of a product',
+    id: 'socks', name: 'inverse of a product', textbook: 'inverse of a product',
     card: { k: 'law', metas: ['u', 'v'], l: I(P(u, v)), r: P(I(v), I(u)) },
     origin: 'earned', fromLevel: 'L06', mirrorable: false,
   },
   nofix: {
-    id: 'nofix', name: 'Fixed-Point Gate', textbook: 'nontrivial translations have no fixed points',
+    id: 'nofix', name: 'no fixed points (left)', textbook: 'nontrivial translations have no fixed points',
     card: cond(['u', 'v'], [pneq(u, e)], pneq(P(u, v), v)),
     origin: 'earned', fromLevel: 'L09', mirrorable: true,
   },
   // Legacy (v3 / early v4 saves): S01 no longer unlocks it and no level lists it. Since v4 r2 the player
   // proves, saves and reuses their OWN Double Flip from the Lemma Book. Kept so old saves still resolve.
   dbl: {
-    id: 'dbl', name: 'Double Flip', textbook: 'inverse of an inverse',
+    id: 'dbl', name: 'double inverse', textbook: 'inverse of an inverse',
     card: { k: 'law', metas: ['u'], l: I(I(u)), r: u },
     origin: 'earned', fromLevel: 'S01', mirrorable: false,
   },
@@ -76,9 +76,20 @@ export const REGISTRY: Record<string, Schema> = {
 
 /** Mirror labels for the floor. */
 export const MIRROR_NAMES: Record<string, { name: string; textbook: string }> = {
-  witness: { name: 'Witness Stamp ᵒᵖ', textbook: 'uniqueness of inverses (left)' },
-  cancel: { name: 'Cancel Lathe ᵒᵖ', textbook: 'right cancellation' },
-  nofix: { name: 'Fixed-Point Gate ᵒᵖ', textbook: 'nontrivial translations have no fixed points (right)' },
+  witness: { name: 'unique left inverse', textbook: 'uniqueness of inverses (left)' },
+  cancel: { name: 'right cancellation', textbook: 'right cancellation' },
+  nofix: { name: 'no fixed points (right)', textbook: 'nontrivial translations have no fixed points (right)' },
+};
+
+/**
+ * Mirror pairs are ONE recipe with a side toggle (review 2026-10). `family` names the picker row; the toggle's
+ * two sides read `plain` (the schema itself) and `op` (its mirror), each with a short statement for the toggle.
+ */
+export const SIDE_PAIRS: Record<string, { family: string; plain: string; op: string }> = {
+  witness: { family: 'unique inverse', plain: 'unique right inverse', op: 'unique left inverse' },
+  cancel: { family: 'cancellation', plain: 'left cancellation', op: 'right cancellation' },
+  nofix: { family: 'no fixed points', plain: 'no fixed points (left)', op: 'no fixed points (right)' },
+  'power.conjugate': { family: 'power of a conjugate', plain: 'power of a conjugate', op: 'power of a conjugate' },
 };
 
 const CH1 = ['witness', 'cancel', 'socks']; // v4 r2: no 'dbl' — the player's authored Double Flip replaces it
@@ -92,7 +103,7 @@ export const LEVELS: LevelManifest[] = [
     atoms: atomsAB, givens: [],
     sockets: [{ id: 's', target: eq(P(I(a), a, b), b), allowedGivens: [] }],
     tools: none, preStarts: [P(I(a), a, b)], unlocks: [],
-    idea: 'Spool → Rewriter (cancel) → dock.', par: { parts: 1, axioms: 2 }, uses: [],
+    idea: 'Every proof starts from t = t.', par: { parts: 1, axioms: 2 }, uses: [],
   },
   {
     id: 'L02', index: 2, chapter: 1, title: 'Another Identity',
@@ -101,7 +112,7 @@ export const LEVELS: LevelManifest[] = [
     givens: [{ id: 'H', name: 'H', fact: { k: 'law', metas: ['x'], l: P(e1, x), r: x } }],
     sockets: [{ id: 's', target: eq(e1, e), allowedGivens: ['H'] }],
     tools: none, unlocks: [],
-    idea: 'Insert e, then use H at x = e.', par: { parts: 2, axioms: 2 }, uses: ['L01'],
+    idea: 'A given is a rule you may cite anywhere.', par: { parts: 2, axioms: 2 }, uses: ['L01'],
   },
   {
     id: 'L03', index: 3, chapter: 1, title: 'Inverse Is Unique',
@@ -110,7 +121,7 @@ export const LEVELS: LevelManifest[] = [
     givens: [{ id: 'h', name: 'h', fact: eq(P(a, b), e) }],
     sockets: [{ id: 's', target: eq(b, I(a)), allowedGivens: ['h'] }],
     tools: none, unlocks: ['witness'],
-    idea: 'Insert a⁻¹a, then cite h.', par: { parts: 2, axioms: 4 }, uses: ['L02'],
+    idea: 'Uniqueness: two inverses must be equal.', par: { parts: 2, axioms: 4 }, uses: ['L02'],
   },
   {
     // v4 Toolsmith: the general theorem ∀x,y. (xy)⁵ = e ⇒ (yx)⁵ = e. No givens and no level
@@ -123,7 +134,7 @@ export const LEVELS: LevelManifest[] = [
     givens: [],
     sockets: [{ id: 's', target: cond(['x', 'y'], [peq(rep(P(x, y), 5), e)], peq(rep(P(y, x), 5), e)), allowedGivens: [] }],
     tools: tools({ lift: true, schemas: CH1 }), unlocks: [],
-    idea: 'Belt the desk’s fact into a Rewriter.',
+    idea: 'An assumption can be used as a rule.',
     par: { parts: 4, axioms: 6 }, // v4: parts measured from the reference solution; axioms approximate
     uses: ['T01'],
   },
@@ -134,7 +145,7 @@ export const LEVELS: LevelManifest[] = [
     givens: [{ id: 'h', name: 'h', fact: eq(P(a, b), P(a, c)) }],
     sockets: [{ id: 's', target: eq(b, c), allowedGivens: ['h'] }],
     tools: tools({ lift: true, schemas: ['witness'] }), unlocks: ['cancel'],
-    idea: 'Multiply both sides by a⁻¹.', par: { parts: 3, axioms: 5 }, uses: ['L03'],
+    idea: 'Left cancellation.', par: { parts: 3, axioms: 5 }, uses: ['L03'],
   },
   {
     id: 'L06', index: 6, chapter: 1, title: 'Shoes and Socks',
@@ -143,7 +154,7 @@ export const LEVELS: LevelManifest[] = [
     sockets: [{ id: 's', target: eq(I(P(a, b)), P(I(b), I(a))), allowedGivens: [] }],
     tools: tools({ lift: true, schemas: ['witness', 'cancel'], conjecture: true }), unlocks: ['socks'],
     predict: [eq(I(P(a, b)), P(I(a), I(b))), eq(I(P(a, b)), P(I(b), I(a)))],
-    idea: 'Build what undoes ab. The Witness Stamp names it.', par: { parts: 3, axioms: 8 }, uses: ['L03', 'L05'],
+    idea: 'The inverse of a product.', par: { parts: 3, axioms: 8 }, uses: ['L03', 'L05'],
   },
   {
     id: 'L07', index: 7, chapter: 1, title: 'Squares Distribute',
@@ -152,7 +163,7 @@ export const LEVELS: LevelManifest[] = [
     givens: [{ id: 'h', name: 'h', fact: eq(P(a, b, a, b), P(a, a, b, b)) }],
     sockets: [{ id: 's', target: eq(P(a, b), P(b, a)), allowedGivens: ['h'] }],
     tools: tools({ lift: true, schemas: CH1, conjecture: true }), unlocks: [],
-    idea: 'One Cancel Lathe per side.', par: { parts: 2, axioms: 11 }, uses: ['L05'],
+    idea: 'Right cancellation, the mirror of left.', par: { parts: 2, axioms: 11 }, uses: ['L05'],
   },
   {
     id: 'L08', index: 8, chapter: 2, title: 'Every Square Is e',
@@ -162,7 +173,7 @@ export const LEVELS: LevelManifest[] = [
     sockets: [{ id: 's', target: eq(P(a, b), P(b, a)), allowedGivens: ['H'] }],
     tools: tools({ lift: true, schemas: CH1, conjecture: true }), unlocks: [],
     predict: [eq(P(a, b), P(b, a)), eq(a, b), eq(I(a), a)],
-    idea: 'Use H at x = ab.', par: { parts: 3, axioms: 6 }, uses: ['L02'],
+    idea: 'A law’s x can be any term, even a product.', par: { parts: 3, axioms: 6 }, uses: ['L02'],
   },
   {
     id: 'L09', index: 9, chapter: 2, title: 'No Fixed Points',
@@ -171,7 +182,7 @@ export const LEVELS: LevelManifest[] = [
     givens: [{ id: 'n', name: 'n', fact: neq(a, e) }],
     sockets: [{ id: 's', target: neq(P(a, b), b), allowedGivens: ['n'] }],
     tools: tools({ lift: true, suppose: true, schemas: CH1, conjecture: true }), unlocks: [],
-    idea: 'Suppose ab = b. Clash. Leave by the gate.', par: { parts: 3, axioms: 8 }, uses: ['L05'],
+    idea: 'Proof by contradiction.', par: { parts: 3, axioms: 8 }, uses: ['L05'],
   },
   {
     id: 'L10', index: 10, chapter: 2, title: 'The Only Idler',
@@ -180,7 +191,7 @@ export const LEVELS: LevelManifest[] = [
     givens: [{ id: 'H', name: 'H', fact: cond(['x'], [pneq(x, e)], peq(P(a, x), x)) }],
     sockets: [{ id: 's', target: eq(a, e), allowedGivens: ['H'] }],
     tools: tools({ lift: true, suppose: true, classical: true, schemas: CH1, conjecture: true }), unlocks: [],
-    idea: 'Suppose a ≠ e. That is H’s premise.', par: { parts: 4, axioms: 9 }, uses: ['L09', 'L05'],
+    idea: 'Assume the goal fails, then find ⊥.', par: { parts: 4, axioms: 9 }, uses: ['L09', 'L05'],
   },
   {
     id: 'R01', index: 11, chapter: 3, title: 'Shared Return',
@@ -195,7 +206,7 @@ export const LEVELS: LevelManifest[] = [
       { id: 't', target: eq(I(a), a), allowedGivens: ['h4', 'h6'] },
     ],
     tools: tools({ lift: true, schemas: CH1, conjecture: true }), unlocks: [],
-    idea: 'Branch one belt to two docks.', par: { parts: 3, axioms: 8 }, uses: ['L03', 'L10'],
+    idea: 'One fact can feed two docks.', par: { parts: 3, axioms: 8 }, uses: ['L03', 'L10'],
   },
   {
     id: 'L11', index: 12, chapter: 3, title: 'Clockwork',
@@ -207,7 +218,7 @@ export const LEVELS: LevelManifest[] = [
     ],
     sockets: [{ id: 's', target: eq(a, e), allowedGivens: ['s', 'h'] }],
     tools: tools({ lift: true, press: true, schemas: CH1, conjecture: true }), unlocks: [],
-    idea: 'Lagrange (imported): x⁵ = e.', par: { parts: 4, axioms: 6 }, uses: ['R01'],
+    idea: 'Lagrange’s theorem: |G| bounds every order.', par: { parts: 4, axioms: 6 }, uses: ['R01'],
   },
   {
     id: 'L12', index: 13, chapter: 3, title: 'Prime Time',
@@ -219,7 +230,7 @@ export const LEVELS: LevelManifest[] = [
     ],
     sockets: [{ id: 's', target: neq(rep(P(a, b), 3), e), allowedGivens: ['s', 'n'] }],
     tools: tools({ lift: true, suppose: true, press: true, schemas: CH1, conjecture: true }), unlocks: [],
-    idea: 'A room, Lagrange, the Witness Stamp, a branched belt.', par: { parts: 8, axioms: 14 }, uses: ['L11', 'L09', 'L03'],
+    idea: 'Contradiction and Lagrange together.', par: { parts: 8, axioms: 14 }, uses: ['L11', 'L09', 'L03'],
   },
   {
     // v4 Toolsmith, main path (was a side order; id kept). First ∀ goal: ∀x. (x⁻¹)⁻¹ = x.
@@ -231,7 +242,7 @@ export const LEVELS: LevelManifest[] = [
     atoms: [], givens: [],
     sockets: [{ id: 's', target: { k: 'law', metas: ['x'], l: I(I(x)), r: x }, allowedGivens: [] }],
     tools: tools({ lift: true, schemas: ['witness'] }), unlocks: [],
-    idea: 'Tower x, prove it, ∀, then save.',
+    idea: 'Prove it for any x, then save it.',
     par: { parts: 4, axioms: 6 }, // v4: parts measured from the reference solution; axioms approximate
     uses: ['L03'],
   },
@@ -245,7 +256,7 @@ export const LEVELS: LevelManifest[] = [
     atoms: [], givens: [],
     sockets: [{ id: 's', target: cond(['x', 'y'], [peq(I(x), y)], peq(x, I(y))), allowedGivens: [] }],
     tools: tools({ lift: true, schemas: ['witness'] }), unlocks: [],
-    idea: 'Assume the “if” in a room. ∀ goes outside.',
+    idea: 'Proving an if-then statement.',
     par: { parts: 3, axioms: 2 }, // v4: parts measured from the reference solution; axioms approximate
     uses: ['S01'],
   },
@@ -260,7 +271,7 @@ export const LEVELS: LevelManifest[] = [
     atoms: [], givens: [],
     sockets: [{ id: 's', target: { k: 'law', metas: ['x', 'y'], l: I(P(I(y), I(x))), r: P(x, y) }, allowedGivens: [] }],
     tools: tools({ lift: true, schemas: CH1 }), unlocks: [],
-    idea: 'Sock Drawer backwards, then your Double Flip.',
+    idea: 'Reuse a lemma you proved yourself.',
     par: { parts: 3, axioms: 0 }, // v4: parts measured from the reference solution
     uses: ['L06', 'T01'],
   },
@@ -275,7 +286,7 @@ export const LEVELS: LevelManifest[] = [
     givens: [{ id: 'h', name: 'h', fact: eq(rep(P(a, b), 5), e) }],
     sockets: [{ id: 's', target: { k: 'law', metas: ['k'], l: PW(P(a, b), Z(5, zm('k'))), r: e }, allowedGivens: ['h'] }],
     tools: tools({ lift: true, schemas: [...CH1, 'power.multiply', 'power.literal:5', 'power.identity'] }), unlocks: [],
-    idea: '(ab)⁵ᵏ = ((ab)⁵)ᵏ, and eᵏ = e.',
+    idea: 'Exponents that can be any integer.',
     par: { parts: 6, axioms: 2 }, // TODO(v4 Phase B): conservative guess; par needs re-measuring on the v4 floor
     uses: ['L04'],
   },
@@ -287,7 +298,7 @@ export const LEVELS: LevelManifest[] = [
     atoms: [], givens: [],
     sockets: [{ id: 's', target: cond(['x', 'n', 'k'], [peq(PW(x, Z(1, zm('n'))), e)], peq(PW(x, Z(1, zm('k'), zm('n'))), e)), allowedGivens: [] }],
     tools: tools({ lift: true, schemas: [...CH1, 'power.multiply', 'power.identity'] }), unlocks: [],
-    idea: 'Cite the desk inside the power.',
+    idea: 'Powers of powers.',
     par: { parts: 6, axioms: 2 }, // TODO(v4 Phase B): conservative guess; par needs re-measuring on the v4 floor
     uses: ['B01'],
   },
@@ -300,7 +311,7 @@ export const LEVELS: LevelManifest[] = [
     atoms: [], givens: [],
     sockets: [{ id: 's', target: cond(['x', 'y', 'n'], [peq(PW(P(x, y), Z(1, zm('n'))), e)], peq(PW(P(y, x), Z(1, zm('n'))), e)), allowedGivens: [] }],
     tools: tools({ lift: true, schemas: [...CH1, 'power.conjugate'] }), unlocks: [],
-    idea: 'Conjugate Power moves the exponent through a frame.',
+    idea: 'Conjugation and powers.',
     par: { parts: 9, axioms: 5 }, // TODO(v4 Phase B): conservative guess; par needs re-measuring on the v4 floor
     uses: ['B02'],
   },
@@ -325,7 +336,7 @@ export const LEVELS: LevelManifest[] = [
     givens: [{ id: 'h', name: 'h', fact: eq(rep(a, 3), e) }],
     sockets: [{ id: 's', target: eq(rep(P(b, a, I(b)), 3), e), allowedGivens: ['h'] }],
     tools: tools({ lift: true, schemas: CH1 }), unlocks: [],
-    idea: 'Inner b⁻¹b pairs cancel.', par: { parts: 4, axioms: 7 }, uses: ['L06'],
+    idea: 'Conjugates.', par: { parts: 4, axioms: 7 }, uses: ['L06'],
   },
 ];
 

@@ -19,7 +19,7 @@ export type { DefaultOpts } from './catalog';
 /** footprint(m, ctx): occupied cells (rotation applied). portsOf(m, ctx): ports in world space (depend on config). */
 export {
   footprint, portsOf, portOf, layoutOf, sizeOf, rectOf, frontOf, rotateFace, rotFacing,
-  FACES, FACE_DELTA, OPPOSITE, tileKey, tileEq, addTile, inRect,
+  FACES, FACE_DELTA, OPPOSITE, tileKey, tileEq, addTile, inRect, DOCK_PORTS,
 } from './geometry';
 
 // ───────────── editor.ts  (owner: EDITOR builder). Pure: return a new Canvas or a reason. ─────────────
@@ -74,6 +74,8 @@ const todo4 = (n: string): never => { throw new Error(`factory v4: ${n} not impl
 
 /** (EDITOR builder, migrate.ts) Best-effort v3 → v4 canvas migration (old machine kinds → recipe machines). null = give up (caller uses initialCanvas). */
 export { migrateCanvas } from './migrate';
+/** (review 2026-10) Bring a saved canvas up to the 2×2 Receiving Dock. Idempotent; call on every canvas read from a save. */
+export { migrateDocks } from './migrate';
 
 /** (COMPILER builder) lemmaFrom(comp, c, machineId, ctx): the CLOSED card a ∀ machine or Assume gate emits, if it is a theorem of
  *  group theory (root scope, no dependencies, no constants / free variables). verifyLemma(l, ctx, earlier?): recompile the saved

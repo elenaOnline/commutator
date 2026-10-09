@@ -1,169 +1,48 @@
-// COMMUTATOR v4 — concept cards: a calm card stack over the floor at level open (never over the hotbar),
-// pages, figures (ℤₙ clock, a group's table, Cayley graph, bead strings), and the worked example /
-// near-miss / gesture structure (Astra v4 §5). Reopened from the order chip's "?" or from a lens / jam.
-import * as K from '../kernel';
-import { CARDS, type ConceptCard, type Figure } from '../levels/cards';
-import { catalogue, type FiniteGroup } from '../groups';
-import { beads as beadsInline } from './beads';
-import { figEl, parseFig, parseRails, stripEl, type FigExpr } from './strip';
-import { FAMILY, reducedMotion } from '../ui/tokens';
-import type { AtomDecl, Family } from '../kernel/types';
-import { esc, h, hues, labels, safe, spec, type S, type Store } from './util';
+// COMMUTATOR — concept cards (review 2026-10, design/review-2026-10/): a calm card stack over the floor at level
+// open (never over the hotbar), pages, and figures: laid-out maths with braces, rendered floor scenes with
+// numbered notes, the looping Spool "gif", ℤₙ clocks, group tables and element orders. Body text comes before
+// the figures; a figure never widens the card. Reopened from the order chip's "?" or from a lens / jam.
+import './cards.css';
+import { CARDS, type AtomSpec, type ConceptCard, type Figure } from '../levels/cards';
+import { reducedMotion } from '../ui/tokens';
+import { h, safe, type S, type Store } from './util';
+import { mdHTML } from './figures/tex';
+import { lettersOf } from './figures/terms';
+import { mathFigure } from './figures/math';
+import { clockFigure, groupByName, ordersFigure, tableFigure } from './figures/groups';
 
-// ───────── TeX-ish maths ($…$) → HTML ─────────
-const SYM: Record<string, string> = {
-  forall: '∀', Rightarrow: '⇒', neq: '≠', bot: '⊥', in: '∈', geq: '≥', leq: '≤', langle: '⟨', rangle: '⟩', dots: '…', ldots: '…', cdot: '·',
-  ';': '&thinsp;', ',': '&thinsp;', quad: '&emsp;', qquad: '&emsp;&emsp;', mid: '|', to: '→', mapsto: '↦', exists: '∃', neg: '¬', times: '×',
-};
-export function texHTML(src: string): string {
-  let i = 0;
-  const group = (): string => {
-    if (src[i] === '{') {
-      i++; let depth = 1, start = i;
-      while (i < src.length && depth) { if (src[i] === '{') depth++; else if (src[i] === '}') depth--; i++; }
-      return conv(src.slice(start, i - 1));
-    }
-    const c = src[i++] ?? '';
-    return /[A-Za-z]/.test(c) ? `<i>${c}</i>` : esc(c);
-  };
-  const conv = (t: string): string => {
-    const save = src, si = i;
-    src = t; i = 0;
-    let out = '';
-    while (i < src.length) {
-      const c = src[i]!;
-      if (c === '\\') {
-        const m = /^\\([A-Za-z]+|.)/.exec(src.slice(i));
-        const name = m?.[1] ?? '';
-        i += 1 + name.length;
-        if (name === 'mathbb') { const g = group().replace(/<\/?i>/g, ''); out += g === 'Z' ? 'ℤ' : g === 'N' ? 'ℕ' : g; continue; }
-        out += SYM[name] !== undefined ? (/[⇒≠∈≥≤→↦×]/.test(SYM[name]!) ? ` <span class="m-rel">${SYM[name]}</span> ` : SYM[name]) : esc(name);
-      } else if (c === '^') { i++; out += `<sup class="m-sup">${group()}</sup>`; }
-      else if (c === '_') { i++; out += `<sub class="m-sub">${group()}</sub>`; }
-      else if (c === '=' ) { i++; out += ' <span class="m-rel">=</span> '; }
-      else if (/[A-Za-z]/.test(c)) { i++; out += `<i>${c}</i>`; }
-      else if (c === '-' && src[i + 1] && /\d/.test(src[i + 1]!)) { i++; out += '−'; }
-      else if (c === '{' || c === '}') { i++; }
-      else { i++; out += esc(c); }
-    }
-    src = save; i = si;
-    return out;
-  };
-  return `<span class="math">${conv(src)}</span>`;
-}
-/** Minimal markdown: **bold**, *italic*, $maths$, paragraphs. */
-export function mdHTML(md: string): string {
-  const parts = md.split(/(\$[^$]+\$)/g);
-  const html = parts.map((p) => {
-    if (p.startsWith('$') && p.endsWith('$') && p.length > 1) return texHTML(p.slice(1, -1));
-    return esc(p).replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>').replace(/\*([^*]+)\*/g, '<em>$1</em>');
-  }).join('');
-  return html.split(/\n{2,}/).map((x) => `<p>${x}</p>`).join('');
-}
+export { texHTML, mdHTML, mdInline } from './figures/tex';
 
-// ───────── figures ─────────
-const groupByName = (name: string): FiniteGroup | undefined => safe(() => catalogue(), [] as FiniteGroup[]).find((g) => g.name === name || g.name.replace(/[₀-₉]/g, (c) => String(c.charCodeAt(0) - 0x2080)) === name);
-function clockSVG(n: number): string {
-  const R = 64, c = 84;
-  let s = `<svg class="cf-clock" viewBox="0 0 168 168" width="168" height="168" aria-label="ℤ${n} as a clock"><circle cx="${c}" cy="${c}" r="${R}" fill="none" stroke="#D5D8E0" stroke-width="1.5"/>`;
-  for (let k = 0; k < n; k++) {
-    const a = -Math.PI / 2 + (2 * Math.PI * k) / n, x = c + R * Math.cos(a), y = c + R * Math.sin(a);
-    const a2 = -Math.PI / 2 + (2 * Math.PI * (k + 0.5)) / n;
-    s += `<path d="M${c + (R - 12) * Math.cos(a2 - 0.12)},${c + (R - 12) * Math.sin(a2 - 0.12)} L${c + (R - 6) * Math.cos(a2)},${c + (R - 6) * Math.sin(a2)} L${c + (R - 12) * Math.cos(a2 + 0.12)},${c + (R - 12) * Math.sin(a2 + 0.12)}" fill="none" stroke="#2F6BFF" stroke-width="1.5"/>`;
-    s += `<circle cx="${x}" cy="${y}" r="13" fill="${k === 0 ? '#FFB81C' : '#1B2340'}"/><text x="${x}" y="${y + 5}" text-anchor="middle" font-family="Latin Modern, serif" font-size="15" fill="${k === 0 ? '#1B2340' : '#fff'}">${k}</text>`;
-  }
-  return s + `<text x="${c}" y="${c + 5}" text-anchor="middle" font-family="Latin Modern, serif" font-style="italic" font-size="13" fill="#545B73">+1 each step</text></svg>`;
-}
-function tableHTML(G: FiniteGroup): string {
-  const n = G.order;
-  let s = `<table class="cf-table"><caption>${esc(G.name)}: row combined with column</caption><tr><th class="op">·</th>${G.labels.map((l) => `<th>${esc(l)}</th>`).join('')}</tr>`;
-  for (let i = 0; i < n; i++) s += `<tr><th>${esc(G.labels[i]!)}</th>${Array.from({ length: n }, (_, j) => { const k = G.mul(i, j); return `<td class="${k === 0 ? 'id' : ''}">${esc(G.labels[k]!)}</td>`; }).join('')}</tr>`;
-  return s + '</table>';
-}
-function cayleySVG(G: FiniteGroup, gens: string[]): string {
-  const n = G.order, R = 70, c = 92;
-  const pos = (k: number) => { const a = -Math.PI / 2 + (2 * Math.PI * k) / n; return [c + R * Math.cos(a), c + R * Math.sin(a)] as const; };
-  const styles = ['stroke="#1B2340"', 'stroke="#1B2340" stroke-dasharray="4 3"', 'stroke="#8A90A3"'];
-  let s = `<svg class="cf-cayley" viewBox="0 0 184 184" width="184" height="184"><defs><marker id="cfa" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#1B2340"/></marker></defs>`;
-  gens.forEach((gl, gi) => {
-    const g = G.labels.indexOf(gl); if (g < 0) return;
-    for (let k = 0; k < n; k++) { const t = G.mul(k, g); if (t === k) continue; const [x1, y1] = pos(k), [x2, y2] = pos(t); const dx = x2 - x1, dy = y2 - y1, d = Math.hypot(dx, dy) || 1; s += `<line x1="${x1 + dx / d * 12}" y1="${y1 + dy / d * 12}" x2="${x2 - dx / d * 13}" y2="${y2 - dy / d * 13}" ${styles[gi % 3]} stroke-width="1.4" marker-end="url(#cfa)"/>`; }
-  });
-  for (let k = 0; k < n; k++) { const [x, y] = pos(k); s += `<circle cx="${x}" cy="${y}" r="11" fill="${k === 0 ? '#FFB81C' : '#fff'}" stroke="#1B2340"/><text x="${x}" y="${y + 4}" text-anchor="middle" font-family="Latin Modern, serif" font-size="11" fill="#1B2340">${esc(G.labels[k]!)}</text>`; }
-  return s + `</svg><div class="cf-legend">${gens.map((g, i) => `<span><i class="cf-line s${i}"></i>· ${esc(g)}</span>`).join('')}</div>`;
-}
-type TowerDecl = { id: string; label: string; sort: 'G' | 'Z' };
-/** Atoms for a figure: the level's letters plus the figure's illustrative Towers. */
-function figAtoms(s: S, towers?: TowerDecl[]): { atoms: AtomDecl[]; L: Record<string, string>; H: Record<string, number>; vars: Map<string, 'G' | 'Z'> } {
-  const ts = (towers ?? []).map((t, i) => ({ id: t.id, label: t.label, hue: (s.level.atoms.length + i) % 6, variable: true, sort: t.sort }));
-  const atoms = [...s.level.atoms, ...ts] as AtomDecl[];
-  return { atoms, L: Object.fromEntries(atoms.map((a) => [a.id, a.label])), H: Object.fromEntries(atoms.map((a) => [a.id, a.hue])), vars: new Map(ts.map((t) => [t.id, t.sort])) };
-}
-const cap = (t?: string) => (t ? h('figcaption', { html: mdHTML(t).replace(/^<p>|<\/p>$/g, '') }) : null);
+// The scene glue composes the floor renderer; it loads lazily (like the floor itself), so a floor module
+// mid-edit can never take the cards down with it.
+type SceneMod = typeof import('./figures/scene');
+let sceneMod: SceneMod | null = null;
+let sceneLoad: Promise<SceneMod> | null = null;
+const loadScenes = () => (sceneLoad ??= import('./figures/scene').then((m) => (sceneMod = m)));
+
+/** The letters a figure draws: its own illustrative atoms, else the level's. */
+const atomsFor = (s: S, own?: AtomSpec[]): AtomSpec[] => own ?? s.level.atoms.map((a) => ({ id: a.id, label: a.label, hue: a.hue }));
+const isReduced = (s: S) => reducedMotion() || !!s.save.settings.reducedMotion;
 
 function figureEl(s: S, f: Figure): HTMLElement | null {
-  const box = h('figure', { class: `cf-figure ${f.k}` });
-  if (f.k === 'transform' || f.k === 'nearmiss') {
-    const A = figAtoms(s, f.towers);
-    const a = parseFig(f.before, A.atoms), b = parseFig(f.after, A.atoms);
-    if (!a || !b) return null;
-    const ink = FAMILY[(f.k === 'transform' ? f.family : 'contradiction') as Family]?.ink;
-    const tf = h('span', { class: `h3-tf${f.k === 'nearmiss' ? ' struck' : ''}`, style: `--tint:${ink}` },
-      figEl(a, A.L, A.H, { range: f.k === 'transform' ? f.hit : undefined, ink, vars: A.vars }),
-      h('span', { class: 'h3-tf-arrow', 'aria-hidden': 'true' }, '→'),
-      figEl(b, A.L, A.H, { range: f.k === 'transform' ? f.made : undefined, ink, vars: A.vars }));
-    box.append(tf);
-    if (f.k === 'nearmiss') box.append(h('figcaption', { class: 'cf-no', html: `<span class="cf-x" aria-hidden="true">✗</span> ${mdHTML(f.why).replace(/^<p>|<\/p>$/g, '')}` }));
-    else { const c = cap(f.caption); if (c) box.append(c); }
-    return box;
-  }
-  if (f.k === 'chain') {
-    const A = figAtoms(s, f.towers);
-    const row = h('div', { class: `cf-chainrow${reducedMotion() ? '' : ' anim'}` });
-    let i = 0;
-    for (const st of f.steps) {
-      const r = parseFig(st.term, A.atoms);
-      if (!r) continue;
-      if (i) row.append(h('span', { class: 'h3-tf-arrow', style: `--i:${i}`, 'aria-hidden': 'true' }, '→'));
-      const ink = FAMILY[(st.family ?? 'equation') as Family]?.ink;
-      const el = figEl(r, A.L, A.H, { range: st.hit, ink, vars: A.vars });
-      el.style.setProperty('--i', String(i));
-      row.append(el);
-      i++;
+  switch (f.k) {
+    case 'math': return mathFigure(f.rows, lettersOf(atomsFor(s, f.atoms)), f.caption);
+    case 'clock': return clockFigure(f.n);
+    case 'table': { const G = groupByName(f.group); return G ? tableFigure(G) : null; }
+    case 'orders': { const G = groupByName(f.group); return G ? ordersFigure(G) : null; }
+    case 'scene': case 'gif': {
+      const lt = lettersOf(f.k === 'gif' ? [{ id: 'c', label: 'c', hue: 2 }] : atomsFor(s, f.atoms));
+      const make = (m: SceneMod) => (f.k === 'gif' ? m.spoolGif(s.ctx, lt, isReduced(s)) : m.sceneFigure(f.spec, s.ctx, lt));
+      if (sceneMod) return make(sceneMod);
+      const slot = h('figure', { class: 'cc-fig cc-pending' });
+      void loadScenes().then((m) => { const el = safe(() => make(m), null); if (el) slot.replaceWith(el); else slot.remove(); }).catch(() => slot.remove());
+      return slot;
     }
-    box.append(row);
-    const c = cap(f.caption); if (c) box.append(c);
-    return box;
   }
-  if (f.k === 'machine') {
-    const A = figAtoms(s, f.towers);
-    const inp = parseFig(f.input, A.atoms), out = parseFig(f.output, A.atoms);
-    const sp = safe(() => spec(f.kind as never), null);
-    const fam = (sp?.family ?? 'equation') as Family;
-    const tile = h('span', { class: 'cf-mtile', style: `--ink:${FAMILY[fam].ink}` }, h('span', { class: 'cf-mglyph' }, sp?.glyph ?? '?'), h('span', { class: 'cf-mname' }, sp?.name ?? f.kind), f.recipe ? h('span', { class: 'cf-mrecipe' }, f.recipe) : null);
-    const ruleR = f.rule ? parseFig(f.rule, A.atoms) : null;
-    box.append(h('div', { class: 'cf-mrow' },
-      inp ? figEl(inp, A.L, A.H, { vars: A.vars }) : h('span', {}, f.input), h('span', { class: 'h3-tf-arrow' }, '→'), tile, h('span', { class: 'h3-tf-arrow' }, '→'),
-      out ? figEl(out, A.L, A.H, { vars: A.vars }) : h('span', {}, f.output)));
-    if (f.rule) box.append(h('div', { class: 'cf-mrule' }, h('span', { class: 'cf-mrule-k' }, 'rule'), ruleR ? figEl(ruleR, A.L, A.H, { vars: A.vars }) : h('span', { html: texHTML(f.rule) })));
-    const c = cap(f.caption); if (c) box.append(c);
-    return box;
-  }
-  if (f.k === 'clock') box.innerHTML = clockSVG(f.n) + `<figcaption>ℤ<sub>${f.n}</sub>: adding 1 goes round the clock</figcaption>`;
-  else if (f.k === 'table') { const G = groupByName(f.group); if (!G) return null; box.innerHTML = tableHTML(G); }
-  else if (f.k === 'cayley') { const G = groupByName(f.group); if (!G) return null; box.innerHTML = cayleySVG(G, f.gens) + `<figcaption>${esc(G.name)}: an arrow for each step “multiply by a generator”</figcaption>`; }
-  else if (f.k === 'beads') {
-    const A = figAtoms(s, f.towers);
-    for (const t of f.terms) {
-      const r = parseFig(t, A.atoms);
-      if (r) box.append(h('div', { class: 'cf-beads' }, figEl(r, A.L, A.H, { vars: A.vars })));
-    }
-    if (!box.childElementCount) return null;
-  }
-  return box;
+  return null;
 }
 
-export const cardsFor = (levelId: string): ConceptCard[] => (CARDS as Record<string, ConceptCard[] | undefined>)[levelId] ?? [];
+export const cardsFor = (levelId: string): ConceptCard[] => CARDS[levelId] ?? [];
 
 /** Open the current level's card that best explains a machine kind / word (jam and lens "?" links). */
 export function openConceptFor(store: Store, kindOrWord: string, text?: string) {
@@ -171,45 +50,46 @@ export function openConceptFor(store: Store, kindOrWord: string, text?: string) 
   if (!cs.length) return;
   const w = kindOrWord.toLowerCase();
   let i = cs.findIndex((c) => c.machines?.some((m) => m === w || m.startsWith(`${w}:`)));
-  if (i < 0) i = cs.findIndex((c) => `${c.title} ${c.body}`.toLowerCase().includes(w));
+  if (i < 0) i = cs.findIndex((c) => `${c.title} ${c.body ?? ''}`.toLowerCase().includes(w));
   if (i < 0 && text) { const t = text.toLowerCase(); i = cs.findIndex((c) => c.title.toLowerCase().split(/\W+/).some((x) => x.length > 4 && t.includes(x))); }
   store.openCards(Math.max(0, i));
 }
 
 export function mountConcepts(layer: HTMLElement, store: Store) {
-  const el = h('section', { class: 'h3-cards', hidden: true, role: 'dialog', 'aria-label': 'Concept cards' });
+  const el = h('section', { class: 'h3-cards cc', hidden: true, role: 'dialog', 'aria-label': 'Concept cards' });
   layer.append(el);
+  void loadScenes().catch(() => undefined);
   let lastKey = '';
   const render = (s: S) => {
     const cs = cardsFor(s.level.id);
     const open = s.ui.screen === 'floor' && !!s.ui.cards?.open && cs.length > 0 && !s.ui.ceremony;
-    if (!open) { if (!el.hidden) { el.hidden = true; lastKey = ''; } return; }
+    if (!open) { if (!el.hidden) { el.hidden = true; el.replaceChildren(); lastKey = ''; } return; }
     const page = Math.max(0, Math.min(cs.length - 1, s.ui.cards.page));
-    const key = `${s.level.id}|${page}`;
+    const key = `${s.level.id}|${page}|${isReduced(s) ? 'r' : ''}`;
     el.hidden = false;
     if (key === lastKey) return;
     lastKey = key;
     const c = cs[page]!;
-    el.innerHTML = '';
-    const close = h('button', { class: 'h3-x', 'aria-label': 'Close the cards (Esc)' }, '×');
+    el.replaceChildren();
+    el.scrollTop = 0;
+    const close = h('button', { class: 'cc-x', 'aria-label': 'Close the cards (Esc)' }, '×');
     close.addEventListener('click', () => store.closeCards());
-    el.append(h('header', { class: 'cf-head' }, h('span', { class: 'h3-label' }, `${s.level.index} · ${s.level.title}`), h('span', { class: 'h3-flex' }), h('span', { class: 'cf-count' }, `${page + 1} / ${cs.length}`), close));
-    el.append(h('h2', { class: 'cf-title' }, c.title));
-    // picture first: the figures, each with its caption; the (optional, short) body under them
-    const figs = (c.figures ?? (c.figure ? [c.figure] : [])).map((f) => safe(() => figureEl(s, f), null)).filter((x): x is HTMLElement => !!x);
-    if (figs.length) el.append(h('div', { class: 'cf-figs' }, ...figs));
-    if (c.body) el.append(h('div', { class: `cf-body${c.long ? ' long' : ''}`, html: mdHTML(c.body) }));
+    el.append(h('header', { class: 'cc-head' }, h('span', { class: 'cc-label' }, `${s.level.index} · ${s.level.title}`), h('span', { class: 'cc-flex' }), h('span', { class: 'cc-count' }, `${page + 1} / ${cs.length}`), close));
+    el.append(h('h2', { class: 'cc-title' }, c.title));
+    if (c.body) el.append(h('div', { class: `cc-body${c.long ? ' long' : ''}`, html: mdHTML(c.body) }));
+    const figs = (c.figures ?? []).map((f) => safe(() => figureEl(s, f), null)).filter((x): x is HTMLElement => !!x);
+    if (figs.length) el.append(h('div', { class: 'cc-figs' }, ...figs));
     const parts: [string, string | undefined, string][] = [['Worked example', c.example, 'ex'], ['Near miss', c.nearMiss, 'nm'], ['On the floor', c.gesture, 'ge']];
-    const extra = h('div', { class: 'cf-parts' });
-    for (const [label, text, cls] of parts) if (text) extra.append(h('div', { class: `cf-part ${cls}` }, h('span', { class: 'cf-part-k' }, label), h('div', { html: mdHTML(text) })));
+    const extra = h('div', { class: 'cc-parts' });
+    for (const [label, text, cls] of parts) if (text) extra.append(h('div', { class: `cc-part ${cls}` }, h('span', { class: 'cc-part-k' }, label), h('div', { html: mdHTML(text) })));
     if (extra.childElementCount) el.append(extra);
-    const prev = h('button', { class: 'lw-key small', disabled: page === 0 }, '← Back');
-    const next = h('button', { class: 'lw-key small primary' }, page < cs.length - 1 ? 'Next →' : 'Start building');
+    const prev = h('button', { class: 'cc-btn', disabled: page === 0 }, '← Back');
+    const next = h('button', { class: 'cc-btn primary' }, page < cs.length - 1 ? 'Next →' : 'Start building');
     prev.addEventListener('click', () => store.setCardPage(page - 1));
     next.addEventListener('click', () => (page < cs.length - 1 ? store.setCardPage(page + 1) : store.closeCards()));
-    const dots = h('span', { class: 'cf-dots' });
-    cs.forEach((_, i) => { const d = h('button', { class: `cf-dot${i === page ? ' on' : ''}`, 'aria-label': `card ${i + 1}` }); d.addEventListener('click', () => store.setCardPage(i)); dots.append(d); });
-    el.append(h('footer', { class: 'cf-foot' }, prev, dots, h('span', { class: 'h3-flex' }), h('span', { class: 'h3-dim' }, 'Enter or Esc closes · ← → pages'), next));
+    const dots = h('span', { class: 'cc-dots' });
+    cs.forEach((_, i) => { const d = h('button', { class: `cc-dot${i === page ? ' on' : ''}`, 'aria-label': `card ${i + 1}` }); d.addEventListener('click', () => store.setCardPage(i)); dots.append(d); });
+    el.append(h('footer', { class: 'cc-foot' }, prev, dots, h('span', { class: 'cc-flex' }), h('span', { class: 'cc-hint' }, 'Enter or Esc closes · ← → pages'), next));
   };
   // While open: Esc / Enter close, arrows page. Everything else (Q, hotkeys) passes to the floor.
   window.addEventListener('keydown', (e) => {

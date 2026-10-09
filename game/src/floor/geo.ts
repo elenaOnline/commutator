@@ -138,7 +138,8 @@ export function buildGeo(c: Canvas, comp: Compiled | null, ctx: KernelCtx): Geo 
   }
   // bounds in world px
   const pts: S2[] = [];
-  for (const g of ms.values()) { pts.push(P(g.x0, g.y0), P(g.x1, g.y0), P(g.x0, g.y1), P(g.x1, g.y1)); }
+  // machine tops count (a Tower's transmitter reaches about 1.7 tile heights above the floor)
+  for (const g of ms.values()) { pts.push(P(g.x0, g.y0, g.m.kind === 'tower' ? 1.7 : 0.5), P(g.x1, g.y0), P(g.x0, g.y1), P(g.x1, g.y1)); }
   for (const r of c.rooms) { pts.push(P(r.rect.x, r.rect.y), P(r.rect.x + r.rect.w, r.rect.y), P(r.rect.x, r.rect.y + r.rect.h), P(r.rect.x + r.rect.w, r.rect.y + r.rect.h)); }
   for (const b of bs.values()) for (const p of b.line) pts.push(P(p[0], p[1]));
   const bounds = pts.length

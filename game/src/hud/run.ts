@@ -33,6 +33,9 @@ export function mountRun(layer: HTMLElement, store: Store, hooks: { toggleTransc
   const proof = h('button', { class: 'h3-tog', title: 'The proof, as a textbook transcript (T)', 'aria-pressed': 'false' }, h('span', { class: 'h3-tog-g', html: '<span class="tomb"></span>' }), 'Proof');
   const lab = h('button', { class: 'h3-tog', title: 'Conjecture lab: test claims on small groups', 'aria-pressed': 'false' }, h('span', { class: 'h3-tog-g' }, '?='), 'Lab');
   const book = h('button', { class: 'h3-tog', title: 'Your Lemma Book: theorems you proved (L)', 'aria-pressed': 'false' }, h('span', { class: 'h3-tog-g math' }, '∀'), 'Lemmas');
+  // review 2026-10 (3cb4f78e): Out, the Dock's Expected and the Generalize line drawn as terms (default on)
+  const terms = h('button', { class: 'h3-tog h3-outterms', title: 'Out as terms: draw Out, Expected and Generalize as terms, not text', 'aria-pressed': 'true' }, h('span', { class: 'h3-tog-g h3-terms-g' }, 'ab'), 'Out as terms');
+  terms.addEventListener('click', () => store.setOutAsTerms(store.get().save.settings.outAsTerms === false));
   book.addEventListener('click', () => hooks.toggleBook());
   alt.addEventListener('click', () => store.toggleAlt());
   proof.addEventListener('click', () => hooks.toggleTranscript());
@@ -44,20 +47,21 @@ export function mountRun(layer: HTMLElement, store: Store, hooks: { toggleTransc
       metric('machines', 'Machines', 'Machines you placed'),
       metric('area', 'Area', 'Tiles you used'),
       metric('cycles', 'Cycles', 'Ticks until every dock is filled')),
-    h('div', { class: 'h3-run-row h3-togs' }, alt, proof, book, lab));
+    h('div', { class: 'h3-run-row h3-togs' }, alt, terms, proof, book, lab));
 
   let lastKey = '', lastRun: unknown = null, lastComp: unknown = null, lastDel = -1, lastSave: unknown = null;
   const fmt = (n: number | null | undefined) => (n === null || n === undefined || !Number.isFinite(n) ? '—' : String(n));
   const render = (s: S) => {
     const u = s.ui;
-    const key = JSON.stringify([u.playing, u.speed, u.alt, u.transcriptOpen, hooks.isLabOpen(), u.lemmaBookOpen, s.save.lemmas.length, s.level.id]);
+    const ot = s.save.settings.outAsTerms !== false;
+    const key = JSON.stringify([u.playing, u.speed, u.alt, ot, u.transcriptOpen, hooks.isLabOpen(), u.lemmaBookOpen, s.save.lemmas.length, s.level.id]);
     if (key !== lastKey) {
       lastKey = key;
       play.classList.toggle('on', u.playing);
       play.innerHTML = u.playing ? '<span class="h3-pause"></span>' : '<span class="h3-tri"></span>';
       play.setAttribute('aria-label', u.playing ? 'Pause' : 'Play');
       speeds.forEach((b) => b.classList.toggle('on', +b.dataset.v! === u.speed));
-      for (const [b, on] of [[alt, u.alt], [proof, u.transcriptOpen], [lab, hooks.isLabOpen()], [book, !!u.lemmaBookOpen]] as const) { b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); }
+      for (const [b, on] of [[alt, u.alt], [terms, ot], [proof, u.transcriptOpen], [lab, hooks.isLabOpen()], [book, !!u.lemmaBookOpen]] as const) { b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); }
       book.dataset.count = String(s.save.lemmas.length);
       lab.classList.toggle('has-predict', !!s.level.predict?.length && !s.save.levels[s.level.id]?.solvedAt);
     }

@@ -42,7 +42,13 @@ describe('migrateCanvas: real v3 canvases → v4', () => {
     // every machine that survives keeps its place and rotation
     for (const m of c!.machines) {
       const old = raw.machines.find((x) => x.id === m.id);
-      if (old) { expect(m.at).toEqual(old.at); expect(m.rot).toBe(old.rot); }
+      if (!old) continue;
+      expect(m.rot).toBe(old.rot);
+      // a 2×1 dock grew to 2×2 one row up: its W inlet 'q' keeps its tile, so old belts still land on it
+      // (R01's second dock: its belt ends on the row above, so it grows down instead and the belt moves to 'qn')
+      if (m.kind === 'socket' && !(key === 'R01' && m.id === 'socket:t')) { expect(m.at).toEqual({ x: old.at.x, y: old.at.y - 1 }); expect(portsOf(m, k).find((p) => p.id === 'q')!.tile).toEqual(old.at); }
+      else if (m.kind === 'socket') { expect(m.at).toEqual(old.at); expect(c!.belts.find((b) => b.id === 'b5')!.to).toEqual({ m: 'socket:t', port: 'qn' }); }
+      else expect(m.at).toEqual(old.at);
     }
     expect(c!.belts.filter((b) => b.broken)).toEqual([]);
     // idempotent: a v4 canvas passes through unchanged in substance

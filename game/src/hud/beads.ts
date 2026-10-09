@@ -89,7 +89,7 @@ export function rail(t: Term, o: O): HTMLElement {
   return railEl;
 }
 
-/** Small inline beads (chips, previews, figures), powers included. */
+/** Small inline terms (chips, previews, figures), powers included. */
 export function beads(t: Term, L: Labels, H: Hues): HTMLElement {
   if (!hasPow(t)) return beadsInline(t, L, H);
   const r = rail(t, { side: 'l', L, hues: H, gaps: false });

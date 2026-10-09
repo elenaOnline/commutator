@@ -14,6 +14,7 @@ import { factText, labelsOf, termText, type Labels } from './print';
 import { POLY_LIMITS, ResourceLimit, polyNorm, polyRefs, polyRename, resetPolyBudget } from './poly';
 import { literalOf, powerAllowed, powerSchema } from './powers';
 import type { Poly, ZRef } from './types';
+import { MIRROR_NAMES } from '../levels/levels';
 
 // ───────────── rule cards ─────────────
 
@@ -87,7 +88,7 @@ export function ruleName(rule: RuleRef, ctx: KernelCtx): string {
   if (rule.k === 'schema') {
     let sc = ctx.registry[rule.id];
     try { sc = powerSchema(rule.id) ?? sc; } catch { /* unknown */ }
-    return sc ? `${sc.name}${rule.mirror ? ' ᵒᵖ' : ''}` : rule.id;
+    return sc ? (rule.mirror ? (MIRROR_NAMES[rule.id]?.name ?? `${sc.name} ᵒᵖ`) : sc.name) : rule.id;
   }
   return 'the cited fact';
 }
@@ -242,12 +243,12 @@ function unfoldLiterals(t: Term): Term {
 }
 const countPows = (t: Term): number => (t.k === 'pow' ? 1 + countPows(t.base) : t.k === 'inv' ? countPows(t.arg) : t.k === 'mul' ? t.fs.reduce((n, f) => n + countPows(f), 0) : 0);
 
-/** "the power a^5 (one stack)" / "the word a⁵ (five beads)" / plain text. */
+/** "the power a⁵" / "the product aaaaa (five factors)" / plain text. Copy says terms, never beads (review 2026-10). */
 export function stackOrWord(t: Term, L: Labels): string {
   const txt = termText(t, L);
-  if (t.k === 'pow') return `the power ${txt} (one stack)`;
-  if (t.k === 'mul' && t.fs.every((f) => same(f, t.fs[0]!)) && t.fs.length >= 2) return `the word ${txt} (${numWord(t.fs.length)} beads)`;
-  if (t.k === 'mul' && countPows(t) === 0) return `the word ${txt} (${numWord(t.fs.length)} beads)`;
+  if (t.k === 'pow') return `the power ${txt}`;
+  if (t.k === 'mul' && t.fs.every((f) => same(f, t.fs[0]!)) && t.fs.length >= 2) return `the product ${txt} (${numWord(t.fs.length)} factors)`;
+  if (t.k === 'mul' && countPows(t) === 0) return `the product ${txt} (${numWord(t.fs.length)} factors)`;
   return txt;
 }
 
@@ -262,7 +263,7 @@ export function stackWordHint(have: Term, want: Term, L: Labels): { have: string
   return {
     have: stackOrWord(norm(have), L),
     want: stackOrWord(norm(want), L),
-    hint: toWord ? 'use Literal Power to turn the stack into the word' : 'use Literal Power to turn the word into the stack',
+    hint: toWord ? 'use literal power to write the power out as a product' : 'use literal power to write the product as a power',
   };
 }
 

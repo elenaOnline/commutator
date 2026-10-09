@@ -12,7 +12,7 @@ function mouldReflectorSocket() {
     machines: [
       { id: 'hop', kind: 'hopper', at: { x: 10, y: 5 }, rot: 0, config: { kind: 'hopper', t: a } },
       { id: 'spool', kind: 'spool', at: { x: 12, y: 5 }, rot: 0, config: { kind: 'spool', t: { k: 'port' } } },
-      { id: 'sock', kind: 'socket', at: { x: 14, y: 5 }, rot: 0, config: { kind: 'socket', socketId: 's' }, locked: true },
+      { id: 'sock', kind: 'socket', at: { x: 14, y: 4 }, rot: 0, config: { kind: 'socket', socketId: 's' }, locked: true },
     ],
     belts: [
       { id: 'b1', from: { m: 'hop', port: 'out' }, to: { m: 'spool', port: 't' }, path: [{ x: 11, y: 5 }] },
@@ -150,7 +150,7 @@ describe('tick runtime (§9)', () => {
       machines: [
         { id: 'hop', kind: 'hopper', at: { x: 10, y: 5 }, rot: 0, config: { kind: 'hopper', t: a } },
         { id: 'spool', kind: 'spool', at: { x: 11, y: 5 }, rot: 0, config: { kind: 'spool', t: { k: 'port' } } },
-        { id: 'sock', kind: 'socket', at: { x: 12, y: 5 }, rot: 0, config: { kind: 'socket', socketId: 's' }, locked: true },
+        { id: 'sock', kind: 'socket', at: { x: 12, y: 4 }, rot: 0, config: { kind: 'socket', socketId: 's' }, locked: true },
       ],
       belts: [
         { id: 'b1', from: { m: 'hop', port: 'out' }, to: { m: 'spool', port: 't' }, path: [] },
@@ -225,7 +225,7 @@ describe('tick runtime (§9)', () => {
         { id: 'desk', kind: 'desk', at: { x: 11, y: 1 }, rot: 0, config: { kind: 'desk', room: 'R' }, locked: true },
         { id: 'anvil', kind: 'joiner', at: { x: 13, y: 1 }, rot: 0, config: { kind: 'joiner', recipe: { k: 'clash' } } },
         { id: 'gate', kind: 'gate', at: { x: 17, y: 2 }, rot: 0, config: { kind: 'gate', room: 'R' }, locked: true },
-        { id: 'sock', kind: 'socket', at: { x: 20, y: 2 }, rot: 0, config: { kind: 'socket', socketId: 's' }, locked: true },
+        { id: 'sock', kind: 'socket', at: { x: 20, y: 1 }, rot: 0, config: { kind: 'socket', socketId: 's' }, locked: true },
       ],
       belts: [
         { id: 'b1', from: { m: 'desk', port: 'out' }, to: { m: 'anvil', port: 'a' }, path: [{ x: 12, y: 1 }] },

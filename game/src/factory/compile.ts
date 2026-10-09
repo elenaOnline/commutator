@@ -22,9 +22,9 @@ import type {
   Belt, Canvas, Compiled, ItemKind, ItemValue, LibRef, Machine, MachineResult, Param, Port, Rect, SpanTarget, Tile,
 } from './types';
 import { itemKindOf } from './types';
-import { FACE_DELTA, footprint, portsOf, frontOf, inRect, tileKey } from './geometry';
+import { DOCK_PORTS, FACE_DELTA, footprint, portsOf, frontOf, inRect, tileKey } from './geometry';
 import { SPECS, varLabel } from './catalog';
-import { LEVEL_BY_ID } from '../levels/levels';
+import { LEVEL_BY_ID, MIRROR_NAMES, SIDE_PAIRS } from '../levels/levels';
 import type { SavedLemma } from '../state/factoryStore';
 import {
   RAIL_ORDER, cancelCandidates, gapAddr, gapCandidates, resolveGapPin, resolveSpanPin, spanAddr, spanCandidates,
@@ -58,6 +58,8 @@ export const JAMS = {
   cycle: 'This feeds itself. Break the loop.',
   // knobs
   chooseElement: (what: string) => `Choose ${what}.`,
+  /** An empty source: a Spool or Hopper with no term yet. */
+  giveTerm: (machine: string) => `Give the ${machine} a term.`,
   // targets
   noCancel: (_side: string, rail: string) => `Nothing cancels in ${rail}.`,
   noCancelAnywhere: (q: string) => `Nothing cancels in ${q}.`,
@@ -123,6 +125,8 @@ export const JAMS = {
   assumeGate: (f: string) => `${f} is not an equation. This gate takes = or ≠.`,
   socketNeedsCard: (want: string, got: string) => `Needs ${want}. Run ${got} through ∀ first.`,
   socketLibrary: 'Needs a proof made here, not a library card.',
+  /** A dock with several wired inlets names the belt a reason is about. */
+  dockFrom: (who: string, reason: string) => `From the ${who}: ${reason}`,
   socketStack: (_want: string, have: string, needed: string, hint: string) => `Got ${have}, the goal has ${needed}. ${hint[0]!.toUpperCase()}${hint.slice(1)}.`,
   multiplyNeq: (f: string) => `${f} is an inequation. Multiply needs an equation.`,
   gateNeedsBot: (f: string) => `This room closes on ⊥. ${f} is not ⊥.`,
@@ -154,7 +158,7 @@ const MATCH_BUDGET = 50_000;
 export interface PlanMachine {
   /** Periodic source (Spool with a knob, Hopper, Given, Desk, Card Dock). */
   source: boolean;
-  /** Manifest socket id, for docks. */
+  /** Manifest socket id, for docks. A dock's `ins` are its certified inlets: any of them may deliver. */
   socket?: string;
   ok: boolean;
   /** Inputs a job needs: consumed buffers, and catalysts (rule/card slots: latched until an edit). */
@@ -197,6 +201,13 @@ const jam = (reason: string): never => { throw new Halt('jammed', reason); };
 const starve = (reason: string, cause?: string): never => { throw new Halt('starved', reason, cause); };
 
 const nodeId = (m: string, role: string) => `${m}#${role}`;
+/** A schema side's standard name (SIDE_PAIRS / MIRROR_NAMES); otherwise the registry name, with ᵒᵖ for a mirror. */
+const sideName = (id: string, mirror: boolean | undefined, base: string): string => {
+  const pair = SIDE_PAIRS[id];
+  if (pair) return mirror ? pair.op : pair.plain;
+  if (mirror && MIRROR_NAMES[id]) return MIRROR_NAMES[id]!.name;
+  return `${base}${mirror ? ' ᵒᵖ' : ''}`;
+};
 const area = (r: Rect) => r.w * r.h;
 const rectInside = (a: Rect, b: Rect) => a.x >= b.x && a.y >= b.y && a.x + a.w <= b.x + b.w && a.y + a.h <= b.y + b.h;
 const rectDisjoint = (a: Rect, b: Rect) => a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y;
@@ -682,7 +693,8 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
   const pout: Record<string, ItemValue | undefined> = {};   // preview output
   const cause: Record<string, string> = {};
   const plan: RunPlan = { machines: {}, succ: {}, routes: {}, active: [], footprints, feeds: {} };
-  const socketStatic: Record<string, { by?: string; P?: NodeId; reason?: string }> = {};
+  /** Per socket: the first certified delivery (by, P) and every inlet that would deliver (`cands`, in inlet order). */
+  const socketStatic: Record<string, { by?: string; P?: NodeId; reason?: string; cands?: { port: string; by?: string; P: NodeId }[] }> = {};
 
   // ── the library: a given node for EVERY level given (inlet or not) and the Lagrange law ──
   // Citing a given as a recipe cites this node, so the citation carries the dependency g:<id> exactly
@@ -730,7 +742,7 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
       case 'schema': {
         let card: Card;
         try { card = schemaCard(ref.id, ref.mirror, ctx); } catch (e) { return jam((e as Error).message); }
-        const name = `${schemaInfo(ref.id, ctx)?.name ?? ref.id}${ref.mirror ? ' ᵒᵖ' : ''}`;
+        const name = sideName(ref.id, ref.mirror, schemaInfo(ref.id, ctx)?.name ?? ref.id);
         if (card.k === 'cond') return jam(JAMS.ruleCond(`${name} (${F(card)})`));
         return { ref: { k: 'schema', id: ref.id, ...(ref.mirror ? { mirror: true } : {}) }, text: name };
       }
@@ -756,7 +768,7 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
       case 'schema': {
         let card: Card;
         try { card = schemaCard(ref.id, ref.mirror, ctx); } catch (e) { return jam((e as Error).message); }
-        return { ref: { k: 'schema', id: ref.id, ...(ref.mirror ? { mirror: true } : {}) }, card, name: `${schemaInfo(ref.id, ctx)?.name ?? ref.id}${ref.mirror ? ' ᵒᵖ' : ''}` };
+        return { ref: { k: 'schema', id: ref.id, ...(ref.mirror ? { mirror: true } : {}) }, card, name: sideName(ref.id, ref.mirror, schemaInfo(ref.id, ctx)?.name ?? ref.id) };
       }
       case 'lagrange': {
         const ln = powerLevel ? lagrangePow : lagrangeNode;
@@ -1006,6 +1018,11 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
       }
     };
 
+    // a Receiving Dock's wired inlets, in pinwheel order (W 'q' first): any of them may deliver
+    const dockWired = cfg.kind === 'socket'
+      ? [...DOCK_PORTS.map((d) => d.id), ...myPorts.map((p) => p.id)].filter((pid, i, a) => a.indexOf(pid) === i && myPorts.some((p) => p.id === pid && p.dir === 'in'))
+        .filter((pid) => inBelt.has(`${id}|${pid}`) || badIn.has(`${id}|${pid}`) || brokenIn.has(`${id}|${pid}`))
+      : [];
     try {
       if (inCycle.has(id)) jam(JAMS.cycle);
       if (scopeErr[id]) jam(scopeErr[id]!);
@@ -1020,6 +1037,7 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
             const dep = pv.k === 'fact' ? [...(pdeps.get(pv.node) ?? [])].find((d) => d.startsWith('a:')) : undefined;
             beltErrors[bad] = dep ? JAMS.leakFact(itemText(pv), supposition(dep.slice(2))) : JAMS.leakItem(itemText(pv));
           }
+          if (dockWired.length > 1) continue; // another inlet may still deliver: the dock judges each one below
           jam(beltErrors[bad] ?? JAMS.beltPort);
         }
         const v = inputs[p.id];
@@ -1039,7 +1057,7 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
       switch (cfg.kind) {
         // ───── sources ─────
         case 'spool': {
-          const t = cfg.t.k === 'port' ? getTerm('t') : cfg.t.term ? ground(cfg.t.term, 'the spool’s element') : starve(JAMS.chooseElement('the spool'));
+          const t = cfg.t.k === 'port' ? getTerm('t') : cfg.t.term ? ground(cfg.t.term, 'the spool’s element') : starve(JAMS.giveTerm('Spool'));
           source = cfg.t.k === 'knob';
           emit({ k: 'start', term: t } as never, 'reflexivity', 'start');
           r.duration = source ? 0 : 1;
@@ -1052,7 +1070,7 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
         }
         case 'hopper': {
           source = true;
-          if (!cfg.t) starve(JAMS.chooseElement('the hopper'));
+          if (!cfg.t) starve(JAMS.giveTerm('Hopper'));
           pout[id] = { k: 'term', term: ground(cfg.t!, 'the hopper’s element') };
           break;
         }
@@ -1213,37 +1231,56 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
           if (!sd) jam(JAMS.noSocket(cfg.socketId));
           socketStatic[cfg.socketId] = {};
           const tg = sd!.target;
-          const prod = inBelt.get(`${id}|q`)?.from.m;
-          const v = get('q');
-          if (tg.k === 'law' || tg.k === 'cond') {
-            // a ∀ goal: a card proved on this floor, equal to the target up to renaming its variables
-            if (v.k !== 'card') jam(v.k === 'fact' ? JAMS.socketNeedsCard(F(tg), F(v.fact)) : JAMS.socketWrong(F(tg), itemText(v)));
-            const cv = v as ItemValue & { k: 'card' };
-            if (cv.ref.k !== 'node') jam(JAMS.socketLibrary);
-            // as the kernel: a law read either way round (and a cond with a flipped = conclusion) fills it
-            if (!sameCardUpToRenaming(cv.card, tg) && !sameCardUpToRenaming(flipConclusion(cv.card), tg)) jam(JAMS.socketWrong(F(tg), F(cv.card)));
-            socketStatic[cfg.socketId] = { by: prod, P: (cv.ref as { id: string }).id };
-            break;
-          }
-          if (v.k !== 'fact') jam(JAMS.socketWrong(F(tg), itemText(v)));
-          if (tg.k !== 'eq' && tg.k !== 'neq') jam(JAMS.socketWrong(F(tg), itemText(v)));
-          const f = (v as ItemValue & { k: 'fact' }).fact as Pallet & { k: 'eq' | 'neq'; l: Term; r: Term };
-          if (f.k !== 'eq' && f.k !== 'neq') jam(JAMS.socketWrong(F(tg), F(f)));
-          const node = (v as ItemValue & { k: 'fact' }).node;
-          const tq = tg as Pallet & { k: 'eq' | 'neq'; l: Term; r: Term };
-          if (f.k === tq.k && same(norm(f.l), norm(tq.l)) && same(norm(f.r), norm(tq.r))) {
-            socketStatic[cfg.socketId] = { by: prod, P: node };
-          } else if (f.k === tq.k && same(norm(f.l), norm(tq.r)) && same(norm(f.r), norm(tq.l))) {
-            emit({ k: 'step', input: node, op: { k: 'swap' } } as never, 'auto-swap', 'swap');
-            socketStatic[cfg.socketId] = { by: prod, P: lastNode() };
-          } else {
+          /** What arrives at one inlet, judged against the goal: its proof node, or halt. */
+          const deliverFrom = (pid: string): { port: string; by?: string; P: NodeId } => {
+            const prod = inBelt.get(`${id}|${pid}`)?.from.m;
+            const v = get(pid);
+            if (tg.k === 'law' || tg.k === 'cond') {
+              // a ∀ goal: a card proved on this floor, equal to the target up to renaming its variables
+              if (v.k !== 'card') jam(v.k === 'fact' ? JAMS.socketNeedsCard(F(tg), F(v.fact)) : JAMS.socketWrong(F(tg), itemText(v)));
+              const cv = v as ItemValue & { k: 'card' };
+              if (cv.ref.k !== 'node') jam(JAMS.socketLibrary);
+              // as the kernel: a law read either way round (and a cond with a flipped = conclusion) fills it
+              if (!sameCardUpToRenaming(cv.card, tg) && !sameCardUpToRenaming(flipConclusion(cv.card), tg)) jam(JAMS.socketWrong(F(tg), F(cv.card)));
+              return { port: pid, by: prod, P: (cv.ref as { id: string }).id };
+            }
+            if (v.k !== 'fact') jam(JAMS.socketWrong(F(tg), itemText(v)));
+            if (tg.k !== 'eq' && tg.k !== 'neq') jam(JAMS.socketWrong(F(tg), itemText(v)));
+            const f = (v as ItemValue & { k: 'fact' }).fact as Pallet & { k: 'eq' | 'neq'; l: Term; r: Term };
+            if (f.k !== 'eq' && f.k !== 'neq') jam(JAMS.socketWrong(F(tg), F(f)));
+            const node = (v as ItemValue & { k: 'fact' }).node;
+            const tq = tg as Pallet & { k: 'eq' | 'neq'; l: Term; r: Term };
+            if (f.k === tq.k && same(norm(f.l), norm(tq.l)) && same(norm(f.r), norm(tq.r))) return { port: pid, by: prod, P: node };
+            if (f.k === tq.k && same(norm(f.l), norm(tq.r)) && same(norm(f.r), norm(tq.l))) {
+              emit({ k: 'step', input: node, op: { k: 'swap' } } as never, 'auto-swap', pid === 'q' ? 'swap' : `swap.${pid}`);
+              return { port: pid, by: prod, P: lastNode() };
+            }
             // words versus stacks: say which is which and point at Literal Power (the kernel's wording)
             const hl = f.k === tq.k ? stackWordHint(f.l, tq.l, L) : null, hr = f.k === tq.k ? stackWordHint(f.r, tq.r, L) : null;
             const sideOk = (u: Term, w: Term, h: unknown) => !!h || same(norm(u), norm(w));
             const h = hl ?? hr;
             if (h && sideOk(f.l, tq.l, hl) && sideOk(f.r, tq.r, hr)) jam(JAMS.socketStack(F(tg), h.have, h.want, h.hint));
-            jam(JAMS.socketWrong(F(tg), F(f)));
+            return jam(JAMS.socketWrong(F(tg), F(f)));
+          };
+          // nothing wired: starve on the W inlet exactly as the one-inlet dock did
+          if (!dockWired.length) { get('q'); break; }
+          const cands: { port: string; by?: string; P: NodeId }[] = [];
+          let firstJam: Halt | null = null, firstHalt: Halt | null = null;
+          for (const pid of dockWired) {
+            const mark = { ins: ins.length, mine: mine.length, nodes: nodes.length };
+            try { cands.push(deliverFrom(pid)); } catch (e) {
+              if (!(e instanceof Halt)) throw e;
+              ins.length = mark.ins; mine.length = mark.mine; nodes.length = mark.nodes;
+              // several inlets wired: say which belt the reason is about (one inlet: as before)
+              const prod = inBelt.get(`${id}|${pid}`)?.from.m;
+              const pm = prod ? byId.get(prod) : undefined;
+              const h = dockWired.length > 1 && pm ? new Halt(e.k, JAMS.dockFrom(nameOf(pm), e.reason), e.cause) : e;
+              if (h.k === 'jammed' && !firstJam) firstJam = h;
+              if (!firstHalt) firstHalt = h;
+            }
           }
+          if (!cands.length) throw firstJam ?? firstHalt!;
+          socketStatic[cfg.socketId] = { by: cands[0]!.by, P: cands[0]!.P, cands };
           break;
         }
         default:
@@ -1278,7 +1315,8 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
     const m = byId.get(id)!;
     if (r.status.k === 'ok') {
       const ups = plan.machines[id]!.ins.map((p) => inBelt.get(`${id}|${p.port}`)?.from.m).filter((x): x is string => !!x);
-      const badUp = ups.find((u) => results[u]?.status.k !== 'ok');
+      // a dock needs only one live inlet; any other machine needs every input
+      const badUp = m.kind === 'socket' && ups.some((u) => results[u]?.status.k === 'ok') ? undefined : ups.find((u) => results[u]?.status.k !== 'ok');
       if (badUp) {
         r.status = { k: 'starved', reason: JAMS.waiting(nameOf(byId.get(badUp)!), [...new Set((ports.get(id) ?? []).filter((p) => p.dir === 'in').flatMap((p) => p.accepts))]) };
         cause[id] = cause[badUp] ?? badUp;
@@ -1307,6 +1345,36 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
 
   // ── sockets: wired delivery with a P-first closure check (§8) ──
   const nodeById = new Map(nodes.map((n) => [n.id, n]));
+  /** The kernel's verdict on delivering node P to socket sd: undefined = accepted, else the reason. */
+  const closureReason = (sd: (typeof ctx.level.sockets)[number], P: NodeId): string | undefined => {
+    const pn = nodeById.get(P);
+    if (!pn || pn.scope !== ROOT) return JAMS.socketNotRoot;
+    const seen = new Set<NodeId>();
+    const stack = [P];
+    while (stack.length) {
+      const x = stack.pop()!;
+      if (seen.has(x)) continue;
+      seen.add(x);
+      const n = nodeById.get(x);
+      if (!n) continue;
+      const u = usesOf(n);
+      stack.push(...u.inputs, ...(u.rule ? [u.rule] : []));
+    }
+    // the delivered proof's own closure, re-checked by the kernel (in topological order)
+    const closure: ProofGraph = { nodes: nodes.filter((n) => seen.has(n.id)), rooms: kRooms, ...(vars.length ? { vars } : {}) };
+    const cr = kcheck(closure, ctx0);
+    const so = cr.sockets.find((s) => s.id === sd.id);
+    const pr = cr.nodes[P];
+    const allowed = new Set(sd.allowedGivens.map((g) => `g:${g}`));
+    const tg = sd.target;
+    const pf = pr?.fact;
+    const matches = !!pf && ((tg.k === 'law' || tg.k === 'cond')
+      ? (pf.k === 'law' || pf.k === 'cond') && (sameCardUpToRenaming(pf, tg) || sameCardUpToRenaming(flipConclusion(pf), tg))
+      : (pf.k === tg.k && (tg.k === 'eq' || tg.k === 'neq') && (pf.k === 'eq' || pf.k === 'neq') && same(norm(pf.l), norm(tg.l)) && same(norm(pf.r), norm(tg.r))));
+    const extra = pr?.deps.filter((d) => !allowed.has(d)) ?? [];
+    if (cr.ok && !!so?.ok && !!pr?.ok && matches && !extra.length) return undefined;
+    return (extra.length || !so?.ok ? so?.error : undefined) ?? Object.values(cr.nodes).find((n) => !n.ok)?.error ?? 'the kernel does not accept this delivery';
+  };
   const sockets: Compiled['sockets'] = {};
   for (const sd of ctx.level.sockets) {
     const st = socketStatic[sd.id];
@@ -1314,39 +1382,21 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
     if (!sm || !st) { sockets[sd.id] = { ok: false, reason: 'there is no dock for this goal on the floor' }; continue; }
     const r = results[sm.id]!;
     if (r.status.k !== 'ok' || !st.P) { sockets[sd.id] = { ...(st.by ? { by: st.by } : {}), ok: false, reason: r.status.k !== 'ok' ? r.status.reason : st.reason ?? 'nothing arrives' }; continue; }
-    const P = st.P;
-    const pn = nodeById.get(P);
-    let ok = false, reason: string | undefined;
-    if (!pn || pn.scope !== ROOT) reason = JAMS.socketNotRoot;
-    else {
-      const seen = new Set<NodeId>();
-      const stack = [P];
-      while (stack.length) {
-        const x = stack.pop()!;
-        if (seen.has(x)) continue;
-        seen.add(x);
-        const n = nodeById.get(x);
-        if (!n) continue;
-        const u = usesOf(n);
-        stack.push(...u.inputs, ...(u.rule ? [u.rule] : []));
-      }
-      // the delivered proof's own closure, re-checked by the kernel (in topological order)
-      const closure: ProofGraph = { nodes: nodes.filter((n) => seen.has(n.id)), rooms: kRooms, ...(vars.length ? { vars } : {}) };
-      const cr = kcheck(closure, ctx0);
-      const so = cr.sockets.find((s) => s.id === sd.id);
-      const pr = cr.nodes[P];
-      const allowed = new Set(sd.allowedGivens.map((g) => `g:${g}`));
-      const tg = sd.target;
-      const pf = pr?.fact;
-      const matches = !!pf && ((tg.k === 'law' || tg.k === 'cond')
-        ? (pf.k === 'law' || pf.k === 'cond') && (sameCardUpToRenaming(pf, tg) || sameCardUpToRenaming(flipConclusion(pf), tg))
-        : (pf.k === tg.k && (tg.k === 'eq' || tg.k === 'neq') && (pf.k === 'eq' || pf.k === 'neq') && same(norm(pf.l), norm(tg.l)) && same(norm(pf.r), norm(tg.r))));
-      const extra = pr?.deps.filter((d) => !allowed.has(d)) ?? [];
-      ok = cr.ok && !!so?.ok && !!pr?.ok && matches && !extra.length;
-      if (!ok) reason = (extra.length || !so?.ok ? so?.error : undefined) ?? Object.values(cr.nodes).find((n) => !n.ok)?.error ?? 'the kernel does not accept this delivery';
+    // every inlet that would deliver is re-checked on its own closure; any certified inlet may seal the dock
+    const live = (st.cands ?? [{ port: 'q', by: st.by, P: st.P }]).filter((cd) => !cd.by || results[cd.by]?.status.k === 'ok');
+    const certified: { port: string; by?: string }[] = [];
+    let firstReason: string | undefined, firstBy: string | undefined;
+    for (const cd of live) {
+      const reason = closureReason(sd, cd.P);
+      if (reason === undefined) certified.push(cd);
+      else if (firstReason === undefined) { firstReason = reason; firstBy = cd.by; }
     }
-    sockets[sd.id] = { ...(st.by ? { by: st.by } : {}), ok, ...(reason ? { reason } : {}) };
-    if (!ok) { r.status = { k: 'jammed', reason: reason! }; plan.machines[sm.id]!.ok = false; }
+    const ok = certified.length > 0;
+    const by = ok ? certified[0]!.by : firstBy ?? st.by;
+    const reason = ok ? undefined : firstReason ?? 'the kernel does not accept this delivery';
+    sockets[sd.id] = { ...(by ? { by } : {}), ok, ...(reason ? { reason } : {}) };
+    if (ok) plan.machines[sm.id]!.ins = certified.map((cd) => ({ port: cd.port, catalyst: false }));
+    else { r.status = { k: 'jammed', reason: reason! }; plan.machines[sm.id]!.ok = false; }
   }
   const solvable = ctx.level.sockets.length > 0 && ctx.level.sockets.every((s) => sockets[s.id]?.ok);
 

@@ -6,7 +6,7 @@ import { Player, ctxOf, gap, mkCtx, span } from './testkit';
 import { LEVELS } from '../levels/levels';
 
 const a = K.atom('a'), b = K.atom('b');
-/** The pre-v4 Conjugate Pair given, as a fixture: h: (ab)⁵ = e with the Witness Stamp. */
+/** The pre-v4 Conjugate Pair given, as a fixture: h: (ab)⁵ = e with the unique right inverse. */
 const conj = () => mkCtx({ atoms: [{ id: 'a', label: 'a', hue: 0 }, { id: 'b', label: 'b', hue: 1 }], givens: [{ id: 'h', name: 'h', fact: { k: 'eq', l: K.pow(K.mul([a, b]), 5), r: K.E } }], tools: { schemas: ['witness'] } });
 const I = K.inv, M = (...fs: Term[]) => K.mul(fs), e = K.E;
 
@@ -105,7 +105,7 @@ function checkShape(o: Offer, f: Pallet, p: Player) {
 }
 
 describe('round 2: groups, bindings, pruning', () => {
-  it('Witness Stamp cuts share a group and draw their cut on the rail', () => {
+  it('unique right inverse cuts share a group and draw their cut on the rail', () => {
     const p = new Player(conj());
     const offers = p.offers('g:h', null);
     const w = offers.filter((o) => o.group === 'schema:witness');
@@ -114,15 +114,15 @@ describe('round 2: groups, bindings, pruning', () => {
     expect(wm.length).toBe(9);
     expect(offers.find((o) => o.label === 'swap sides')!.group).toBe('swap');
     const cut = w.find((o) => o.bindings![0]!.addr.range![1] === 1)!;
-    expect(cut.label).toBe('Witness Stamp: babababab = a⁻¹');
+    expect(cut.label).toBe('unique right inverse: babababab = a⁻¹');
     expect(cut.bindings).toEqual([
       { meta: 'u', addr: { side: 'l', path: [], range: [0, 1] } },
       { meta: 'v', addr: { side: 'l', path: [], range: [1, 10] } },
     ]);
   });
-  it('Cancel Lathe binds u on both rails, v and w to the remainders', () => {
+  it('left cancellation binds u on both rails, v and w to the remainders', () => {
     const p = new Player(ctxOf('L07'));
-    const o = p.offers('g:h', null).find((x) => x.label === 'Cancel Lathe: bab = abb')!;
+    const o = p.offers('g:h', null).find((x) => x.label === 'left cancellation: bab = abb')!;
     expect(o.group).toBe('schema:cancel');
     expect(o.bindings).toEqual([
       { meta: 'u', addr: { side: 'l', path: [], range: [0, 1] } },
@@ -156,7 +156,7 @@ describe('round 2: groups, bindings, pruning', () => {
     const ctx = mkCtx({ sockets: [{ id: 's', target: { k: 'eq', l: b, r: b }, allowedGivens: [] }], tools: { schemas: ['cancel'] } });
     const q = new Player(ctx);
     const t = q.start('ab');
-    expect(q.offers(t, null).map((o) => o.label)).toContain('Cancel Lathe: b = b');
+    expect(q.offers(t, null).map((o) => o.label)).toContain('left cancellation: b = b');
   });
 });
 
@@ -337,25 +337,25 @@ describe('gap offers', () => {
 });
 
 describe('whole-pallet offers', () => {
-  it('every Witness Stamp cut, with its mirror', () => {
+  it('every unique right inverse cut, with its mirror', () => {
     const p = new Player(conj());
     const labels = p.offers('g:h', null).map((o) => o.label);
-    expect(labels.filter((l) => l.startsWith('Witness Stamp:')).length).toBe(9);
-    expect(labels.filter((l) => l.startsWith('Witness Stamp ᵒᵖ:')).length).toBe(9);
+    expect(labels.filter((l) => l.startsWith('unique right inverse:')).length).toBe(9);
+    expect(labels.filter((l) => l.startsWith('unique left inverse:')).length).toBe(9);
   });
-  it('Cancel Lathe: one offer per common prefix', () => {
+  it('left cancellation: one offer per common prefix', () => {
     const c = K.atom('c');
     const p = new Player(mkCtx({ givens: [{ id: 'f', name: 'f', fact: { k: 'eq', l: M(a, b, c, a), r: M(a, b, c, b) } }], tools: { schemas: ['cancel'] } }));
     const labels = p.offers('g:f', null).filter((o) => o.group === 'schema:cancel').map((o) => o.label);
-    expect([...labels].sort()).toEqual(['Cancel Lathe: a = b', 'Cancel Lathe: bca = bcb', 'Cancel Lathe: ca = cb']);
+    expect([...labels].sort()).toEqual(['left cancellation: a = b', 'left cancellation: bca = bcb', 'left cancellation: ca = cb']);
   });
-  it('Fixed-Point Gate on an inequation needs v', () => {
+  it('no fixed points (left) on an inequation needs v', () => {
     const c = new Player(mkCtx({ givens: [{ id: 'n', name: 'n', fact: { k: 'neq', l: M(b, a), r: e } }], tools: { schemas: ['nofix'] } }));
-    const gate = c.offers('g:n', null).find((o) => o.label.startsWith('Fixed-Point Gate:'))!;
+    const gate = c.offers('g:n', null).find((o) => o.label.startsWith('no fixed points (left):'))!;
     expect(gate.needs).toEqual(['v']);
     expect(gate.group).toBe('schema:nofix');
     const f = K.fillOffer(gate, { v: a }, c.graph, c.res, 'g:n', c.ctx);
-    expect(f.ok && f.offer.label).toBe('Fixed-Point Gate: baa ≠ a');
+    expect(f.ok && f.offer.label).toBe('no fixed points (left): baa ≠ a');
   });
   it('preSwap: a machine bites on e = uv by folding the swap into the station', () => {
     const p = new Player(ctxOf('L06'));
@@ -365,7 +365,7 @@ describe('whole-pallet offers', () => {
     n = p.play(n, null, 'swap sides'); // e = abb⁻¹a⁻¹
     const offers = p.offers(n, null).filter((o) => o.group === 'schema:witness');
     expect(offers.length).toBe(3);
-    const o = offers.find((x) => x.label === 'Witness Stamp: b⁻¹a⁻¹ = (ab)⁻¹')!;
+    const o = offers.find((x) => x.label === 'unique right inverse: b⁻¹a⁻¹ = (ab)⁻¹')!;
     expect(o.kind).toMatchObject({ k: 'apply', preSwap: true });
     expect(o.bindings).toEqual([
       { meta: 'u', addr: { side: 'r', path: [], range: [0, 2] } },

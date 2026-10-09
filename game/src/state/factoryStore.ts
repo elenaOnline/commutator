@@ -84,7 +84,8 @@ export interface FSave {
   lastLevel?: string;
   levels: Record<string, FLevelProgress>;
   earned: string[];
-  settings: { speed: number; reducedMotion: boolean };
+  /** outAsTerms (review 2026-10, default on): lens Out / Expected / ∀ lines render as terms, not TeX text. */
+  settings: { speed: number; reducedMotion: boolean; outAsTerms?: boolean };
 }
 
 export interface FState {
@@ -145,7 +146,9 @@ export class FactoryStore {
     const save = FactoryStore.verifyLemmas(FactoryStore.load());
     const level = (save.lastLevel && LEVEL_BY_ID[save.lastLevel]) || LEVELS[0]!;
     const ctx = ctxFor(level, save.earned, save.lemmas);
-    const canvas = save.levels[level.id]?.canvas ?? F.initialCanvas(level, ctx);
+    // Docks grew to 2×2 (review 2026-10): migrateDocks is idempotent, so run it on every load.
+    const saved = save.levels[level.id]?.canvas;
+    const canvas = saved ? F.migrateDocks(saved, ctx) : F.initialCanvas(level, ctx);
     const compiled = F.compile(canvas, ctx);
     this.s = {
       save, level, ctx, canvas, compiled, run: F.initRun(canvas, compiled),
@@ -205,7 +208,8 @@ export class FactoryStore {
       try { localStorage.setItem(SAVE_KEY, JSON.stringify(this.s.save)); } catch { /* ignore */ }
     }
     const ctx = ctxFor(level, this.s.save.earned, this.s.save.lemmas);
-    const canvas = this.s.save.levels[id]?.canvas ?? F.initialCanvas(level, ctx);
+    const saved = this.s.save.levels[id]?.canvas;
+    const canvas = saved ? F.migrateDocks(saved, ctx) : F.initialCanvas(level, ctx);
     const compiled = F.compile(canvas, ctx);
     this.undoStack = []; this.redoStack = [];
     this.set({ level, ctx, canvas, compiled, run: F.initRun(canvas, compiled) });
@@ -269,6 +273,8 @@ export class FactoryStore {
   toggleAlt(on?: boolean) { this.setUI({ alt: on ?? !this.s.ui.alt }); }
   setCamera(c: Camera) { this.setUI({ camera: c }); }
   setPlaying(p: boolean) { this.setUI({ playing: p }); }
+  /** Lens setting: draw Out views as terms (default true when unset). */
+  setOutAsTerms(on: boolean) { this.set({ save: { ...this.s.save, settings: { ...this.s.save.settings, outAsTerms: on } } }); this.persist(); }
   setSpeed(speed: number) { this.setUI({ speed }); this.s = { ...this.s, save: { ...this.s.save, settings: { ...this.s.save.settings, speed } } }; }
   /** [FLOOR, add-only] Set the Room tool's pending assumption (l, r). */
   setRoomSpec(spec: { l: Room['l']; r: Room['r']; rel?: Room['rel'] } | null) { this.setUI({ roomSpec: spec }); }

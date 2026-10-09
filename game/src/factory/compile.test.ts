@@ -150,7 +150,7 @@ describe('lowering: Operator, Joiner, Theorem', () => {
     expect(comp.machines[cl]!.out).toMatchObject({ k: 'fact', fact: { k: 'bot' } });
   });
 
-  it('Theorem with a library cond given (L10 style) and with the Witness Stamp schema (choices + bindings)', () => {
+  it('Theorem with a library cond given (L10 style) and with the unique right inverse schema (choices + bindings)', () => {
     const H: K.Card = { k: 'cond', metas: ['x'], premises: [{ k: 'neq', l: K.meta('x'), r: E }], concl: { k: 'eq', l: P(a, K.meta('x')), r: K.meta('x') } };
     const lv = order(eq(P(a, b), b), [{ id: 'H', fact: H }, { id: 'n', fact: neq(b, E) }]);
     const f = new Floor(lv);

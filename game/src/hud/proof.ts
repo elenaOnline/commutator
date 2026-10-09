@@ -1,6 +1,7 @@
 // COMMUTATOR v4 — the live textbook proof (adapted from shell/proof.ts, which stays untouched): derived
 // from the compiled graph + kernel facts, with v4's nodes: invert, product, generalize (∀-intro) and
 // Assume rooms (implication intro). Renders to HTML and to compile-ready LaTeX.
+import { sideName } from './merge';
 import * as K from '../kernel';
 import type { CheckResult, Fact, Family, LevelManifest, NodeId, Pallet, ProofGraph, ProofNode, Room, ScopeId, Term } from '../kernel/types';
 import { beltsOf, stationsOf, type Belt } from '../state/belts';
@@ -116,7 +117,7 @@ export function buildTranscript(s: State): Transcript {
   /** Short on-screen justification: machines cite as "Lemma n" (textbook name on hover). */
   const justify = (n: ProofNode): string => {
     const sc = schemaOf(n);
-    if (sc) { const no = schemaLemmaNo(sc.id); return no ? `Lemma ${no}${sc.mirror ? 'ᵒᵖ' : ''}` : schemaNames(sc.id, sc.mirror).textbook; }
+    if (sc) { const no = schemaLemmaNo(sc.id); return no ? `Lemma ${no}${sc.mirror ? ` (${sideName(sc.id, true, 'mirrored')})` : ''}` : schemaNames(sc.id, sc.mirror).textbook; }
     if (n.k === 'press') return "Lagrange's theorem (imported)";
     // a rewrite by an earlier derived line is cited by its tag alone ("by (2)")
     if (n.k === 'step' && n.op.k === 'rewrite' && n.op.rule.k === 'node') {

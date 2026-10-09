@@ -17,7 +17,7 @@
 //      catalyst (rule/card) inlets latch the first arrival and then refuse more);
 //   2. complete jobs finishing at t+1 (or blocked earlier) into empty outputs;
 //   3. emit due sources (period 6, first packet at tick 0, no burst after blocking);
-//   4. docks accept certified shipments (delivery tick = t+1);
+//   4. docks accept certified shipments at any certified inlet (delivery tick = t+1);
 //   5. start jobs on valid machines with every ingredient present and an empty output.
 //
 // ── STATUS RULE for the HUD / floor ─────────────────────────────────────────────────────────────
@@ -181,9 +181,11 @@ export function stepRun(s: RunState, c: Canvas, comp: Compiled): RunStateX {
   for (const m of Object.keys(plan.machines).sort(cmp)) {
     const pm = plan.machines[m]!;
     if (pm.socket === undefined) continue;
-    const k = LK.in(m, 'q');
-    if (!next.has(k)) continue;
-    if (pm.ok && comp.sockets[pm.socket]?.ok) {
+    if (!pm.ok || !comp.sockets[pm.socket]?.ok) continue;
+    // any certified inlet may deliver (a 2×2 dock has four); the first delivery seals the socket
+    for (const port of pm.ins.length ? pm.ins.map((i) => i.port) : ['q']) {
+      const k = LK.in(m, port);
+      if (!next.has(k)) continue;
       next.delete(k);
       if (delivered[pm.socket] === undefined) delivered[pm.socket] = t1;
     }

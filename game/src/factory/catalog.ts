@@ -5,6 +5,7 @@ import type { KernelCtx } from '../kernel';
 import { mirrorCard, pressCard, powerSchema, sameCardUpToRenaming, POWER_SCHEMAS, POWER_LITERAL_FAMILY } from '../kernel';
 import type { Card, Schema } from '../kernel/types';
 import type { LibRef, MachineConfig, MachineKind, MachineSpec } from './types';
+import { SIDE_PAIRS } from '../levels/levels';
 
 const spec = (s: MachineSpec): MachineSpec => s;
 
@@ -20,9 +21,9 @@ export const DRAWER: MachineKind[] = ['carddock', 'hopper'];
 export const SPECS: Record<MachineKind, MachineSpec> = {
   spool: spec({ kind: 'spool', name: 'Spool', family: 'equation', glyph: 't=t', hotkey: '1', placeable: true,
     blurb: 'reflexivity: from a term t, emit t = t' }),
-  rewriter: spec({ kind: 'rewriter', name: 'Rewriter', family: 'given', glyph: 'L→R', hotkey: '2', placeable: true,
+  rewriter: spec({ kind: 'rewriter', name: 'Rewriter', family: 'equation', glyph: '⥲', hotkey: '2', placeable: true,
     blurb: 'rewrite at a bracket by a recipe: cancel, pop e, insert e or a pair, a library law, or a routed fact' }),
-  operator: spec({ kind: 'operator', name: 'Operator', family: 'structure', glyph: 't·', hotkey: '3', placeable: true,
+  operator: spec({ kind: 'operator', name: 'Operator', family: 'structure', glyph: '✣', hotkey: '3', placeable: true,
     blurb: 'act on the whole equation: L = R ⟹ tL = tR, Lt = Rt, L⁻¹ = R⁻¹, or R = L' }),
   joiner: spec({ kind: 'joiner', name: 'Joiner', family: 'equation', glyph: '⋈', hotkey: '4', placeable: true,
     blurb: 'combine two facts: X = M, Y = M ⟹ X = Y · A = B, C = D ⟹ AC = BD · P, ¬P ⟹ ⊥' }),
@@ -36,7 +37,7 @@ export const SPECS: Record<MachineKind, MachineSpec> = {
     blurb: 'put a library card (a law or theorem) onto a belt' }),
   hopper: spec({ kind: 'hopper', name: 'Hopper', family: 'structure', glyph: 't', placeable: true,
     blurb: 'emit a fixed term t (syntax only, no claim)' }),
-  given: spec({ kind: 'given', name: 'Given Inlet', family: 'given', glyph: 'h', placeable: false,
+  given: spec({ kind: 'given', name: 'Given Inlet', family: 'given', glyph: '∵', placeable: false,
     blurb: 'a hypothesis of this order, supplied as stated' }),
   socket: spec({ kind: 'socket', name: 'Receiving Dock', family: 'equation', glyph: '∎', placeable: false,
     blurb: 'accepts the order’s target statement (either orientation; laws up to renaming)' }),
@@ -64,11 +65,16 @@ export function schemaOf(ctx: KernelCtx, id: string): Schema | null {
   try { return powerSchema(id); } catch { return null; }
 }
 
-/** Display name for a schema (mirror gets ᵒᵖ); the literal family reads 'Literal Power (choose r)'. */
+/**
+ * Display name for a schema: the standard name of the chosen side for mirror pairs (SIDE_PAIRS: 'right
+ * cancellation'), else the schema's own name with ᵒᵖ; the literal family reads 'literal power (choose r)'.
+ */
 export function schemaMachineName(ctx: KernelCtx, schema: string, mirror?: boolean): string {
-  if (schema === POWER_LITERAL_FAMILY) return 'Literal Power (choose r)';
+  if (schema === POWER_LITERAL_FAMILY) return 'literal power (choose r)';
   const s = schemaOf(ctx, schema);
   if (!s) return schema || 'Unknown theorem';
+  const pair = SIDE_PAIRS[schema];
+  if (pair) return mirror ? pair.op : pair.plain;
   return mirror ? `${s.name} ᵒᵖ` : s.name;
 }
 
@@ -98,7 +104,7 @@ export function libPremises(ctx: KernelCtx, ref: LibRef | null | undefined): num
   return c && c.k === 'cond' ? c.premises.length : 0;
 }
 
-/** Short display name of a library reference, e.g. 'Witness Stamp ᵒᵖ', 'h', 'Lagrange (imported)', 'x⁻¹x = e'. */
+/** Short display name of a library reference: the standard name of a side ('right cancellation'), 'h', 'Lagrange (imported)', 'x⁻¹x = e'. */
 export function libName(ctx: KernelCtx, ref: LibRef | null | undefined): string {
   if (!ref) return 'no recipe';
   switch (ref.k) {

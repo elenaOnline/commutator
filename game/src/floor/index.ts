@@ -23,7 +23,7 @@ import { lookOf, termAtoms } from './look';
 import { buildGeo, centre, portEdge, portEnd, tkey, type BGeo, type Geo, type MGeo, type PortGeo } from './geo';
 import {
   beltBody, beltSVG, bridgeSVG, heightOf, labelsOf, openEndSVG, liveStatusOf, machineLabelSVG, machineName, machineSVG, pipSVG, portSVG, roomHandles, roomSVG,
-  socketLabelSVG, socketTarget, type Ctx,
+  socketLabelSVG, socketTarget, towerBulb, type Ctx,
 } from './scene';
 import { packetGrid, packetSVG, prevAt, type Axis } from './items';
 import { JAM, OK, VIOLET, defsSVG, esc, groundRect, polyD as polyLine } from './svg';
@@ -195,7 +195,11 @@ class Floor {
   private ctxFor(s: FState): Ctx {
     return {
       L: this.labels, level: s.level, comp: s.compiled ?? null,
-      schemaName: (id, mirror) => (mirror ? MIRROR_NAMES[id]?.name : undefined) ?? REGISTRY[id]?.name ?? id,
+      // the selected side's standard name (SIDE_PAIRS via the catalogue), else the mirror / registry name
+      schemaName: (id, mirror) => {
+        try { const n = F.schemaMachineName(s.ctx, id, mirror); if (n && n !== id) return n; } catch { /* catalogue not ready */ }
+        return (mirror ? MIRROR_NAMES[id]?.name : undefined) ?? REGISTRY[id]?.name ?? id;
+      },
     };
   }
 
@@ -416,6 +420,18 @@ class Floor {
     this.tickAt = performance.now();
     this.capPackets();
     this.renderPips();
+    // docks: sealed exactly while their socket is delivered (the seal animates only on a fresh delivery)
+    for (const [id, el] of this.elByM) {
+      const m = geo.ms.get(id)?.m;
+      if (m?.config.kind !== 'socket') continue;
+      const done = run.delivered[m.config.socketId] !== undefined;
+      if (done && !el.classList.contains('is-sealed') && (reducedMotion() || !prev || prev.delivered[m.config.socketId] !== undefined)) this.seal(m.config.socketId);
+      if (!done && el.classList.contains('is-sealed')) {
+        el.classList.remove('is-sealed');
+        const tag = this.L.labels!.querySelector(`[data-sock="${CSS.escape(id)}"] .fl-socktag`);
+        if (tag) tag.textContent = 'DELIVER';
+      }
+    }
     if (reducedMotion() || !prev || run.tick < prev.tick) return;
     // stamps: jobs that completed this tick
     for (const [id, job] of Object.entries(prev.jobs)) {
@@ -657,8 +673,7 @@ class Floor {
 
   private dishOf(towerId: string): S2 | null {
     const g = this.geo?.ms.get(towerId); if (!g) return null;
-    const t = P((g.x0 + g.x1) / 2, (g.y0 + g.y1) / 2, 1.55);
-    return [t[0] + 1, t[1] + 1];
+    return towerBulb(g);
   }
 
   /** Broadcast rings from a tower's dish (throttled). */
@@ -926,7 +941,7 @@ class Floor {
     if (!out || key !== this.ghostKey) return;
     const el = this.L.ghost!.querySelector('.fl-preview'); if (!el) return;
     const svg = out.k === 'term' ? termSVG(out.term, this.labels) : out.k === 'fact' ? factSVG(out.fact, this.labels) : factSVG(out.card, this.labels);
-    el.innerHTML = `<g class="fl-altlab"><text x="${f1(at[0])}" y="${f1(at[1] - 22)}" text-anchor="middle" font-family="${FONT.math}" font-size="15" fill="${INK.navy}">→ ${svg}</text></g>`;
+    el.innerHTML = `<g class="fl-altlab"><text x="${f1(at[0])}" y="${f1(at[1] - 22)}" text-anchor="middle" font-family="${FONT.math}" font-size="15" fill="${INK.navy}">${svg}</text></g>`;
   }
 
   private ghostBeltSVG(b: Belt, machines: Machine[], extra: Record<string, MGeo>): string {
@@ -998,7 +1013,9 @@ class Floor {
     }
     if (!best && this.hoverTarget.k === 'machine') {
       const id = this.hoverTarget.id;
-      const ins = geo.ports.filter((p) => p.m === id && p.port.dir === 'in' && p.m !== from.m);
+      // the nearest free inlet to the pointer (a 2×2 dock has one per side)
+      const dist = (p: PortGeo) => { const q = toScreen(cam, this.view, P(p.out[0], p.out[1])); return Math.hypot(q[0] - this.pointer.x, q[1] - this.pointer.y); };
+      const ins = geo.ports.filter((p) => p.m === id && p.port.dir === 'in' && p.m !== from.m).sort((p, q) => dist(p) - dist(q));
       const pick = ins.find((p) => !p.taken && p.port.accepts.includes(kind)) ?? ins.find((p) => !p.taken) ?? ins[0];
       if (pick) best = { m: id, port: pick.port.id, compat: pick.port.accepts.includes(kind), pg: pick };
     }
@@ -1255,7 +1272,8 @@ class Floor {
         const sid = g.m.config.kind === 'socket' ? g.m.config.socketId : '';
         const so = comp?.sockets[sid];
         const done = run?.delivered[sid] !== undefined;
-        const arriving = comp?.machines[g.m.id]?.inputs.q;
+        const ins = comp?.machines[g.m.id]?.inputs ?? {};
+        const arriving = ins.q ?? ins.qn ?? ins.qe ?? ins.qs; // any of the dock's four inlets
         return `<div class="fl-tip-h">Dock${done ? ' <span class="fl-tip-st is-working">delivered</span>' : ''}</div>` +
           (target ? `<div class="fl-tip-row"><span class="fl-tip-k">wants</span><span class="math">${factHTML(target, this.labels)}</span></div>` : '') +
           (arriving ? `<div class="fl-tip-row"><span class="fl-tip-k">arriving</span><span class="math">${this.valueHTML(arriving)}</span></div>` : '') +

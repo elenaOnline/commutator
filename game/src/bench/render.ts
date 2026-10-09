@@ -55,6 +55,17 @@ function gapEl(side: Side, wpath: number[], gap: number, end: boolean): HTMLElem
   return g;
 }
 
+/**
+ * A term label as HTML, with a Tower's subscript drawn as a real subscript: 'x₁₂' (or 'x12') → x<sub>12</sub>.
+ * Latin Modern has no subscript digits, so the Unicode form would fall back to another font.
+ */
+export function labelHTML(label: string): string {
+  const m = /^(.*?[^\d₀-₉])([0-9₀-₉]+)$/.exec(label);
+  if (!m) return esc(label);
+  const digits = [...m[2]!].map((c) => (c >= '₀' && c <= '₉' ? String(c.charCodeAt(0) - 0x2080) : c)).join('');
+  return `${esc(m[1]!)}<sub class="bn-sub">${digits}</sub>`;
+}
+
 /** A single factor (bead, hollow bead, e chip, or crate). */
 function factorEl(f: Term, o: RailOpts, wpath: number[] | null, i: number, fpath: number[] | null): HTMLElement {
   const tag = (n: HTMLElement) => {
@@ -62,7 +73,7 @@ function factorEl(f: Term, o: RailOpts, wpath: number[] | null, i: number, fpath
     return n;
   };
   const hue = (a: Term) => (a.k === 'atom' ? o.hues?.[a.id] ?? 0 : 0);
-  const lab = (a: Term) => esc(a.k === 'atom' ? (o.L[a.id] ?? a.id) : a.k === 'meta' ? a.id : '');
+  const lab = (a: Term) => labelHTML(a.k === 'atom' ? (o.L[a.id] ?? a.id) : a.k === 'meta' ? a.id : '');
   if (f.k === 'atom' || f.k === 'meta') {
     const n = el('span', `bn-f bn-atom${f.k === 'meta' ? ' bn-meta' : ''}`, `<span class="bn-disc">${beadSVG(hue(f), false)}<i>${lab(f)}</i></span>`);
     n.dataset.leaf = leafSig(f);

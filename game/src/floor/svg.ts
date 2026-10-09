@@ -37,6 +37,8 @@ export function glyphSVG(g: string): string {
     const ch = g[i]!;
     if (SUP[ch]) { o += sup(SUP[ch]!); i++; continue; }
     if (/[a-zA-Z]/.test(ch) && !(g === '|G|' && false)) o += `<tspan font-style="italic">${esc(ch)}</tspan>`;
+    // multiply's t* / *t: the asterisk enlarged and lifted to the maths axis (review 2026-10)
+    else if (ch === '*') o += '<tspan font-size="150%" baseline-shift="-34%" dx="1">*</tspan>';
     else if (ch === '=' || ch === '→' || ch === '⇄' || ch === '·') o += `<tspan dx="1">${esc(ch)}</tspan>`;
     else o += esc(ch);
     i++;
@@ -48,11 +50,18 @@ export function glyphSVG(g: string): string {
 
 export interface Box { base: string; hull: string; band: string; upper: string; top: string; inset: string; shadow: string }
 const boxCache = new Map<string, Box>();
-/** A rounded rectangular tile over grid rect [x0,x1)×[y0,y1) with height h (grid units of TZ). */
-export function box(x0: number, y0: number, x1: number, y1: number, h: number, m = 0.09, r = 0.2): Box {
-  const key = `${x0}|${y0}|${x1}|${y1}|${h}|${m}|${r}`;
+/**
+ * A rounded rectangular tile over grid rect [x0,x1)×[y0,y1) with height h (grid units of TZ). `ch` chamfers the
+ * east corner (x1, y0) by that many grid units: the Given Inlet's folded sheet.
+ */
+export function box(x0: number, y0: number, x1: number, y1: number, h: number, m = 0.09, r = 0.2, ch = 0): Box {
+  const key = `${x0}|${y0}|${x1}|${y1}|${h}|${m}|${r}|${ch}`;
   const hit = boxCache.get(key); if (hit) return hit;
-  const outline = (z: number, k = 0) => roundGrid(gridRect(x0 + m + k, y0 + m + k, x1 - m - k, y1 - m - k), r, 6);
+  const outline = (z: number, k = 0) => {
+    void z;
+    const X0 = x0 + m + k, Y0 = y0 + m + k, X1 = x1 - m - k, Y1 = y1 - m - k, c = Math.max(0, ch - k * 0.4);
+    return roundGrid(c ? [[X0, Y0], [X1 - c, Y0], [X1, Y0 + c], [X1, Y1], [X0, Y1]] : gridRect(X0, Y0, X1, Y1), r, 6);
+  };
   const at = (z: number, k = 0): S2[] => outline(z, k).map(([x, y]) => P(x, y, z));
   const hz = (z0: number, z1: number) => dPoly(hull([...at(z0), ...at(z1)]));
   const sh = outline(0).map(([x, y]) => P(x + 0.13, y + 0.13, 0));
@@ -163,6 +172,7 @@ export function defsSVG(): string {
     <radialGradient id="fl-gridfade"><stop offset="0" stop-color="#fff" stop-opacity="1"/><stop offset=".45" stop-color="#fff" stop-opacity=".5"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>
     <mask id="fl-gridmask" maskUnits="userSpaceOnUse" x="-100000" y="-100000" width="200000" height="200000"><circle id="fl-gridspot" cx="0" cy="0" r="250" fill="url(#fl-gridfade)"/></mask>
     <pattern id="fl-hatch" patternUnits="userSpaceOnUse" width="7" height="7" patternTransform="rotate(-30)"><rect width="7" height="7" fill="${INK.navy}"/><rect width="3.6" height="7" fill="${INK.gold}"/></pattern>
+    <linearGradient id="fl-mast" x1="0" x2="1" y1="0" y2="0"><stop offset="0" stop-color="#5A6488"/><stop offset=".45" stop-color="#2A3358"/><stop offset="1" stop-color="${INK.hullDark}"/></linearGradient>
     <pattern id="fl-jam" patternUnits="userSpaceOnUse" width="5" height="5"><rect width="5" height="5" fill="${JAM}"/><path d="M0,0L5,5M5,0L0,5" stroke="#fff" stroke-width=".9" opacity=".75"/></pattern>
     <pattern id="fl-bad" patternUnits="userSpaceOnUse" width="8" height="8" patternTransform="rotate(45)"><rect width="8" height="8" fill="${JAM}" opacity=".08"/><rect width="2" height="8" fill="${JAM}" opacity=".32"/></pattern>
   </defs>`;

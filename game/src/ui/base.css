@@ -20,3 +20,6 @@ html, body { margin: 0; height: 100%; background: var(--paper); color: var(--nav
 .math { font-family: var(--font-math); }
 .math i, .math .v { font-style: italic; }
 button { font: inherit; color: inherit; }
+
+/* Tower subscripts inside term chips (review 2026-10): x₁₂ draws as x with a real subscript. */
+.bn-disc i .bn-sub { font-size: 0.62em; font-style: normal; vertical-align: -0.28em; line-height: 0; margin-left: 0.04em; }

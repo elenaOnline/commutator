@@ -28,15 +28,15 @@ export const hasEditor = (): boolean => !!F.SPECS && Object.keys(F.SPECS).length
 interface FB { name: string; family: Family; glyph: string; placeable: boolean }
 const FALLBACK: Record<MachineKind, FB> = {
   spool: { name: 'Spool', family: 'equation', glyph: 't=t', placeable: true },
-  tower: { name: 'Tower', family: 'scope', glyph: '📡', placeable: true },
-  rewriter: { name: 'Rewriter', family: 'given', glyph: 'L→R', placeable: true },
-  operator: { name: 'Operator', family: 'structure', glyph: '·t', placeable: true },
+  tower: { name: 'Tower', family: 'scope', glyph: 'x∈G', placeable: true },
+  rewriter: { name: 'Rewriter', family: 'equation', glyph: '⥲', placeable: true },
+  operator: { name: 'Operator', family: 'structure', glyph: '✣', placeable: true },
   joiner: { name: 'Joiner', family: 'equation', glyph: '⋈', placeable: true },
   theorem: { name: 'Theorem', family: 'lemma', glyph: '⇒', placeable: true },
   forall: { name: '∀ Generalizer', family: 'scope', glyph: '∀', placeable: true },
   carddock: { name: 'Card Dock', family: 'lemma', glyph: '∀=', placeable: true },
   hopper: { name: 'Hopper', family: 'structure', glyph: 't', placeable: true },
-  given: { name: 'Given', family: 'given', glyph: 'h', placeable: false },
+  given: { name: 'Given Inlet', family: 'given', glyph: '∵', placeable: false },
   socket: { name: 'Receiving Dock', family: 'equation', glyph: '∎', placeable: false },
   desk: { name: 'Assumption Desk', family: 'scope', glyph: '⊢', placeable: false },
   gate: { name: 'Exit Gate', family: 'scope', glyph: '⊣', placeable: false },
@@ -103,7 +103,12 @@ function fbLocal(m: Machine): { w: number; h: number; ports: LP[] } {
     case 'carddock': add('out', 'out', 'out', ['law', 'cond'], 'out', 0, 0, 'E'); return { w: 1, h: 1, ports };
     case 'hopper': add('out', 'out', 'out', ['term'], 'out', 0, 0, 'E'); return { w: 1, h: 1, ports };
     case 'given': add('out', 'out', 'out', ['eq', 'neq', 'size', 'law', 'cond'], 'out', 0, 0, 'E'); return { w: 1, h: 1, ports };
-    case 'socket': add('q', 'in', 'work', ['eq', 'neq', 'law', 'cond'], 'goal', 0, 0, 'W'); return { w: 2, h: 1, ports };
+    case 'socket': {
+      const acc: ItemKind[] = ['eq', 'neq', 'law', 'cond'];
+      add('q', 'in', 'work', acc, 'goal', 0, 1, 'W'); add('qn', 'in', 'work', acc, 'goal', 0, 0, 'N');
+      add('qe', 'in', 'work', acc, 'goal', 1, 0, 'E'); add('qs', 'in', 'work', acc, 'goal', 1, 1, 'S');
+      return { w: 2, h: 2, ports };
+    }
     case 'desk': add('out', 'out', 'out', ['eq', 'neq'], 'out', 0, 0, 'E'); return { w: 1, h: 1, ports };
     case 'gate': add('q', 'in', 'work', ['bot', 'eq', 'neq'], 'in', 0, 0, 'W'); add('out', 'out', 'out', ['eq', 'neq', 'cond'], 'out', 0, 0, 'E'); return { w: 1, h: 1, ports };
   }

@@ -9,7 +9,8 @@
 //   • two inputs  'a','b'          back face  (W), local (0,0),(0,1)    (Joiner)
 // Sizes (w×h before rotation): spool/tower/hopper/carddock/desk/gate 1×1 (a Tower has NO ports) · given 1×1 or
 // 2×1 (long statements / cards) · rewriter max(2,#params)×1 · operator 2×1 · forall 2×1 · joiner 2×2 ·
-// theorem max(2,#params)×max(1,#premises) · socket 2×1.
+// theorem max(2,#params)×max(1,#premises) · socket 2×2.
+//   • dock inlets  'q' W (0,1) · 'qn' N (0,0) · 'qe' E (1,0) · 'qs' S (1,1)   (Receiving Dock, any may deliver)
 // Rotation r turns the rectangle, every port tile and every face r quarter turns clockwise (E→S→W→N);
 // `machine.at` is the minimum corner of the rotated rectangle. Port ids never change with rotation.
 import * as K from '../kernel';
@@ -34,6 +35,14 @@ export const inRect = (t: Tile, r: Rect): boolean => t.x >= r.x && t.x < r.x + r
 const ALL_KINDS: ItemKind[] = ['term', 'eq', 'neq', 'bot', 'size', 'law', 'cond'];
 const SUB = '₀₁₂₃₄₅₆₇₈₉';
 const sub = (n: number): string => String(n).split('').map((d) => SUB[+d]).join('');
+
+/** The Receiving Dock's four inlets (unrotated): a pinwheel, one per tile. W keeps the pre-2×2 id 'q'. */
+export const DOCK_PORTS: readonly { id: string; x: number; y: number; face: Face }[] = [
+  { id: 'q', x: 0, y: 1, face: 'W' },
+  { id: 'qn', x: 0, y: 0, face: 'N' },
+  { id: 'qe', x: 1, y: 0, face: 'E' },
+  { id: 'qs', x: 1, y: 1, face: 'S' },
+];
 
 interface LocalPort extends Omit<Port, 'tile'> { x: number; y: number }
 export interface Layout { w: number; h: number; ports: LocalPort[] }
@@ -128,9 +137,11 @@ export function layoutOf(config: MachineConfig, ctx: KernelCtx): Layout {
     }
     case 'socket': {
       const s = ctx.level.sockets.find((d) => d.id === config.socketId);
-      // 2×1 so the goal inlet is open on three faces (W doorstep, N and S sides): belts arrive the short way.
-      P('q', 'in', 'work', s ? [s.target.k as ItemKind] : ['eq', 'neq', 'law', 'cond'], 'goal', 0, 0, 'W');
-      return { w: 2, h: 1, ports };
+      // 2×2 proof box with one inlet per side in a pinwheel, one per tile (review 2026-10). W on (0,1) keeps the
+      // old id 'q' so every belt saved against the 2×1 dock stays valid; any inlet may deliver.
+      const acc: ItemKind[] = s ? [s.target.k as ItemKind] : ['eq', 'neq', 'law', 'cond'];
+      for (const d of DOCK_PORTS) P(d.id, 'in', 'work', [...acc], 'goal', d.x, d.y, d.face);
+      return { w: 2, h: 2, ports };
     }
     case 'desk':
       out(['eq', 'neq'], 1);

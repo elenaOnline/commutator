@@ -80,21 +80,21 @@ describe('campaign via offers only', () => {
     expect(solved(p)).toMatchObject({ parts: 3, axioms: 6 });
   });
 
-  it('L06 Shoes and Socks — Witness Stamp route (with recorded auto-swap)', () => {
+  it('L06 Shoes and Socks — unique right inverse route (with recorded auto-swap)', () => {
     const p = new Player(ctxOf('L06'));
     let n = p.start('a b b^-1 a^-1');
     n = p.play(n, span('r', 1, 3), 'cancel bb⁻¹');
     expect(p.text(n)).toBe('abb⁻¹a⁻¹ = aa⁻¹');
     n = p.play(n, span('r', 0, 2), 'cancel aa⁻¹');
-    n = p.play(n, null, 'Witness Stamp: b⁻¹a⁻¹ = (ab)⁻¹');
+    n = p.play(n, null, 'unique right inverse: b⁻¹a⁻¹ = (ab)⁻¹');
     expect(p.text(n)).toBe('(ab)⁻¹ = b⁻¹a⁻¹');
     expect(solved(p)).toMatchObject({ parts: 3, axioms: 8 });
   });
 
-  it('L07 Squares Distribute: both Cancel Lathes', () => {
+  it('L07 Squares Distribute: both left cancellations', () => {
     const p = new Player(ctxOf('L07'));
-    let n = p.play('g:h', null, 'Cancel Lathe: bab = abb');
-    n = p.play(n, null, 'Cancel Lathe ᵒᵖ: ba = ab');
+    let n = p.play('g:h', null, 'left cancellation: bab = abb');
+    n = p.play(n, null, 'right cancellation: ba = ab');
     expect(p.text(n)).toBe('ab = ba');
     expect(solved(p)).toMatchObject({ parts: 2, axioms: 11 });
   });
@@ -110,11 +110,11 @@ describe('campaign via offers only', () => {
     expect(solved(p)).toMatchObject({ parts: 3, axioms: 6 });
   });
 
-  it('L09 No Fixed Points — Cancel Lathe ᵒᵖ route', () => {
+  it('L09 No Fixed Points — right cancellation route', () => {
     const p = new Player(ctxOf('L09'));
     const { assume } = p.openRoom('suppose', 'ab', 'b');
     let n = p.play(assume, gap('r', 0), 'insert e');
-    n = p.play(n, null, 'Cancel Lathe ᵒᵖ: a = e');
+    n = p.play(n, null, 'right cancellation: a = e');
     n = p.play(n, null, 'contradiction with n: a ≠ e');
     expect(p.text(n)).toBe('ab ≠ b');
     expect(p.res.nodes[n]!.deps).toEqual(['g:n']);
@@ -137,7 +137,7 @@ describe('campaign via offers only', () => {
     const { assume } = p.openRoom('classical', 'a', 'e');
     let n = p.play(assume, null, 'use H at x = a: aa = a');
     n = p.play(n, gap('r', 1), 'insert e');
-    n = p.play(n, null, 'Cancel Lathe: a = e');
+    n = p.play(n, null, 'left cancellation: a = e');
     n = p.play(n, null, 'contradiction with a ≠ e');
     expect(p.text(n)).toBe('a = e');
     expect(p.res.nodes[n]!.classical).toBe(true);
@@ -156,7 +156,7 @@ describe('campaign via offers only', () => {
     expect(solved(p)).toMatchObject({ parts: 4, axioms: 6 });
   });
 
-  it('L12 Prime Time: room + press at ab + Witness Stamp + a second belt', () => {
+  it('L12 Prime Time: room + press at ab + unique right inverse + a second belt', () => {
     const p = new Player(ctxOf('L12'));
     p.press('g:s');
     const { room, assume } = p.openRoom('suppose', '(ab)^3', 'e');
@@ -165,7 +165,7 @@ describe('campaign via offers only', () => {
     n = p.play(n, gap('r', 8), 'insert (ab)³ (by the supposition)');
     expect(p.text(n)).toBe('ab = (ab)⁷');
     n = p.play(n, span('r', 0, 14), '(ab)⁷ → e (Lagrange at x = ab)');
-    n = p.play(n, null, 'Witness Stamp: b = a⁻¹');
+    n = p.play(n, null, 'unique right inverse: b = a⁻¹');
     let m = p.start('ba', room);
     m = p.play(m, span('r', 0, 1), 'b → a⁻¹ (by b = a⁻¹)');
     m = p.play(m, span('r', 0, 2), 'cancel a⁻¹a');
@@ -176,12 +176,12 @@ describe('campaign via offers only', () => {
     expect(solved(p)).toMatchObject({ parts: 8, axioms: 14 });
   });
 
-  it('S01 Undo the Undo (∀ goal): Witness Stamp on a compound part, then ∀', () => {
+  it('S01 Undo the Undo (∀ goal): unique right inverse on a compound part, then ∀', () => {
     const p = new Player(ctxOf('S01'));
     p.declareVar('x₁');
     let n = p.start('x₁^-1 x₁');
     n = p.play(n, span('r', 0, 2), 'cancel x₁⁻¹x₁');
-    n = p.play(n, null, 'Witness Stamp: x₁ = (x₁⁻¹)⁻¹');
+    n = p.play(n, null, 'unique right inverse: x₁ = (x₁⁻¹)⁻¹');
     n = p.play(n, null, 'swap sides');
     const g = p.generalize(n);
     expect(p.text(g)).toBe('∀x. (x⁻¹)⁻¹ = x');
@@ -200,11 +200,11 @@ describe('campaign via offers only', () => {
     expect(solved(p)).toBeTruthy();
   });
 
-  it('T02 Returning a Return (∀ goal): Sock Drawer backwards inside the crate, saved Double Flip, ∀', () => {
+  it('T02 Returning a Return (∀ goal): inverse of a product backwards inside the crate, saved Double Flip, ∀', () => {
     const p = new Player(withAuthored(ctxOf('T02'), DOUBLE_FLIP));
     p.declareVar('x₁'); p.declareVar('y₁');
     let n = p.start('(y₁^-1 x₁^-1)^-1');
-    n = p.play(n, { side: 'r', path: [0], range: [0, 2] }, /→ \(x₁y₁\)⁻¹ \(Sock Drawer/);
+    n = p.play(n, { side: 'r', path: [0], range: [0, 2] }, /→ \(x₁y₁\)⁻¹ \(inverse of a product/);
     expect(p.text(n)).toBe('(y₁⁻¹x₁⁻¹)⁻¹ = ((x₁y₁)⁻¹)⁻¹');
     n = p.play(n, span('r', 0, 1), /→ x₁y₁ \(Double Flip/);
     const g = p.generalize(n);

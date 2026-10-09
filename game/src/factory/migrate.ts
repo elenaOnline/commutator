@@ -13,8 +13,8 @@ import * as K from '../kernel';
 import type { KernelCtx } from '../kernel';
 import type { Term } from '../kernel/types';
 import type { Belt, Canvas, Endpoint, GapTarget, LibRef, Machine, MachineConfig, MachineKind, Param, Room, Rot, SpanTarget, Tile } from './types';
-import { footprint } from './geometry';
-import { initialCanvas, repairBelts } from './editor';
+import { FACES, FACE_DELTA, addTile, footprint, frontOf, portsOf, tileEq, tileKey } from './geometry';
+import { initialCanvas, placementWhy, repairBelts } from './editor';
 
 const V4_KINDS = new Set<MachineKind>(['spool', 'tower', 'rewriter', 'operator', 'joiner', 'theorem', 'forall', 'carddock', 'hopper', 'given', 'socket', 'desk', 'gate']);
 const LEGACY = new Set(['canceller', 'expander', 'popper', 'multiplier', 'swapper', 'meet', 'apply', 'anvil', 'press', 'inverter', 'stamp']);
@@ -167,6 +167,18 @@ function migrateUnsafe(raw: unknown, ctx: KernelCtx): Canvas | null {
     }
   }
 
+  // Every dock in a pre-2×2 canvas was 2×1: grow it to 2×2 keeping its W inlet where it was (see migrateDocks).
+  const provisional: Canvas = {
+    version: 3, levelId: ctx.level.id, machines, rooms,
+    belts: rawBs.filter((b) => isObj(b.to) && Array.isArray(b.path)).map((b) => ({
+      id: String(b.id), from: b.from as unknown as Endpoint, to: b.to as unknown as Endpoint,
+      path: (b.path as unknown[]).filter(isTile), ...(typeof b.broken === 'string' ? { broken: b.broken } : {}),
+    })),
+  };
+  // a canvas still in v3 shape predates the 2×2 dock outright; a v4-shaped one is judged dock by dock
+  const grown = growDocks(machines, rooms, ctx, (m) => !v4 || dockLooksOld(provisional, m, ctx), provisional.belts);
+  machines.splice(0, machines.length, ...grown.machines);
+
   // Machines must still fit (footprints changed size only downwards, but be safe).
   const occ = new Map<string, string>();
   for (const m of machines) for (const t of footprint(m, ctx)) {
@@ -206,5 +218,134 @@ function migrateUnsafe(raw: unknown, ctx: KernelCtx): Canvas | null {
   }
 
   const canvas: Canvas = { version: 3, levelId: ctx.level.id, machines, belts, rooms };
-  return repairBelts(canvas, ctx);
+  return reattachDockBelts(canvas, grown.moved, ctx);
+}
+
+// ───────────────────────────── the 2×2 Receiving Dock (review 2026-10) ─────────────────────────────
+//
+// The dock was 2×1 with one inlet 'q' on the W face of local (0,0). It is now 2×2 with four inlets in a pinwheel;
+// 'q' (W) sits on local (0,1). An old dock grows by one row toward its local −y, so the old inlet tile and face
+// stay put and every old belt still lands on 'q'. If those cells are taken (machines, a room wall, a doorstep) it
+// grows toward +y instead; failing that it takes the nearest free spot. Belts into a moved dock are re-attached to
+// whichever inlet their end now meets, else opened (`to: null`) with a `broken` note. No machine is ever deleted.
+
+const DOCK_NOTE = 'The Receiving Dock grew to 2×2 and this belt no longer reaches an input. Drag its end onto one.';
+
+/** Local → world for a w×h rectangle turned r quarter turns (same convention as geometry.ts). */
+function rotCell(x: number, y: number, w: number, h: number, r: number): Tile {
+  for (let i = 0; i < r; i++) { const nx = h - 1 - y; y = x; x = nx; const t = w; w = h; h = t; }
+  return { x, y };
+}
+/** The pre-2×2 dock at (at, rot): its two cells and its one inlet (W of local (0,0)). */
+function oldDock(m: Pick<Machine, 'at' | 'rot'>): { cells: Tile[]; q: { tile: Tile; face: (typeof FACES)[number] } } {
+  const cells = [rotCell(0, 0, 2, 1, m.rot), rotCell(1, 0, 2, 1, m.rot)].map((t) => addTile(t, m.at));
+  return { cells, q: { tile: addTile(rotCell(0, 0, 2, 1, m.rot), m.at), face: FACES[(FACES.indexOf('W') + m.rot) % 4]! } };
+}
+
+/** Does belt b (into this dock's inlet `port`) end where that inlet takes a belt: its doorstep or its free side? */
+function meets(c: Canvas, b: Belt, dock: Machine, port: string, ctx: KernelCtx): boolean {
+  const p = portsOf(dock, ctx).find((x) => x.id === port);
+  if (!p) return false;
+  const own = new Set(footprint(dock, ctx).map(tileKey));
+  const ends: Tile[] = [frontOf(p)];
+  const i0 = FACES.indexOf(p.face);
+  for (const side of [FACES[(i0 + 1) % 4]!, FACES[(i0 + 3) % 4]!]) { const t = addTile(p.tile, FACE_DELTA[side]); if (!own.has(tileKey(t))) ends.push(t); }
+  if (b.path.length) return ends.some((t) => tileEq(t, b.path[b.path.length - 1]!));
+  // a direct link: the source port sits on the inlet's doorstep, facing it
+  const src = c.machines.find((x) => x.id === b.from.m);
+  const sp = src ? portsOf(src, ctx).find((x) => x.id === b.from.port) : undefined;
+  return !!sp && tileEq(sp.tile, frontOf(p)) && tileEq(frontOf(sp), p.tile);
+}
+
+/** Grow each dock `isOld` picks from 2×1 to 2×2 (positions only). Returns the machines and the ids that moved. */
+function growDocks(machines: Machine[], rooms: Room[], ctx: KernelCtx, isOld: (m: Machine) => boolean, belts: Belt[] = []): { machines: Machine[]; moved: Set<string> } {
+  const out = [...machines];
+  const moved = new Set<string>();
+  out.forEach((m, i) => {
+    if (m.kind !== 'socket' || !isOld(m)) return;
+    const old = oldDock(m);
+    const cands: Tile[] = [];
+    for (const dy of [-1, 0]) for (const dx of [-1, 0]) {
+      const at = { x: m.at.x + dx, y: m.at.y + dy };
+      const cells = new Set(footprint({ ...m, at }, ctx).map(tileKey));
+      if (old.cells.every((t) => cells.has(tileKey(t)))) cands.push(at);
+    }
+    // toward local −y first: the candidate whose W inlet is the old inlet (same tile, same face)
+    const keepsQ = (at: Tile) => { const q = portsOf({ ...m, at }, ctx).find((p) => p.id === 'q'); return !!q && tileEq(q.tile, old.q.tile) && q.face === old.q.face; };
+    cands.sort((a, b) => Number(keepsQ(b)) - Number(keepsQ(a)));
+    const cv: Canvas = { version: 3, levelId: ctx.level.id, machines: out, belts, rooms };
+    const free = (at: Tile) => !placementWhy({ ...cv, belts: [] }, { ...m, at }, ctx);
+    // belts count too: a growth that swallows belt cells or strands this dock's belts is a worse fit
+    const cost = (at: Tile) => {
+      const d = { ...m, at };
+      const cells = new Set(footprint(d, ctx).map(tileKey));
+      const covered = belts.filter((b) => !b.broken).reduce((n, b) => n + b.path.filter((t) => cells.has(tileKey(t))).length, 0);
+      const ins = portsOf(d, ctx).filter((p) => p.dir === 'in').map((p) => p.id);
+      const stranded = belts.filter((b) => !b.broken && b.to?.m === m.id && !ins.some((pid) => meets(cv, b, d, pid, ctx))).length;
+      return stranded * 100 + covered;
+    };
+    const fits = cands.filter(free);
+    let at = fits.length ? fits.reduce((best, t) => (cost(t) < cost(best) ? t : best)) : undefined;
+    for (let r = 1; !at && r <= 8; r++) {
+      // both growths blocked: the nearest free spot (ring by ring), so nothing is ever deleted
+      for (let dy = -r; dy <= r && !at; dy++) for (let dx = -r; dx <= r && !at; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+        const t = { x: m.at.x + dx, y: m.at.y + dy };
+        if (free(t)) at = t;
+      }
+    }
+    at ??= cands[0] ?? m.at;
+    out[i] = { ...m, at };
+    moved.add(m.id);
+  });
+  return { machines: out, moved };
+}
+
+/** Re-attach belts into moved docks to the inlet their end meets, else open them with a note; then repair all belts. */
+function reattachDockBelts(c: Canvas, moved: Set<string>, ctx: KernelCtx): Canvas {
+  const opened = new Set<string>();
+  const fed = new Set(c.belts.filter((b) => b.to && !b.broken).map((b) => `${b.to!.m}|${b.to!.port}`));
+  const belts = c.belts.map((b): Belt => {
+    if (!b.to || !moved.has(b.to.m)) return b;
+    const dock = c.machines.find((x) => x.id === b.to!.m)!;
+    if (meets(c, b, dock, b.to.port, ctx)) return b;
+    // cells the grown dock now covers are cut off the belt's end; what is left may meet an inlet
+    const own = new Set(footprint(dock, ctx).map(tileKey));
+    const cut = b.path.findIndex((t) => own.has(tileKey(t)));
+    const t0: Belt = cut < 0 ? b : { ...b, path: b.path.slice(0, cut) };
+    if (cut === 0) { opened.add(b.id); return { ...b, to: null, path: [] }; }
+    const other = portsOf(dock, ctx).find((p) => p.dir === 'in' && (p.id === b.to!.port || !fed.has(`${dock.id}|${p.id}`)) && meets(c, t0, dock, p.id, ctx));
+    fed.delete(`${b.to.m}|${b.to.port}`);
+    if (other) { fed.add(`${dock.id}|${other.id}`); return { ...t0, to: { m: dock.id, port: other.id } }; }
+    opened.add(b.id);
+    if (t0.path.length) return { ...t0, to: null };
+    // a direct link has no cell to end on: give it the source's doorstep
+    const src = c.machines.find((x) => x.id === b.from.m);
+    const sp = src ? portsOf(src, ctx).find((x) => x.id === b.from.port) : undefined;
+    return { ...b, to: null, path: sp ? [frontOf(sp)] : [] };
+  });
+  const fixed = repairBelts({ ...c, belts }, ctx);
+  return { ...fixed, belts: fixed.belts.map((b) => (opened.has(b.id) ? { ...b, broken: b.broken ?? DOCK_NOTE } : b)) };
+}
+
+/** Is this dock still laid out as the old 2×1 one? Its 2×2 cells overlap a machine, or a belt into 'q' misses the 2×2 inlet. */
+function dockLooksOld(c: Canvas, m: Machine, ctx: KernelCtx): boolean {
+  if (m.kind !== 'socket') return false;
+  const cells = new Set(footprint(m, ctx).map(tileKey));
+  if (c.machines.some((o) => o.id !== m.id && footprint(o, ctx).some((t) => cells.has(tileKey(t))))) return true;
+  return c.belts.some((b) => !b.broken && b.to?.m === m.id && b.to.port === 'q' && !meets(c, b, m, 'q', ctx));
+}
+
+/**
+ * Bring a saved canvas up to the 2×2 Receiving Dock. Idempotent: a dock is treated as an old 2×1 one only when the
+ * canvas is inconsistent for it as a 2×2 (its new cells overlap another machine, or a belt into 'q' does not meet
+ * the 2×2 inlet). An unconnected old dock with free cells below simply keeps its corner. `legacy` forces every dock
+ * to be treated as 2×1 (for canvases known to predate the change). Never throws; returns the input on failure.
+ */
+export function migrateDocks(c: Canvas, ctx: KernelCtx, opts: { legacy?: boolean } = {}): Canvas {
+  try {
+    const g = growDocks(c.machines, c.rooms, ctx, (m) => !!opts.legacy || dockLooksOld(c, m, ctx), c.belts);
+    if (!g.moved.size) return c;
+    return reattachDockBelts({ ...c, machines: g.machines }, g.moved, ctx);
+  } catch { return c; }
 }

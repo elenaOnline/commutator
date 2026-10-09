@@ -8,7 +8,7 @@ import { LEVELS, LEVEL_BY_ID, REGISTRY, fH, h, isSolved, labels, nextLevel, safe
 
 const HOLD_MS = 650;
 /** Names the content expects the player to save under (T01 cites "the lemma you saved"). */
-const SUGGESTED: Record<string, string> = { S01: 'Double Flip' };
+const SUGGESTED: Record<string, string> = { S01: 'double inverse' };
 
 /** The order's claim with its hypotheses, for level-constant orders: "If ab = e, then b = a⁻¹." */
 function conditionalHTML(lv: LevelManifest): string {
@@ -119,7 +119,7 @@ export function mountCeremony(layer: HTMLElement, store: Store, hooks: { dest: (
         h('span', { class: 'machine-name' }, nm.name),
         h('span', { class: 'machine-tb' }, `Lemma ${lv.index} · ${nm.textbook}`),
         h('span', { class: 'machine-stmt math', html: fH(sc.card, {}).replace(/^∀[^.]*\.&ensp;/, '') }),
-        h('span', { class: 'qed-m-mirror' }, sc.mirrorable ? 'with its mirror image ᵒᵖ · on your hotbar from the next work order' : 'on your hotbar from the next work order')));
+        h('span', { class: 'qed-m-mirror' }, sc.mirrorable ? 'both sides · on your hotbar from the next work order' : 'on your hotbar from the next work order')));
     }
     const save = store.get().save;
     const mainLeft = LEVELS.filter((l) => !l.side && !isSolved(save, l.id)).length;

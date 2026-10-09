@@ -149,8 +149,7 @@
 
 /* ── v4: towers, symbol tracing, recipe changes ── */
 .fl-tower { cursor: pointer; }
-.fl-tower .fl-plaque rect { transition: stroke-width 120ms; }
-.fl-tower.is-hover .fl-plaque rect, .fl-tower.is-var-lit .fl-plaque rect { stroke-width: 2.2; }
+.fl-tower .fl-mast, .fl-tower .fl-dish { pointer-events: none; }
 .fl-l-radio { pointer-events: none; }
 .fl-trace path { animation: fl-radio 1.1s linear infinite; }
 @keyframes fl-radio { to { stroke-dashoffset: -14; } }

@@ -164,7 +164,7 @@ describe('K41–K56 cancellation, witness, socks', () => {
     expect(r.solved).toBe(false);
     expect(r.sockets[0]!.error).toMatch(/Swap the sides/);
   });
-  it('K55 Sock Drawer at u=ab, v=c', () => ok(onR(I(M(a, b, c)), rw({ k: 'schema', id: 'socks' }, 'fwd', at('r', 0, 1), { u: M(a, b), v: c })), M(I(c), I(M(a, b)))));
+  it('K55 inverse of a product at u=ab, v=c', () => ok(onR(I(M(a, b, c)), rw({ k: 'schema', id: 'socks' }, 'fwd', at('r', 0, 1), { u: M(a, b), v: c })), M(I(c), I(M(a, b)))));
   it('K56 nothing opens (ab)⁻¹ to a⁻¹b⁻¹', () => {
     const c2 = ctxOf('L07'); // has socks
     const g: ProofGraph = { nodes: [S('s', I(M(a, b)))], rooms: [] };

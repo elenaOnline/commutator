@@ -463,13 +463,13 @@ describe('v4 r2: card sockets up to symmetry; stacks versus words in messages', 
     const s = w.p.start('a^(5)');
     const r = w.p.tryNode({ scope: ROOT, k: 'step', input: s, op: { k: 'rewrite', rule: { k: 'node', id: 'g:h' }, dir: 'fwd', at: { side: 'r', path: [], range: [0, 1] }, subst: {} } });
     expect(r.ok).toBe(false);
-    expect(r.error).toBe('The selection is the power a^5 (one stack), but a⁵ = e needs the word a⁵ (five beads). Use Literal Power to turn the stack into the word.');
+    expect(r.error).toBe('The selection is the power a^5, but a⁵ = e needs the product a⁵ (five factors). Use literal power to write the power out as a product.');
   });
   it('and a word where a stack was needed', () => {
     const w = world(ALL, { givens: [{ id: 'h', name: 'h', fact: { k: 'eq', l: K.power(a, lit(5)), r: e } }] });
     const s = w.p.start('a^5');
     const r = w.p.tryNode({ scope: ROOT, k: 'step', input: s, op: { k: 'rewrite', rule: { k: 'node', id: 'g:h' }, dir: 'fwd', at: { side: 'r', path: [], range: [0, 5] }, subst: {} } });
-    expect(r.error).toMatch(/the word a⁵ \(five beads\).*the power a\^5 \(one stack\).*turn the word into the stack/);
+    expect(r.error).toMatch(/the product a⁵ \(five factors\).*the power a\^5.*write the product as a power/);
   });
   it('a socket proved with a stack instead of the goal’s word says why', () => {
     const w = world(ALL, { givens: [{ id: 's', name: '|G|', fact: { k: 'size', n: 5 } }], sockets: [{ id: 'g', target: { k: 'eq', l: K.pow(a, 5), r: e }, allowedGivens: ['s'] }] });
@@ -478,7 +478,7 @@ describe('v4 r2: card sockets up to symmetry; stacks versus words in messages', 
     const q = w.p.step(s, { k: 'rewrite', rule: { k: 'node', id: 'P' }, dir: 'fwd', at: { side: 'r', path: [], range: [0, 1] }, subst: { x: a } });
     w.p.step(q, { k: 'swap' });
     expect(w.p.res.solved).toBe(false);
-    expect(w.p.res.sockets[0]!.error).toMatch(/This proves the power a\^5 \(one stack\), but the goal has the word a⁵ \(five beads\)\. Use Literal Power to turn the stack into the word\./);
+    expect(w.p.res.sockets[0]!.error).toMatch(/This proves the power a\^5, but the goal has the product a⁵ \(five factors\)\. Use literal power to write the power out as a product\./);
     void X;
   });
 });

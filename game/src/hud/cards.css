@@ -1,0 +1,136 @@
+/* COMMUTATOR — concept cards (review 2026-10). Owner: cards (C). Values from design/review-2026-10/prototypes.
+   Scoped under .h3-cards.cc so the older .cf-* rules in hud.css never reach these elements. */
+
+.h3-cards.cc {
+  position: absolute; z-index: 26; left: 50%; top: 84px; transform: translateX(-50%);
+  width: min(600px, calc(100vw - 40px)); max-height: calc(100vh - 84px - 104px);
+  overflow-x: hidden; overflow-y: auto;
+  background: #fff; border: 1px solid #DADDE5; border-radius: 16px; padding: 14px 18px 12px;
+  box-shadow: 0 2px 0 rgba(27, 35, 64, .04), 0 18px 50px rgba(27, 35, 64, .16);
+  color: #1B2340; font-family: var(--font-ui);
+}
+.h3-cards.cc::before, .h3-cards.cc::after { display: none; }
+.h3-cards.cc .math { font-size: 1.12em; }
+/* hud.css enlarges every .math in the cards; the term renderer's own maths (exponent tags) keep their size */
+.h3-cards.cc .cc-fig .math { font-size: inherit; }
+.h3-cards.cc .cc-fig .h3-pow-exp.math { font-size: calc(var(--bd, 30px) * .4); }
+.h3-cards.cc .cc-fig :is(.cc-why, .cc-cap, .cc-notes, .cc-brlabel) .math { font-size: 1.12em; }
+
+.h3-cards.cc .cc-head { display: flex; align-items: center; gap: 8px; }
+.h3-cards.cc .cc-label { font-size: 10.5px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; color: #545B73; }
+.h3-cards.cc .cc-flex { flex: 1; }
+.h3-cards.cc .cc-count { font-size: 11.5px; color: #545B73; font-variant-numeric: tabular-nums; }
+.h3-cards.cc .cc-x { border: 0; background: none; font: 18px/1 var(--font-ui); padding: 2px 4px; cursor: pointer; color: #545B73; border-radius: 6px; }
+.h3-cards.cc .cc-x:hover { background: #F6F7FA; color: #1B2340; }
+.h3-cards.cc .cc-title { margin: 6px 0; font-size: 21px; font-weight: 600; letter-spacing: -.01em; line-height: 1.25; }
+
+.h3-cards.cc .cc-body { font-size: 14px; line-height: 1.5; color: #545B73; }
+.h3-cards.cc .cc-body.long { font-size: 14.5px; color: #1B2340; }
+.h3-cards.cc .cc-body p { margin: 0 0 8px; }
+.h3-cards.cc .cc-body b { color: #1B2340; font-weight: 600; }
+
+.h3-cards.cc .cc-figs { display: flex; flex-direction: column; align-items: flex-start; gap: 16px; margin: 10px 0 4px; min-width: 0; max-width: 100%; }
+.h3-cards.cc .cc-fig { margin: 0; max-width: 100%; min-width: 0; }
+.h3-cards.cc .cc-pending { min-height: 120px; align-self: stretch; }
+.h3-cards.cc .cc-cap { font-size: 13px; color: #545B73; }
+
+.h3-cards.cc .cc-parts { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.h3-cards.cc .cc-part { display: grid; grid-template-columns: 104px minmax(0, 1fr); gap: 10px; font-size: 13.5px; line-height: 1.5; border-top: 1px solid #E3E5EC; padding-top: 6px; }
+.h3-cards.cc .cc-part p { margin: 0; }
+.h3-cards.cc .cc-part-k { font-size: 10.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; padding-top: 3px; }
+.h3-cards.cc .cc-part.ex .cc-part-k { color: #11806C; }
+.h3-cards.cc .cc-part.nm .cc-part-k { color: #C2410C; }
+.h3-cards.cc .cc-part.ge .cc-part-k { color: #1F4FD1; }
+
+.h3-cards.cc .cc-foot { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+.h3-cards.cc .cc-btn { border: 1px solid #D5D8E0; background: #fff; color: #1B2340; height: 28px; min-width: 36px; padding: 0 10px; border-radius: 8px;
+  font: 500 12.5px var(--font-ui); cursor: pointer; box-shadow: 0 1.5px 0 #D5D8E0; white-space: nowrap; }
+.h3-cards.cc .cc-btn:disabled { opacity: .55; cursor: default; }
+.h3-cards.cc .cc-btn.primary { background: #1B2340; color: #fff; border-color: #1B2340; box-shadow: 0 1.5px 0 #0B1022; }
+.h3-cards.cc .cc-btn.primary:hover { background: #26305A; }
+.h3-cards.cc .cc-dots { display: inline-flex; gap: 5px; }
+.h3-cards.cc .cc-dot { width: 8px; height: 8px; border-radius: 50%; border: 1.2px solid #1B2340; background: #fff; padding: 0; cursor: pointer; }
+.h3-cards.cc .cc-dot.on { background: #1B2340; }
+.h3-cards.cc .cc-hint { color: #545B73; font-size: 12px; }
+
+/* ───────── terms (the game's beads, one factor at a time), display-only brackets, braces ───────── */
+.h3-cards.cc .cc-word { display: inline-flex; align-items: center; position: relative; }
+.h3-cards.cc .cc-grp { display: inline-flex; align-items: center; margin: 0 1px; }
+.h3-cards.cc .cc-par { font-family: var(--font-math); font-size: calc(var(--bd) * .95); color: #1B2340; line-height: 1; padding: 0 calc(var(--bd) * .03); transform: translateY(-.05em); }
+.h3-cards.cc .cc-span { position: relative; display: inline-flex; align-items: center; }
+.h3-cards.cc .cc-brace { position: absolute; left: 2px; right: 2px; display: flex; align-items: stretch; height: 7px; color: #545B73; }
+.h3-cards.cc .cc-brace.over { bottom: calc(100% + 3px); }
+.h3-cards.cc .cc-brace.under { top: calc(100% + 3px); transform: scaleY(-1); }
+.h3-cards.cc .cc-brace svg { display: block; overflow: visible; flex: none; }
+.h3-cards.cc .cc-brace path { fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
+.h3-cards.cc .cc-brace i { flex: 1 1 0; min-width: 1px; height: 0; align-self: center; border-top: 1.5px solid currentColor; }
+.h3-cards.cc .cc-brlabel { position: absolute; left: 50%; transform: translateX(-50%); white-space: nowrap; font: 12px/1.2 var(--font-ui); color: #545B73; }
+.h3-cards.cc .cc-span.over > .cc-brlabel { bottom: calc(100% + 12px); }
+.h3-cards.cc .cc-span.under > .cc-brlabel { top: calc(100% + 12px); }
+.h3-cards.cc .cc-fig .cc-fallback { font-size: calc(var(--bd, 20px) * .9); }
+
+/* ───────── maths rows ───────── */
+.h3-cards.cc .cc-math { display: flex; flex-direction: column; gap: 6px; }
+.h3-cards.cc .cc-row.labelled { display: grid; grid-template-columns: 104px minmax(0, 1fr); align-items: center; gap: 12px; }
+.h3-cards.cc .cc-rowlabel { font-size: 12px; color: #545B73; }
+.h3-cards.cc .cc-rowbody { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.h3-cards.cc .cc-line { position: relative; display: inline-flex; flex-wrap: wrap; align-items: center; row-gap: 34px; padding: 2px 0; }
+.h3-cards.cc .cc-line.has-over { padding-top: 30px; }
+.h3-cards.cc .cc-line.has-under { padding-bottom: 30px; }
+/* a near miss: each term crossed out by its own short diagonal; relations stay readable (⟹ never reads as →) */
+.h3-cards.cc .cc-line.struck > .cc-word > *, .h3-cards.cc .cc-line.struck > .cc-rel { opacity: .55; }
+.h3-cards.cc .cc-line.struck > .cc-word::after { content: ''; position: absolute; left: -3px; right: -3px; top: 50%; border-top: 2px solid #FF6A3D; transform: rotate(-14deg); pointer-events: none; z-index: 2; }
+.h3-cards.cc .cc-line > .cc-rel { font-family: var(--font-math); font-size: calc(var(--bd) * .9); color: #1B2340; margin: 0 4px; }
+.h3-cards.cc .cc-line > .cc-rel.comma { margin: 0 6px 0 -4px; }
+.h3-cards.cc .cc-why { font-size: 13px; color: #545B73; }
+.h3-cards.cc .cc-why.no { color: #C2410C; }
+
+/* ───────── clock, table, element orders ───────── */
+.h3-cards.cc .cc-box { flex: none; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.h3-cards.cc .cc-table, .h3-cards.cc .cc-otable { border-collapse: collapse; font: 14px var(--font-math); }
+.h3-cards.cc .cc-table caption { font: 11px var(--font-ui); color: #545B73; caption-side: bottom; padding-top: 4px; }
+.h3-cards.cc .cc-table th, .h3-cards.cc .cc-table td { border: 1px solid #E3E5EC; padding: 2px 6px; text-align: center; font-weight: 400; }
+.h3-cards.cc .cc-table th { background: #F6F7FA; }
+.h3-cards.cc .cc-table td.id { background: #FFF3D1; }
+.h3-cards.cc .cc-orders { display: flex; flex-direction: column; gap: 4px; }
+.h3-cards.cc .cc-otable th, .h3-cards.cc .cc-otable td { border: 1px solid #E3E5EC; padding: 2px 9px; text-align: center; font-weight: 400; }
+.h3-cards.cc .cc-otable th { background: #F6F7FA; font: 12px var(--font-ui); color: #545B73; }
+.h3-cards.cc .cc-otable td.o { background: #FFF8E6; }
+
+/* ───────── scenes (the real floor renderer) and the Spool gif ───────── */
+.h3-cards.cc .cc-scene { align-self: stretch; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.h3-cards.cc .cc-stage { position: relative; flex: none; max-width: 100%; }
+.h3-cards.cc .cc-stage > svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.h3-cards.cc .cc-stage .fl-room-head { display: none; }
+.h3-cards.cc .cc-stage .fl-room-edge { opacity: .75; }
+.h3-cards.cc .cc-roomtag { paint-order: stroke; stroke: #fff; stroke-width: 4px; stroke-linejoin: round; }
+.h3-cards.cc .cc-ov { position: absolute; transform: translate(-50%, -50%); z-index: 3; pointer-events: none; }
+.h3-cards.cc .cc-ov.note { z-index: 4; }
+.h3-cards.cc .cc-ov.termbox { transform: translate(-50%, -100%); }
+/* an item: a pin on the belt, a short leader, and the chip beside it */
+.h3-cards.cc .cc-ov.item { transform: none; width: 0; height: 0; }
+.h3-cards.cc .cc-pin { position: absolute; left: -4px; top: -4px; width: 8px; height: 8px; box-sizing: border-box; border-radius: 50%; background: #fff; border: 2px solid #1B2340; }
+.h3-cards.cc .cc-lead { position: absolute; left: 0; top: 0; }
+.h3-cards.cc .cc-lead svg { position: absolute; left: 0; top: 0; overflow: visible; }
+.h3-cards.cc .cc-lead line { stroke: #1B2340; stroke-width: 1.2; opacity: .55; }
+.h3-cards.cc .cc-item { position: absolute; display: inline-flex; align-items: center; padding: 4px 9px; background: #fff; border-radius: 9px; box-shadow: 0 0 0 1px #C9CDD8, 0 3px 10px rgba(27, 35, 64, .14); white-space: nowrap; }
+.h3-cards.cc .cc-ov.item.ne > .cc-item { left: calc(var(--ox) + var(--dx, 0px)); bottom: var(--oy); }
+.h3-cards.cc .cc-ov.item.nw > .cc-item { right: calc(0px - var(--ox) - var(--dx, 0px)); bottom: var(--oy); }
+.h3-cards.cc .cc-ov.item.se > .cc-item { left: calc(var(--ox) + var(--dx, 0px)); top: calc(0px - var(--oy)); }
+.h3-cards.cc .cc-ov.item.sw > .cc-item { right: calc(0px - var(--ox) - var(--dx, 0px)); top: calc(0px - var(--oy)); }
+.h3-cards.cc .cc-ov.item.n > .cc-item { left: calc(var(--ox) + var(--dx, 0px)); bottom: var(--oy); transform: translateX(-50%); }
+.h3-cards.cc .cc-ov.item.s > .cc-item { left: calc(var(--ox) + var(--dx, 0px)); top: calc(0px - var(--oy)); transform: translateX(-50%); }
+.h3-cards.cc .cc-strip { display: inline-flex; align-items: center; gap: 5px; }
+.h3-cards.cc .cc-strip > .cc-rel { font-family: var(--font-math); font-size: 17px; color: #1B2340; }
+.h3-cards.cc .cc-fig .cc-q { font-size: 17px; }
+.h3-cards.cc .cc-qvar { font-style: italic; border-radius: 4px; padding: 0 .14em; background: #EAE4FB; color: #3E1E9E; box-shadow: inset 0 0 0 1px #7B5BD6; }
+.h3-cards.cc .cc-qvar.z { background: #E1F1F4; color: #1E5B6B; box-shadow: inset 0 0 0 1px #3A8FA3; }
+.h3-cards.cc .cc-mark { flex: none; display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; background: #1B2340; color: #fff; font: 600 11px/1 var(--font-ui); box-shadow: 0 0 0 2px #fff; }
+.h3-cards.cc .cc-notes { align-self: stretch; margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 5px; }
+.h3-cards.cc .cc-notes li { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; line-height: 1.45; color: #1B2340; transition: opacity .25s; text-wrap: pretty; }
+.h3-cards.cc .cc-notes li.dim { opacity: .45; }
+.h3-cards.cc .cc-termbox { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; background: #fff; border: 1px solid #DADDE5; border-radius: 9px; box-shadow: 0 4px 12px rgba(27, 35, 64, .12); min-width: 84px; min-height: 36px; box-sizing: border-box; }
+.h3-cards.cc .cc-fig .cc-tdef { font-size: 16px; white-space: nowrap; }
+.h3-cards.cc .cc-termval { display: inline-flex; align-items: center; }
+.h3-cards.cc .cc-caret { width: 1.5px; height: 20px; background: #1B2340; margin-left: -4px; }
+@media (prefers-reduced-motion: reduce) { .h3-cards.cc .cc-notes li { transition: none; } }

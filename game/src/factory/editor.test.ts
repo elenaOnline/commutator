@@ -181,7 +181,8 @@ describe('place', () => {
     let c = initialCanvas(ctx.level, ctx);
     c = must(lplace(c, 'canceller', { x: 5, y: 0 }, 0, ctx));
     c = must(lconnect(c, { m: 'canceller1', port: 'out' }, { m: 'socket:s', port: 'q' }, ctx));
-    expect(c.belts[0]!.path).toEqual([{ x: 7, y: 0 }, { x: 8, y: 0 }, { x: 9, y: 0 }, { x: 10, y: 0 }]);
+    // the 2×2 dock's W inlet 'q' sits on its lower tile (11,1): doorstep (10,1)
+    expect(c.belts[0]!.path).toEqual([{ x: 7, y: 0 }, { x: 8, y: 0 }, { x: 9, y: 0 }, { x: 9, y: 1 }, { x: 10, y: 1 }]);
     c = must(lplace(c, 'hopper', { x: 8, y: 0 }, 0, ctx));
     expect(c.belts.length).toBe(1);
     expect(c.belts[0]!.path.some((t) => t.x === 8 && t.y === 0)).toBe(false);
@@ -591,17 +592,15 @@ describe('forgiving belts (r2)', () => {
     c = must(lplace(c, 'canceller', { x: 5, y: 0 }, 0, ctx));
     c = must(lconnect(c, { m: 'pre:0', port: 'out' }, { m: 'canceller1', port: 'q' }, ctx));
     c = must(lconnect(c, { m: 'canceller1', port: 'out' }, { m: 'socket:s', port: 'q' }, ctx));
-    // the dock also accepts from its north side, so one Hopper on its doorstep just re-routes the belt
-    const d1 = must(lplace(c, 'hopper', { x: 10, y: 0 }, 0, ctx));
+    // the W inlet also accepts from its south side, so one Hopper on its doorstep just re-routes the belt
+    const d1 = must(lplace(c, 'hopper', { x: 10, y: 1 }, 0, ctx));
     const b1 = d1.belts.find((b) => b.to!.m === 'socket:s')!;
     expect(b1.broken).toBeUndefined();
-    expect([{ x: 11, y: -1 }, { x: 11, y: 1 }]).toContainEqual(b1.path[b1.path.length - 1]); // a side face
+    expect(b1.path[b1.path.length - 1]).toEqual({ x: 11, y: 2 }); // the side face (its north side is the dock itself)
     invariants(d1);
+    const d1b = d1;
     // blocking every approach breaks it — kept, dashed, naming the blocker
-    const d1b = must(lplace(d1, 'hopper', { x: 11, y: -1 }, 0, ctx));
-    expect(d1b.belts.find((b) => b.to!.m === 'socket:s')!.path.at(-1)).toEqual({ x: 11, y: 1 }); // the south face
-    invariants(d1b);
-    const e = lplace(d1b, 'hopper', { x: 11, y: 1 }, 2, ctx);
+    const e = lplace(d1b, 'hopper', { x: 11, y: 2 }, 2, ctx);
     const d = must(e);
     expect(d.belts.length).toBe(2);
     const br = d.belts.find((b) => b.to!.m === 'socket:s')!;
@@ -609,7 +608,7 @@ describe('forgiving belts (r2)', () => {
     if (e.ok) { expect(e.note).toMatch(/re-routing/); expect(e.broken).toEqual([br.id]); }
     invariants(d);
     // removing an obstacle heals it
-    const h = must(remove(d, ['hopper3']));
+    const h = must(remove(d, ['hopper2']));
     expect(h.belts.find((b) => b.id === br.id)!.broken).toBeUndefined();
     invariants(h);
     // rotating the canceller twice breaks then re-routes nothing silently
@@ -783,8 +782,8 @@ describe('final polish', () => {
     c = must(lplace(c, 'canceller', { x: 5, y: 3 }, 0, ctx));
     c = must(lconnect(c, { m: 'canceller1', port: 'out' }, { m: 'socket:s', port: 'q' }, ctx));
     const p = c.belts[0]!.path;
-    expect(p.at(-1)).toEqual({ x: 11, y: 1 });                         // the dock's south face
-    expect(p.length).toBe(7);
+    expect(p.at(-1)).toEqual({ x: 11, y: 2 });                         // the W inlet's south face
+    expect(p.length).toBe(6);
     invariants(c);
   });
 
@@ -945,8 +944,8 @@ describe('v4 Phase B: integer towers and imported power laws', () => {
     expect(libCard(kz, { k: 'schema', id: 'power.zero' })?.k).toBe('law');
     expect(libCard(kz, { k: 'schema', id: 'power.literal' })).toBeNull();     // r not chosen yet
     expect(libCard(kz, { k: 'schema', id: 'power.literal:3' })?.k).toBe('law');
-    expect(libName(kz, { k: 'schema', id: 'power.add' })).toBe('Exponent Adder');
-    expect(libName(kz, { k: 'schema', id: 'power.literal' })).toBe('Literal Power (choose r)');
+    expect(libName(kz, { k: 'schema', id: 'power.add' })).toBe('product of powers');
+    expect(libName(kz, { k: 'schema', id: 'power.literal' })).toBe('literal power (choose r)');
     expect(libPremises(kz, { k: 'schema', id: 'power.add' })).toBe(0);
     const law = (id: string): MachineConfig => ({ kind: 'rewriter', recipe: { k: 'law', ref: { k: 'schema', id } }, dir: 'fwd', target: FIRST, gap: FIRST, values: {}, tidy: true });
     for (const id of ['power.add', 'power.literal', 'power.literal:4']) expect(place(empty(), 'rewriter', { x: 0, y: 0 }, 0, kz, law(id)).ok).toBe(true);
@@ -982,7 +981,7 @@ describe('v4 r2: doorsteps and the L12 floor', () => {
     const desk = c.machines.find((q) => q.kind === 'desk')!.id, gate = c.machines.find((q) => q.kind === 'gate')!.id;
     const wires: [string, string, string, string][] = [
       [desk, 'out', r1, 'q'], [lag, 'out', r1, 'rule'], [r1, 'out', r2, 'q'], [desk, 'out', r2, 'rule'], [r2, 'out', wit, 'p0'],
-      [wit, 'out', r3, 'rule'], [desk, 'out', r3, 'q'], [r3, 'out', an, 'a'], ['given:n', 'out', an, 'b'], [an, 'out', gate, 'q'], [gate, 'out', 'socket:s', 'q'],
+      [wit, 'out', r3, 'rule'], [desk, 'out', r3, 'q'], [r3, 'out', an, 'a'], ['given:n', 'out', an, 'b'], [an, 'out', gate, 'q'], [gate, 'out', 'socket:s', 'qe'], // the dock's east inlet faces the gate
     ];
     for (const [f, fp, t, tp] of wires) c = must(connect(c, { m: f, port: fp }, { m: t, port: tp }, k12));
     expect(c.belts.length).toBe(wires.length);

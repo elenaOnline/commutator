@@ -175,8 +175,8 @@
 .h3-tog-g.math { font-size: 12px; font-style: italic; font-weight: 400; }
 .h3-tog.has-predict::after { content: ''; position: absolute; top: -2px; right: -2px; width: 8px; height: 8px; border-radius: 50%; background: var(--scope); box-shadow: 0 0 0 2px #fff; }
 
-/* ───────── lens ───────── */
-.h3-lens { position: absolute; z-index: 20; width: max-content; min-width: 330px; max-width: min(560px, 45vw); padding: 0 0 8px; --bd: 30px; }
+/* ───────── lens (review 2026-10: a fixed 440px card; function first, centred) ───────── */
+.h3-lens { position: absolute; z-index: 20; width: 440px; max-width: calc(100vw - 24px); padding: 0 0 10px; --bd: 30px; --sel: #BFC3CF; }
 .h3-lens::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 4px; border-radius: 14px 14px 0 0; background: var(--ink); }
 .h3-lens[data-family="lemma"]::before { background: linear-gradient(90deg, var(--gold) 0 14px, var(--navy) 14px); }
 .h3-lens-notch { position: absolute; width: 12px; height: 12px; background: #fff; border: 1px solid #DADDE5; transform: translateX(-50%) rotate(45deg); }
@@ -184,56 +184,62 @@
 .h3-lens.below .h3-lens-notch { top: -7px; border-bottom: 0; border-right: 0; }
 .h3-lens.docked .h3-lens-notch { display: none; }
 .h3-lens-head { display: flex; align-items: center; gap: 8px; padding: 10px 10px 6px 12px; }
+.h3-lens-head .h3-glyph { font-size: 13.5px; }
 .h3-lens-title { flex: 1; display: flex; flex-direction: column; line-height: 1.2; min-width: 0; }
-.h3-lens-title b { font-size: 14px; }
-.h3-lens-sub { font-size: 11.5px; color: var(--text-dim); max-width: 330px; }
+.h3-lens-title b { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.h3-lens-sub { font-size: 11.5px; color: var(--text-dim); }
 .h3-lens-sub .math { font-size: 13px; color: var(--navy); }
 .h3-lens-head .h3-icon { width: 26px; height: 26px; font-size: 13px; }
-.h3-locked { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-dim); border: 1px dashed #B8BCCB; border-radius: 4px; padding: 0 4px; }
-.h3-status { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 500; color: var(--navy-2); white-space: nowrap; }
-.h3-pip { width: 8px; height: 8px; border-radius: 50%; background: #B8BCCB; display: inline-block; }
+.h3-locked { flex: none; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-dim); border: 1px dashed #B8BCCB; border-radius: 4px; padding: 0 4px; }
+/* status: one word in a fixed 84px slot, right-aligned (never resizes the card) */
+.h3-status { flex: none; width: 84px; display: inline-flex; justify-content: flex-end; align-items: center; gap: 5px; font-size: 11px; font-weight: 500; color: var(--navy-2); white-space: nowrap; }
+.h3-pip { flex: none; width: 8px; height: 8px; border-radius: 50%; background: #B8BCCB; display: inline-block; }
 .h3-status.ok .h3-pip { background: var(--equation); box-shadow: 0 0 0 2px rgba(60, 199, 174, .25); }
 .h3-status.jam { color: var(--contradiction-text); }
 .h3-status.jam .h3-pip { border-radius: 1px; background: var(--contradiction); transform: rotate(45deg); }
 .h3-status.starved .h3-pip { background: #fff; box-shadow: inset 0 0 0 2px #8A90A3; }
 .h3-status.blocked .h3-pip { background: var(--identity); }
 .h3-status.sealed .h3-pip { border-radius: 2px; background: var(--navy); }
-.h3-lens-body { padding: 0 12px; display: flex; flex-direction: column; gap: 8px; max-height: min(64vh, 560px); overflow: auto; scrollbar-width: thin; }
+.h3-lens-body { padding: 0 12px; display: flex; flex-direction: column; gap: 10px; max-height: min(66vh, 600px); overflow: auto; scrollbar-width: thin; }
 .h3-sec .h3-label { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
 .h3-tchip { display: inline-flex; align-items: center; gap: 6px; text-transform: none; letter-spacing: 0; font-weight: 400; }
-.h3-twinwrap { overflow-x: auto; scrollbar-width: thin; padding: 2px 2px 0; }
-.h3-twin { position: relative; display: grid; grid-template-columns: 26px max-content; grid-template-rows: auto auto; align-items: center; column-gap: 4px;
-  padding: calc(10px + var(--br-levels, 1) * 8px) 6px calc(10px + var(--br-levels, 1) * 8px) 0; }
-.h3-rung { grid-column: 1; grid-row: 1 / span 2; font-size: 26px; text-align: center; color: var(--navy); }
-.h3-railrow { grid-column: 2; display: flex; }
-.h3-railrow.l { grid-row: 1; }
-.h3-railrow.r { grid-row: 2; margin-top: 4px; }
+/* mode switches (change / keep current): lowercase pills in the machine's own family ink */
+.h3-mode { flex: none; border: 1px solid var(--ink-edge, var(--ink)); background: var(--ink); color: var(--on-ink, #fff); border-radius: 999px; padding: 1px 8px; font: 500 11px/1.45 var(--font-ui); cursor: pointer; white-space: nowrap; text-transform: none; letter-spacing: 0; }
+.h3-mode:hover { filter: brightness(.95); }
+.h3-mode:active { transform: translateY(1px); }
+
+/* the stacked equation: LHS on row 1; = right-aligned in its own column on row 2 (\qquad to the RHS) */
+.h3-twinwrap { overflow-x: auto; scrollbar-width: thin; padding-top: 2px; }
+.h3-twin { position: relative; width: max-content; margin: 0 auto; display: grid; grid-template-columns: auto max-content; align-items: center; column-gap: 48px; row-gap: 12px; padding: 6px 6px; }
+.h3-railrow { display: flex; }
+.h3-railrow.l { grid-column: 2; grid-row: 1; }
+.h3-railrow.r { grid-column: 2; grid-row: 2; }
+.h3-rung { grid-column: 1; grid-row: 2; justify-self: end; font-size: 24px; line-height: 1; color: var(--navy); }
 .h3-twin .bn-f { cursor: default; }
 .h3-twin .bn-f:hover > .bn-disc { transform: none; }
 .h3-twin .bn-f.is-lit > .bn-disc { transform: translateY(-2px); filter: drop-shadow(0 2px 0 color-mix(in srgb, var(--ink) 55%, transparent)); }
 .h3-twin .bn-gap { cursor: default; }
 .h3-brackets { position: absolute; inset: 0; pointer-events: none; z-index: 4; }
-.h3-br { position: absolute; height: 7px; padding: 0; border: 0; background: none; cursor: pointer; pointer-events: auto; }
-.h3-br::before { content: ''; position: absolute; left: 0; right: 0; top: 0; bottom: 0; border: 1.5px dashed #8A90A3; }
-.h3-br.l::before { border-bottom: 0; border-radius: 4px 4px 0 0; }
-.h3-br.r::before { border-top: 0; border-radius: 0 0 4px 4px; }
-.h3-br::after { content: ''; position: absolute; left: -2px; right: -2px; top: -6px; bottom: -6px; } /* 19px hit target */
-.h3-br:hover::before { border-color: var(--navy); border-style: solid; }
-.h3-br.chosen::before { border: 3px solid var(--ink); }
-.h3-br.chosen.l::before { border-bottom: 0; } .h3-br.chosen.r::before { border-top: 0; }
-[data-family="identity"] .h3-br.chosen::before { border-color: var(--identity-text); }
-.h3-br.gap::before { border-radius: 2px; }
-.h3-cut { position: absolute; height: 7px; border: 2px solid var(--navy); border-top: 0; border-radius: 0 0 4px 4px; pointer-events: none; }
-.h3-cut.l { border-top: 2px solid var(--navy); border-bottom: 0; border-radius: 4px 4px 0 0; }
-.h3-cut i { position: absolute; left: 50%; transform: translateX(-50%); top: 6px; font-size: 13px; background: #fff; padding: 0 2px; color: var(--navy); }
-.h3-cut.l i { top: -15px; }
+/* targets: braces for spans, carets for gaps; selectable = solid light grey, chosen = family ink. Never dashed. */
+.h3-br { position: absolute; height: 13px; padding: 3px 0 0; border: 0; background: none; cursor: pointer; pointer-events: auto; display: flex; justify-content: center; align-items: flex-start; color: var(--sel); }
+.h3-br::after { content: ''; position: absolute; left: -2px; right: -2px; top: -4px; bottom: -4px; } /* 21px hit target */
+.h3-br:hover { color: #8A90A3; }
+.h3-br.chosen { color: var(--ink-edge, var(--ink)); cursor: default; }
+.h3-br.gap svg path { stroke-width: 1.6; }
+.h3-br.gap.chosen svg path { stroke-width: 2.4; }
+.h3-br .h3-brace { pointer-events: none; }
+.h3-cut { position: absolute; height: 7px; pointer-events: none; color: var(--navy); }
+.h3-cut i { position: absolute; left: 50%; transform: translateX(-50%); top: -17px; font-size: 13px; background: #fff; padding: 0 2px; color: inherit; font-style: italic; }
+.h3-cut.r i { top: 8px; }
 .h3-others { display: flex; flex-direction: column; gap: 3px; }
-.h3-inrow { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
+.h3-inrow { display: flex; align-items: center; gap: 8px; font-size: 12px; }
 .h3-portname { width: 64px; flex: none; font-size: 10.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--equation-text); }
-.h3-inval { font-size: 16px; white-space: nowrap; }
-.h3-ctls { display: flex; flex-direction: column; gap: 7px; border-top: 1px solid var(--hair); padding-top: 8px; }
+.h3-inval { min-width: 0; font-size: 16px; }
+.h3-ctls { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--hair); padding-top: 8px; }
 .h3-ctl { display: flex; align-items: center; gap: 8px; }
 .h3-ctl-k { width: 64px; flex: none; font-size: 10.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-dim); }
+.h3-ctl .h3-seg { font-size: 12px; padding: 4px 10px; min-height: 28px; }
+.h3-ctl .h3-seg .math { font-size: 14px; }
 .h3-count { min-width: 26px; text-align: center; font-size: 13px; font-variant-numeric: tabular-nums; }
 .h3-toggle { display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; font-size: 12.5px; color: var(--navy); cursor: pointer; padding: 2px 0; }
 .h3-toggle i { width: 26px; height: 15px; border-radius: 8px; background: #D5D8E0; position: relative; transition: background .12s; }
@@ -245,25 +251,25 @@
 .h3-choice .math { font-size: 14px; }
 .h3-choice.on { border-color: var(--navy); box-shadow: inset 0 0 0 1px var(--navy); background: #EEF0F6; }
 .h3-card { font-size: 16px; border: 1px solid var(--navy); border-left: 5px solid var(--gold); border-radius: 8px; padding: 4px 10px; white-space: nowrap; }
-.h3-knob { display: flex; flex-direction: column; gap: 4px; padding: 6px 7px; border-radius: 10px; box-shadow: inset 0 0 0 1px #E3E6EE; }
-.h3-knob.unset { box-shadow: inset 0 0 0 1.5px var(--structure); }
+/* knobs: a box around a term slot (or an integer field) and its chips */
+.h3-knob { display: flex; flex-direction: column; gap: 8px; padding: 8px; border-radius: 10px; box-shadow: inset 0 0 0 1px #E3E6EE; }
+.h3-knob.unset { box-shadow: inset 0 0 0 1.5px var(--ink-edge, var(--structure)); }
 .h3-knob.port { flex-direction: row; align-items: center; gap: 8px; }
 .h3-knob-top { display: flex; align-items: center; gap: 8px; }
-.h3-knob-k { font-size: 17px; white-space: nowrap; }
+.h3-knob-k { flex: none; font-size: 17px; white-space: nowrap; }
 .h3-knob-view { display: inline-flex; --bd: 20px; }
-.h3-knob-msg { font-size: 11.5px; color: var(--contradiction-text); min-height: 0; }
+.h3-knob-msg { font-size: 11.5px; color: var(--contradiction-text); min-height: 0; text-align: center; }
 .h3-knob-msg:empty { display: none; }
-.h3-chips { display: flex; flex-wrap: wrap; gap: 3px; align-items: center; }
+.h3-chips { display: flex; flex-wrap: wrap; gap: 3px; align-items: center; justify-content: center; }
 .h3-chip { --bd: 18px; padding: 3px 4px; }
-.h3-chip.txt { font-size: 11px; color: var(--navy-2); padding: 3px 7px; }
+.h3-chip.txt { font-size: 11px; color: var(--navy-2); padding: 3px 7px; min-height: 24px; }
 .lw3 .bn-mini { --bd: 18px; }
-.h3-termview { --bd: 24px; }
-.h3-outmath { font-size: 20px; white-space: nowrap; overflow-x: auto; scrollbar-width: none; }
+.h3-termview { --bd: 24px; display: flex; justify-content: center; }
 .h3-arrow { font-family: var(--font-ui); color: var(--ink-text); font-size: 15px; margin-right: 4px; }
-.h3-out { border-top: 1px solid var(--hair); padding-top: 6px; }
-.h3-bigmath { font-size: 22px; white-space: nowrap; }
-.h3-note { margin: 2px 0; font-size: 12px; line-height: 1.45; color: var(--text-dim); max-width: 380px; }
-.h3-reason { margin: 0; font-size: 12.5px; line-height: 1.45; padding: 6px 9px; border-radius: 8px; background: var(--wash); color: var(--navy); max-width: 420px; }
+.h3-bigmath { font-size: 22px; text-align: center; padding: 6px 0; }
+.h3-note { margin: 2px 0; font-size: 12px; line-height: 1.45; color: var(--text-dim); }
+.h3-center { text-align: center; }
+.h3-reason { margin: 0; font-size: 12.5px; line-height: 1.45; padding: 6px 9px; border-radius: 8px; background: var(--wash); color: var(--navy); }
 .h3-reason.jammed { background: #FFF1EC; color: #9A3412; box-shadow: inset 3px 0 0 var(--contradiction); }
 .h3-reason .math { font-size: 15px; }
 .h3-roominfo { font-size: 12.5px; line-height: 1.5; }
@@ -315,29 +321,25 @@
 
 /* ───────── r2: theorem cuts, candidate chips, status sub-line ───────── */
 .h3-status { flex-direction: row; }
-.h3-sub { font-weight: 400; color: var(--text-dim); margin-left: 5px; }
-.h3-sub::before { content: '· '; }
 .h3-handle { position: absolute; width: 16px; padding: 0; border: 0; background: none; cursor: col-resize; pointer-events: auto; z-index: 2; }
-.h3-handle::before { content: ''; position: absolute; left: 7px; top: 4px; bottom: 4px; width: 0; border-left: 2px dashed #8A90A3; }
-.h3-handle::after { content: ''; position: absolute; left: 3px; top: -3px; width: 10px; height: 10px; border-radius: 50%; background: #fff; box-shadow: inset 0 0 0 1.5px #8A90A3; }
-.h3-handle:hover::before, .h3-handle.hot::before { border-left: 2px solid var(--navy); }
-.h3-handle:hover::after, .h3-handle.hot::after { box-shadow: inset 0 0 0 2px var(--navy); }
-.h3-handle.chosen::before { border-left: 3px solid var(--navy); left: 6.5px; }
-.h3-handle.chosen::after { background: var(--gold); box-shadow: inset 0 0 0 2px var(--navy); }
-.h3-tickmark { position: absolute; width: 0; border-left: 2px dashed var(--navy); pointer-events: none; }
-.h3-tickmark.chosen { border-left-style: solid; }
-.h3-cut.hov { border-color: var(--gold-ink); }
-.h3-cut.hov i { color: var(--gold-ink); }
+/* cut handles: like braces and carets — solid light grey when selectable, family ink when chosen. Never dashed. */
+.h3-handle::before { content: ''; position: absolute; left: 7px; top: 4px; bottom: 4px; width: 0; border-left: 2px solid var(--sel, #BFC3CF); }
+.h3-handle::after { content: ''; position: absolute; left: 3px; top: -3px; width: 10px; height: 10px; border-radius: 50%; background: #fff; box-shadow: inset 0 0 0 1.5px var(--sel, #BFC3CF); }
+.h3-handle:hover::before, .h3-handle.hot::before { border-left-color: #8A90A3; }
+.h3-handle:hover::after, .h3-handle.hot::after { box-shadow: inset 0 0 0 2px #8A90A3; }
+.h3-handle.chosen::before { border-left: 3px solid var(--ink-edge, var(--ink)); left: 6.5px; }
+.h3-handle.chosen::after { background: var(--gold); box-shadow: inset 0 0 0 2px var(--ink-edge, var(--ink)); }
+.h3-tickmark { position: absolute; width: 0; border-left: 2px solid var(--sel, #BFC3CF); pointer-events: none; }
+.h3-tickmark.chosen { border-left-color: var(--ink-edge, var(--ink)); }
+.h3-cut.hov { color: var(--gold-ink); }
 .h3-cut.dim { opacity: .25; }
-.h3-preview { min-height: 22px; font-size: 17px; white-space: nowrap; overflow-x: auto; scrollbar-width: none; margin-top: 2px; }
-.h3-preview .h3-arrow { font-size: 11px; letter-spacing: .04em; color: var(--gold-ink); }
+.h3-preview { min-height: 24px; display: flex; justify-content: center; align-items: baseline; gap: 6px; font-size: 17px; flex-wrap: wrap; margin-top: 2px; }
+.h3-preview .h3-cuthere { font: 11px var(--font-ui); letter-spacing: .04em; color: var(--gold-ink); }
 .h3-cands { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 4px; }
 .h3-cand { display: inline-flex; align-items: center; gap: 4px; border: 1px solid #D5D8E0; background: #fff; border-radius: 8px; padding: 2px 6px 2px 4px; cursor: pointer; --bd: 17px; }
 .h3-cand:hover { border-color: var(--navy); }
 .h3-cand.on { border-color: var(--ink); box-shadow: inset 0 0 0 1.5px var(--ink); }
 .h3-cand-side { font-size: 9.5px; font-weight: 700; color: var(--text-dim); }
-.h3-br.hot::before { border: 3px solid var(--navy); }
-.h3-br.hot.l::before { border-bottom: 0; } .h3-br.hot.r::before { border-top: 0; }
 
 /* ───────── r2: follow one proof ───────── */
 .lw3 .h3-veil { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none !important; }
@@ -366,20 +368,28 @@
 /* ═════════ v4 — recipe picker, towers, ∀, Lemma Book, concept cards ═════════ */
 .h3-picker .h3-label { margin-bottom: 6px; }
 .h3-psearch { width: 100%; height: 30px; font-size: 13px; margin-bottom: 4px; }
-.h3-plist { max-height: min(34vh, 290px); overflow: auto; scrollbar-width: thin; display: flex; flex-direction: column; gap: 1px; padding-right: 2px; }
+/* capped so a cut-off row says "scrolls": 236px with a 40px fade at the bottom (4240e7a6) */
+.h3-plist { max-height: 236px; overflow: auto; scrollbar-width: thin; display: flex; flex-direction: column; gap: 1px; padding: 0 2px 26px 0;
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 40px), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 40px), transparent); }
 .h3-plist .h3-group { margin: 8px 0 2px; }
-.h3-prow { display: grid; grid-template-columns: minmax(90px, max-content) 1fr; column-gap: 12px; row-gap: 0; align-items: baseline; width: 100%; text-align: left; border: 0; background: none; padding: 5px 7px; border-radius: 8px; cursor: pointer; color: var(--navy); }
+/* rows wrap, never clip (e368e743); the name column depends on the kind (--namew) */
+.h3-prow { display: flex; flex-wrap: wrap; align-items: center; column-gap: 10px; row-gap: 4px; width: 100%; min-height: 36px; text-align: left; border: 0; background: none; padding: 5px 7px; border-radius: 8px; cursor: pointer; color: var(--navy); }
 .h3-prow:hover, .h3-prow:focus-visible { background: var(--wash); box-shadow: inset 0 0 0 1px #DADDE5; }
-.h3-prow-name { font-size: 13px; font-weight: 600; white-space: nowrap; }
-.h3-prow-name i { font-family: var(--font-math); font-weight: 400; font-size: 15px; }
-.h3-prow-stmt { font-size: 16px; white-space: nowrap; overflow-x: auto; scrollbar-width: none; }
-.h3-prow-note { grid-column: 1 / -1; font-size: 11px; color: var(--text-dim); }
-.h3-recipe { border-left: 3px solid var(--ink); padding-left: 9px; border-radius: 2px; }
-[data-family="identity"] .h3-recipe { border-left-color: var(--identity-text); }
-.h3-recipe-row { display: flex; align-items: baseline; gap: 12px; }
-.h3-recipe-name { font-size: 14px; font-weight: 600; white-space: nowrap; }
-.h3-recipe-name i { font-family: var(--font-math); font-weight: 400; font-size: 16px; }
-.h3-recipe-stmt { font-size: 18px; white-space: nowrap; overflow-x: auto; scrollbar-width: none; }
+.h3-prow-name { flex: 0 0 var(--namew, 104px); font-size: 13px; font-weight: 600; }
+.h3-prow-name i { font-family: var(--font-math); font-weight: 400; font-size: 16px; }
+.h3-prow-demo { flex: none; display: inline-flex; font-size: 16px; white-space: nowrap; max-width: 100%; }
+.h3-prow-stmt { flex: none; font-size: 16px; white-space: nowrap; max-width: 100%; }
+.h3-prow-note { flex-basis: 100%; font-size: 11px; color: var(--text-dim); }
+.h3-recipe { border-left: 3px solid var(--ink-edge, var(--ink)); padding-left: 10px; border-radius: 2px; }
+.h3-recipe-head { display: flex; align-items: center; gap: 8px; }
+.h3-recipe-name { font-size: 13.5px; font-weight: 600; white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.h3-recipe-name i { font-family: var(--font-math); font-weight: 400; font-size: 17px; }
+.h3-recipe-demo { display: flex; flex-wrap: wrap; justify-content: center; padding: 14px 0 10px; font-size: 18px; }
+.h3-recipe-demo .h3-tf, .h3-recipe-demo .h3-opdemo { justify-content: center; }
+.h3-recipe-toggle { display: flex; justify-content: center; padding-bottom: 8px; }
+.h3-sidetoggle .h3-seg { padding: 3px 12px; min-height: 28px; font-size: 15px; }
+.h3-sidetoggle .h3-seg i { font-style: italic; }
+.h3-recipe-note { font-size: 11px; color: var(--text-dim); text-align: center; padding-bottom: 4px; }
 .h3-pin.on { background: #FFF6DD; border-color: var(--gold); color: var(--gold-ink); }
 .h3-first { background: #F2FBF9; border-radius: 8px; padding: 6px 8px; color: var(--navy); }
 .h3-icon.h3-help { width: 24px; height: 24px; font-size: 12px; font-weight: 600; border-radius: 50%; }
@@ -391,13 +401,18 @@
 .h3-way b { color: var(--navy); font-size: 12.5px; }
 .h3-way .lw-key { align-self: flex-start; margin-top: 4px; }
 .h3-tower .h3-ctl { gap: 8px; }
-.h3-let { font-size: 18px; font-style: italic; }
-.h3-tname { flex: 0 0 90px; font-size: 20px; }
+.h3-let { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 6px 0 10px; }
+.h3-let-k { font-size: 18px; font-style: italic; }
+.h3-sortsegs .h3-seg { font-size: 15px; padding: 4px 10px; min-height: 30px; }
+.h3-tower .h3-chips { margin-bottom: 8px; }
+.h3-tower .h3-lead { text-align: center; margin: 0 0 6px; }
 .h3-soon { font-size: 9px; letter-spacing: .06em; text-transform: uppercase; margin-left: 4px; color: var(--text-dim); }
 .h3-uses { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
-.h3-genline { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; font-size: 18px; }
-.h3-gin { color: var(--text-dim); font-size: 16px; }
-.h3-gout { font-size: 20px; color: var(--navy); }
+.h3-genline { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px 22px; font-size: 18px; padding: 16px 0 14px; }
+.h3-gin { display: inline-flex; color: var(--text-dim); font-size: 17px; }
+.h3-gout { display: inline-flex; font-size: 20px; color: var(--navy); }
+.h3-implies { font-size: 20px; color: var(--navy); }
+.h3-gen .h3-okline { text-align: center; }
 .h3-save { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
 .h3-badge-ok { font: 600 10.5px/1 var(--font-ui); letter-spacing: .06em; text-transform: uppercase; color: #fff; background: #11806C; border-radius: 999px; padding: 4px 8px; white-space: nowrap; }
 .h3-badge-off { font: 600 10.5px/1 var(--font-ui); letter-spacing: .06em; text-transform: uppercase; color: var(--contradiction-text); border: 1px solid var(--contradiction-text); border-radius: 999px; padding: 3px 7px; }
@@ -527,3 +542,81 @@ button.h3-rel { border: 0; background: none; color: var(--navy); }
 .cf-mrule-k { font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
 .cf-body { font-size: 14px; line-height: 1.5; color: var(--navy-2); }
 .cf-body.long { font-size: 14.5px; color: var(--navy); }
+
+/* ═════════ review 2026-10 — Out / Expected as terms, operator demos, term slots ═════════ */
+/* Out always renders (— while empty) so the lens height never jumps while items travel */
+.h3-out { border-top: 1px solid var(--hair); padding-top: 8px; }
+.h3-outbox { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; min-height: 40px; font-size: 20px; text-align: center; padding: 4px 0 2px; }
+.h3-none { color: #B8BCCB; font-size: 18px; }
+.h3-expected { display: flex; flex-wrap: wrap; justify-content: center; font-size: 22px; padding: 10px 0 8px; }
+.h3-socket > .h3-label { margin: 4px 0; }
+.h3-socket > .lw-key { margin-top: 6px; }
+.h3-terms { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px 8px; --bd: 22px; max-width: 100%; }
+.h3-terms .bn-mini { --bd: 22px; }
+.h3-terms .h3-strip-term { flex-wrap: wrap; justify-content: center; row-gap: 8px; --bd: 22px; }
+.h3-terms .h3-strip-rel { font-size: 20px; }
+.h3-terms.small, .h3-terms.small .bn-mini, .h3-terms.small .h3-strip-term { --bd: 20px; }
+.h3-terms.small .h3-strip-rel { font-size: 18px; }
+.h3-terms .h3-strip-q { font-size: 18px; }
+.h3-terms .h3-bot { font-size: 20px; }
+.h3-itemtext { white-space: normal; }
+.h3-itemtext.small { font-size: 17px; }
+.h3-inval .h3-terms { justify-content: flex-start; }
+/* Operator rows: only the result, LHS / = / RHS lined up on the = (8a41a69b) */
+.h3-opdemo { display: inline-grid; grid-template-columns: 92px auto auto; align-items: center; column-gap: 6px; }
+.h3-opdemo-l { justify-self: end; display: inline-flex; }
+.h3-opdemo-r { display: inline-flex; }
+.h3-tf-implies { font-size: 17px; color: var(--navy); margin: 0 4px; }
+.h3-join.small { gap: 6px; }
+.h3-join.small .h3-strip-term, .h3-join.small .bn-mini { --bd: 18px; }
+.h3-join .h3-tf-comma { margin-left: -6px; }
+/* term slots: the value drawn as terms; one hidden full-size input; one shared blinking caret */
+.h3-slotknob .h3-knob-top { justify-content: center; }
+.h3-slotknob .h3-knob-k { margin-right: auto; }
+.h3-slotknob .h3-slotwrap { flex: 1; display: flex; justify-content: center; }
+.h3-slotknob .h3-knob-k + .h3-slotwrap { margin-right: 40px; }
+.h3-slots { position: relative; display: inline-flex; align-items: center; }
+.h3-slotboxes { display: inline-flex; align-items: center; gap: 6px; }
+.h3-slotbox { display: inline-flex; align-items: center; justify-content: center; min-width: 40px; height: 42px; padding: 0 8px; border-radius: 10px; background: #fff; border: 1.5px solid #D5D8E0; --bd: 22px; }
+.h3-slotbox .bn-mini { --bd: 22px; }
+.h3-slotbox.empty { border-style: dashed; border-color: var(--ink-edge, var(--structure)); }
+.h3-slotbox.bad { border-color: var(--contradiction-text); }
+.h3-slot-ph { font-size: 19px; color: #B8BCCB; padding: 0 2px; }
+.h3-slot-raw { font-size: 19px; color: var(--contradiction-text); white-space: pre; }
+.h3-slot-inv { display: inline-flex; align-items: center; }
+.h3-slot-par { font-size: 32px; line-height: 1; color: var(--navy); margin: 0 1px; }
+.h3-slot-sup { align-self: flex-start; font-size: 14px; margin-top: 1px; color: var(--navy); }
+.h3-slot-in { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: text; border: 0; padding: 0; font-size: 16px; z-index: 2; }
+.h3-caret { display: none; width: 1.5px; height: 22px; background: var(--navy); margin-left: 3px; }
+.h3-slotknob.focus .h3-caret, .h3-nameslot.focus .h3-caret { display: inline-block; animation: h3-caret 1s steps(1) infinite; }
+.h3-slotknob.focus .h3-slotbox, .h3-nameslot.focus .h3-slotbox { box-shadow: 0 0 0 3px color-mix(in srgb, var(--ink-edge, var(--structure)) 16%, transparent); }
+@keyframes h3-caret { 50% { opacity: 0; } }
+.reduced-motion .h3-caret { animation: none !important; }
+.h3-slotknob .h3-chip.txt { font-family: var(--font-ui); }
+/* the Tower's name: a slot drawn as the variable itself */
+.h3-nameslot .h3-slotbox { min-width: 46px; height: 44px; --bd: 30px; }
+.h3-nameslot .h3-slotbox .bn-mini { --bd: 30px; }
+.h3-nameslot .h3-slotbox.empty { border-color: var(--scope); }
+.h3-nameslot.z .h3-slotbox.empty { border-color: var(--var-z-ring); }
+.h3-nameslot .h3-slot-ph { font-size: 20px; padding: 0 4px; }
+.h3-namechips .h3-letter { font: italic 15px var(--font-math); color: var(--navy); min-width: 26px; height: 26px; justify-content: center; }
+.h3-namechips .bn-chip { min-width: 26px; height: 26px; justify-content: center; }
+.h3-uses .h3-ctl-k { width: 64px; }
+/* Out-as-terms toggle in the run cluster */
+.h3-tog-g.h3-terms-g { background: #fff; box-shadow: inset 0 0 0 1.5px var(--navy); color: var(--navy); font: italic 11px var(--font-math); }
+.h3-tog.on .h3-tog-g.h3-terms-g { background: var(--navy); color: #fff; }
+.h3-tglyph { white-space: nowrap; }
+.h3-tglyph sub { font-size: .7em; vertical-align: -.25em; line-height: 0; }
+.h3-roomrow .h3-bareslot .h3-slotbox { height: 38px; min-width: 38px; --bd: 20px; }
+.h3-roomrow .h3-bareslot .h3-slotbox .bn-mini { --bd: 20px; }
+.h3-roomrow .h3-bareslot .h3-slotbox.empty { border-color: var(--scope); }
+.h3-bareslot.focus .h3-caret { display: inline-block; animation: h3-caret 1s steps(1) infinite; }
+.h3-bareslot.focus .h3-slotbox { box-shadow: 0 0 0 3px rgba(85, 40, 194, .14); }
+.h3-roomchips { margin: 6px 0 2px; }
+/* subscripted names (x₁₂) inside a term: smaller letters so the subscript clears the ring */
+.lw3 .bn-disc i:has(> .bn-sub) { font-size: .74em; letter-spacing: -.02em; transform: translate(-.1em, -.06em); }
+.lw3 .bn-disc i > .bn-sub { font-size: .64em; margin-left: .02em; vertical-align: -.2em; }
+/* presets carry standard names ("inverse of a product"): wrap to two short lines so the hotbar stays compact */
+.h3-strip .h3-slot.preset { width: 72px; min-width: 72px; justify-content: flex-start; padding-top: 4px; gap: 2px; }
+.h3-strip .h3-slot.preset .h3-name { white-space: normal; text-align: center; font-size: 9.5px; line-height: 1; max-width: 70px; overflow-wrap: anywhere; }
+.h3-strip .h3-slot.preset .h3-glyph { flex: none; }

@@ -4,7 +4,7 @@ import * as F from '../factory';
 import { rectToScreen } from '../floor/project';
 import type { Family, LevelManifest, Term } from '../kernel/types';
 import type { FactoryStore, FState } from '../state/factoryStore';
-import { LEVELS, LEVEL_BY_ID, REGISTRY, MIRROR_NAMES } from '../levels/levels';
+import { LEVELS, LEVEL_BY_ID, REGISTRY, MIRROR_NAMES, SIDE_PAIRS } from '../levels/levels';
 import type { ItemValue, Machine, MachineKind, MachineSpec } from '../factory/types';
 import { FAMILY } from '../ui/tokens';
 import { fH as fH0, tH as tH0 } from '../shell/util';
@@ -99,15 +99,15 @@ export const FAMILY_ORDER: Family[] = ['equation', 'inverse', 'identity', 'given
 /** v4 catalogue as the HUD needs it (the editor's SPECS win when they cover the kind). */
 const FALLBACK: Partial<Record<MachineKind, MachineSpec>> = {
   spool: { kind: 'spool', name: 'Spool', family: 'equation', glyph: 't=t', blurb: 'Makes t = t from any term.', hotkey: '1', placeable: true },
-  rewriter: { kind: 'rewriter', name: 'Rewriter', family: 'given', glyph: 'L→R', blurb: 'Changes one spot of an equation, by a recipe.', hotkey: '2', placeable: true },
-  operator: { kind: 'operator', name: 'Operator', family: 'structure', glyph: 't·', blurb: 'Changes the whole equation.', hotkey: '3', placeable: true },
+  rewriter: { kind: 'rewriter', name: 'Rewriter', family: 'equation', glyph: '⥲', blurb: 'Changes one spot of an equation, by a recipe.', hotkey: '2', placeable: true },
+  operator: { kind: 'operator', name: 'Operator', family: 'structure', glyph: '✣', blurb: 'Changes the whole equation.', hotkey: '3', placeable: true },
   joiner: { kind: 'joiner', name: 'Joiner', family: 'equation', glyph: '⋈', blurb: 'Combines two facts.', hotkey: '4', placeable: true },
-  theorem: { kind: 'theorem', name: 'Theorem', family: 'lemma', glyph: '⇒', blurb: 'Uses a theorem: premises in, conclusion out.', hotkey: '5', placeable: true },
-  tower: { kind: 'tower', name: 'Tower', family: 'scope', glyph: 'x₁', blurb: 'x can be anything. Prove it for x, and ∀ makes it true for all.', hotkey: '6', placeable: true },
-  forall: { kind: 'forall', name: '∀', family: 'lemma', glyph: '∀', blurb: 'Makes a fact about x true for all x.', hotkey: '7', placeable: true },
+  theorem: { kind: 'theorem', name: 'Theorem', family: 'lemma', glyph: '⟹', blurb: 'Uses a theorem: premises in, conclusion out.', hotkey: '5', placeable: true },
+  tower: { kind: 'tower', name: 'Tower', family: 'scope', glyph: '∈G', blurb: 'x can be anything. Prove it for x, and ∀ makes it true for all.', hotkey: '6', placeable: true },
+  forall: { kind: 'forall', name: 'Generalizer', family: 'lemma', glyph: '∀', blurb: 'Makes a fact about x true for all x.', hotkey: '7', placeable: true },
   carddock: { kind: 'carddock', name: 'Card Dock', family: 'lemma', glyph: '∀=', blurb: 'Puts a theorem on a belt.', placeable: true },
   hopper: { kind: 'hopper', name: 'Hopper', family: 'structure', glyph: 't', blurb: 'Emits a term. No claim.', placeable: true },
-  given: { kind: 'given', name: 'Given Inlet', family: 'given', glyph: 'h', blurb: 'A hypothesis of this order.', placeable: false },
+  given: { kind: 'given', name: 'Given Inlet', family: 'given', glyph: '∵', blurb: 'A hypothesis of this order.', placeable: false },
   socket: { kind: 'socket', name: 'Receiving Dock', family: 'equation', glyph: '∎', blurb: 'Deliver the goal here.', placeable: false },
   desk: { kind: 'desk', name: 'Assumption Desk', family: 'scope', glyph: '⊢', blurb: 'Emits the room’s assumption.', placeable: false },
   gate: { kind: 'gate', name: 'Exit Gate', family: 'scope', glyph: '⊣', blurb: 'What leaves the room.', placeable: false },
@@ -129,10 +129,10 @@ export const VERBS: MachineKind[] = ['rewriter', 'operator', 'joiner', 'theorem'
 /** Static "in → out" reading for hover cards (fallback when ports are not computable). */
 export const IO: Partial<Record<MachineKind, [string, string]>> = {
   spool: ['term t (knob or port)', 'equation t = t'],
-  rewriter: ['equation · [rule: a fact made here]', 'equation'],
+  rewriter: ['equation · [rule: an equation made here]', 'equation'],
   operator: ['equation · [term t]', 'equation'],
   joiner: ['two facts', 'equation or ⊥'],
-  theorem: ['premises · [card: a fact made here]', 'equation or inequation'],
+  theorem: ['premises · [card: a theorem made here]', 'equation or inequation'],
   tower: ['—', 'broadcasts its symbol to the floor'],
   forall: ['a fact about Tower variables', 'law or theorem card'],
   carddock: ['—', 'card'],
@@ -148,7 +148,7 @@ export function machineName(m: Pick<Machine, 'kind' | 'config'>): string {
   const ref = c.recipe && 'ref' in c.recipe ? c.recipe.ref : undefined;
   if (c.kind === 'theorem' && ref?.k === 'schema' && ref.id) {
     const sc = REGISTRY[ref.id];
-    if (sc) return ref.mirror ? (MIRROR_NAMES[ref.id]?.name ?? `${sc.name} ᵒᵖ`) : sc.name;
+    if (sc) return SIDE_PAIRS[ref.id] ? (ref.mirror ? SIDE_PAIRS[ref.id]!.op : SIDE_PAIRS[ref.id]!.plain) : ref.mirror ? (MIRROR_NAMES[ref.id]?.name ?? `${sc.name} (mirror)`) : sc.name;
   }
   if (c.kind === 'tower' && c.label) return `Tower ${c.label}`;
   return spec(m.kind).name;
@@ -239,7 +239,7 @@ export function machineRect(id: string, s?: S): RectLike | null {
 }
 
 /** Last pointer position (toasts appear near it). */
-export const pointer = { x: innerWidth / 2, y: innerHeight - 120 };
+export const pointer = typeof window !== 'undefined' ? { x: innerWidth / 2, y: innerHeight - 120 } : { x: 0, y: 0 };
 if (typeof window !== 'undefined') window.addEventListener('pointermove', (e) => { pointer.x = e.clientX; pointer.y = e.clientY; }, { passive: true, capture: true });
 
 /** Copy text, with a textarea fallback. */

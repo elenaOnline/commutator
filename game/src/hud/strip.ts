@@ -1,6 +1,6 @@
 // COMMUTATOR v4.1 — bead strips: a term or an equation as small bead rails, with the factors a rule
 // touches tinted in that rule's family ink (design/v4/COPY.md rule 7). Used by concept-card figures and by
-// the recipe picker's before → after previews. Variables are solid fills (VAR), never hatching.
+// the recipe picker's before = after previews. Variables are solid fills (VAR), never hatching.
 import * as K from '../kernel';
 import type { AtomDecl, Family, Term } from '../kernel/types';
 import { FAMILY } from '../ui/tokens';
@@ -46,13 +46,31 @@ export function stripEl(r: Rails, L: Labels, H: Hues, opts: { range?: Range; ran
   return wrap;
 }
 
-/** before → after, each side tinted where the rule acts / what it made. */
+/**
+ * before = after, each side tinted where the rule acts / what it made. No → in maths (review 2026-10): the
+ * joint is `=` by default; `arrow` overrides it (e.g. '⟹' between facts).
+ */
 export function transformEl(before: Rails, after: Rails, L: Labels, H: Hues, o: { family: Family; hit?: Range; made?: Range; hitR?: { l?: Range; r?: Range }; madeR?: { l?: Range; r?: Range }; which?: 'l' | 'r' | 'both'; vars?: Map<string, 'G' | 'Z'>; struck?: boolean; arrow?: string }): HTMLElement {
   const ink = FAMILY[o.family]?.ink ?? FAMILY.equation.ink;
+  const joint = o.arrow ?? '=';
   const el = h('span', { class: `h3-tf${o.struck ? ' struck' : ''}`, style: `--tint:${ink}` },
     stripEl(before, L, H, { range: o.hit, ranges: o.hitR, ink, which: o.which, vars: o.vars }),
-    h('span', { class: 'h3-tf-arrow', 'aria-hidden': 'true' }, o.arrow ?? '→'),
+    h('span', { class: joint === '=' || joint === '⟹' ? 'h3-strip-rel math' : 'h3-tf-arrow', 'aria-hidden': joint === '=' ? null : 'true' }, joint),
     stripEl(after, L, H, { range: o.made, ranges: o.madeR, ink, which: o.which, vars: o.vars }));
+  return el;
+}
+
+/**
+ * An over/under brace (review: lens span targets, maths annotations) that stretches to its box's width:
+ * two flat runs with rounded ends and a pointed middle. `side` 'under' flips it. Never dashed.
+ */
+export function braceEl(side: 'over' | 'under', o: { ink?: string; sw?: number } = {}): HTMLElement {
+  const col = o.ink ?? 'currentColor', sw = o.sw ?? 1.5, H = 7, M = 3.5;
+  const path = (w: number, d: string) => `<svg width="${w}" height="${H}" aria-hidden="true" style="display:block;overflow:visible;flex:none"><path d="${d}" fill="none" stroke="${col}" stroke-width="${sw}" stroke-linecap="round"/></svg>`;
+  const line = `<span style="flex:1 1 0;min-width:1px;height:0;align-self:center;border-top:${sw}px solid ${col}"></span>`;
+  const el = h('span', { class: `h3-brace ${side}`, 'aria-hidden': 'true',
+    style: `display:flex;align-items:stretch;height:${H}px;width:100%;${side === 'under' ? 'transform:scaleY(-1);' : ''}`,
+    html: path(6, `M${sw / 2},${H} Q${sw / 2},${M} 6,${M}`) + line + path(10, `M0,${M} Q5,${M} 5,0.6 Q5,${M} 10,${M}`) + line + path(6, `M0,${M} Q${6 - sw / 2},${M} ${6 - sw / 2},${H}`) });
   return el;
 }
 
@@ -76,7 +94,7 @@ export function parseFig(src: string, atoms: AtomDecl[]): FigExpr | null {
   let forall: string[] | undefined;
   const m = /^∀\s*([^.]+)\.\s*(.*)$/.exec(s);
   if (m) { forall = m[1]!.split(',').map((x) => x.trim()).filter(Boolean); s = m[2]!; }
-  const parts = s.split('⇒').map((x) => parseRails(x.trim(), atoms));
+  const parts = s.split(/⇒|⟹/).map((x) => parseRails(x.trim(), atoms));
   if (parts.some((p) => !p)) return null;
   return { forall, parts: parts as Rails[] };
 }
@@ -87,7 +105,7 @@ export function figEl(e: FigExpr, L: Labels, H: Hues, o: { range?: [number, numb
   if (e.forall?.length) wrap.append(h('span', { class: 'h3-strip-q math', html: `∀${e.forall.map((v) => `<i class="m-atom any ${o.vars?.get(v) === 'Z' ? 'z' : 'g'}">${v}</i>`).join(', ')}.` }));
   const rails: HTMLElement[] = [];
   e.parts.forEach((p, i) => {
-    if (i) wrap.append(h('span', { class: 'h3-strip-rel math' }, '⇒'));
+    if (i) wrap.append(h('span', { class: 'h3-strip-rel math' }, '⟹'));
     const l = markVarBeads(beads(p.l, L, H), o.vars);
     wrap.append(l); rails.push(l);
     if (p.r) { const r = markVarBeads(beads(p.r, L, H), o.vars); wrap.append(h('span', { class: 'h3-strip-rel math' }, p.rel ?? '='), r); rails.push(r); }

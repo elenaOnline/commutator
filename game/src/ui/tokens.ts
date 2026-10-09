@@ -11,6 +11,7 @@ export const INK = {
   navy2: '#545B73',         // secondary text (6.7:1)
   navy3: '#8A90A3',         // tertiary / disabled (decorative only)
   gold: '#C99A2E',          // earned-lemma band (from B)
+  hullDark: '#0B1022',      // the Receiving Dock's slab edge (review 2026-10)
 } as const;
 
 /** One ink per rule family. text = AA-safe text colour on white for labels. */
@@ -18,11 +19,11 @@ export const FAMILY: Record<Family, { ink: string; text: string; glyph: string; 
   identity:      { ink: '#FFB81C', text: '#8A5A00', glyph: 'e',  label: 'Identity' },     // sunflower: always with a dark edge
   inverse:       { ink: '#C9246E', text: '#A61C5A', glyph: '⁻¹', label: 'Inverse' },      // raspberry
   structure:     { ink: '#2F6BFF', text: '#1F4FD1', glyph: '( )', label: 'Structure' },   // riso blue: crates, lift
-  equation:      { ink: '#3CC7AE', text: '#11806C', glyph: '=',  label: 'Equation' },     // aqua: swap, merge, givens as rules
+  equation:      { ink: '#3CC7AE', text: '#11806C', glyph: '=',  label: 'Equation' },     // aqua: rewriter, swap, chain, spool
   scope:         { ink: '#5528C2', text: '#5528C2', glyph: '∃',  label: 'Scope' },        // violet: rooms, assumptions
   contradiction: { ink: '#FF6A3D', text: '#C2410C', glyph: '⊥',  label: 'Contradiction' },// signal orange
   lemma:         { ink: '#1B2340', text: '#1B2340', glyph: 'L',  label: 'Earned' },       // navy + gold band
-  given:         { ink: '#3CC7AE', text: '#11806C', glyph: 'h',  label: 'Given' },        // givens share equation ink
+  given:         { ink: '#74C043', text: '#3B7A1E', glyph: '∵',  label: 'Given' },        // leaf green (review 2026-10): inlets and rules cited from a given
 };
 
 /** Isometric projection used by the board: grid unit → screen px at zoom 1. */

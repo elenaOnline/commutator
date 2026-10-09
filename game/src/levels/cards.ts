@@ -1,189 +1,197 @@
-// COMMUTATOR v4.1 — concept cards (design/v4/DESIGN.md §4, design/v4/COPY.md). Content-owned.
+// COMMUTATOR — concept cards (review 2026-10: design/review-2026-10/, copy from prototypes/cm-cards.js).
 //
-// Shown on first entry to a level and reopenable from the order chip, a jam or a lens. Written for
-// players with no group theory. VISUAL FIRST (COPY.md): one idea per card, the figures carry it, the
-// body is a caption (≤ 25 words, sentences ≤ ~12 words, no semicolons). A long card is a decision:
-// `long: true` (Matched Pair keeps its write-up). The prose fields `example`/`nearMiss`/`gesture`
-// survive only on long cards; elsewhere a figure does that job.
+// Shown on first entry to a level and reopenable from the order chip, a jam or a lens. The working norms
+// (design/review-2026-10/DESIGN_NORMS.md) are binding:
+//   · never give away a level's own solution: teach the technique on other letters or another statement;
+//   · the real maths term (commute, associativity, identity, inverse, left/right cancellation …);
+//   · TERMS, never beads; no → in maths (= for equal terms, ⟹ for implication);
+//   · parentheses whenever they help; define every symbol where it first appears (⊥ ⟹ ∀ ∈ ∎ ℤ |G| ⊢ ⊣);
+//   · a figure earns its place or is cut; mechanics are rendered game states, behaviour over time a "gif";
+//   · tone: T01's "If … then" paragraph, an intro-to-proof syllabus.
 //
-// Text is markdown: **bold** only (never with maths inside; no italic: the HUD splits on $…$ first,
-// so italics around maths leak their asterisks). Recipe names are “quoted”. Maths sits in $…$ in TeX-ish game notation, restricted to:
-//   a^{-1}  x_1  x^{|G|}  (xy)^5  e  \forall  \Rightarrow  \neq  \bot  \in  \geq  \langle a \rangle
-//   \dots  \;  \,  \quad  |G|  \mathbb{Z}  x^{nk}  x^{-n}  (Phase B: symbolic exponents in ^{…})
-// Group names (ℤ₆, S₃, D₄, V₄) are written in Unicode outside $…$, matching the catalogue.
-// Figure captions and near-miss reasons are plain text (≤ 8 words), Unicode maths (a⁻¹, ⊥).
+// Text is markdown: **bold** only (never with maths inside), maths in $…$ (TeX-ish: a^{-1}, x_1, \forall,
+// \implies (⟹, never ⇒), \neq, \bot, \in, \;, \mathbb{Z} …). Body text comes before the figures.
 //
-// FIGURE STRINGS (transform/nearmiss/chain/machine): parseTerm syntax against the level's atoms plus
-// the figure's `towers` (illustrative variables; plain labels like x, y — subscripts only when needed):
-//   fact   := [∀x,y. ] side ((= | ≠) side)? ( ⇒ side (= | ≠) side )?     e.g. 'x^-1 = y ⇒ x = y^-1'
-//   '⊥' alone is the contradiction pallet.
-// SPANS: `hit`/`made` are [start, end) factor indices of the string's top-level word. For an equation
-// 'L = R' they run across the strip: L's factors first, then R's (the '=' is not a factor). In a
-// `chain`, a step's `hit` marks what CHANGED on arriving at that step, tinted in the step's `family`.
+// FIGURE TERM STRINGS use the kernel's term syntax ('a^-1ab', 'e′e', 'x^(5)' a power stack, 'x^5' the
+// five-term word) against the figure's `atoms` (or the level's atoms when omitted). Written parentheses
+// that are not followed by ^ stay as display-only groups (the kernel flattens them): '(a^-1a)b'.
+// Braces are [from, to, label, side] over TOP-LEVEL display factors (a group counts as one factor).
 //
-// `machines` vocabulary: MachineKind strings from src/factory/types.ts ('spool', 'rewriter',
-// 'operator', 'joiner', 'theorem', 'tower', 'forall', 'carddock', 'gate'), plus 'room:suppose',
-// 'room:classical', 'room:assume' and 'lemmabook'.
+// `machines` vocabulary: MachineKind strings ('spool', 'rewriter', 'operator', 'joiner', 'theorem',
+// 'tower', 'forall', 'carddock', 'gate') plus 'room:suppose', 'room:classical', 'room:assume', 'lemmabook'.
+import type { JoinerRecipe, LibRef } from '../factory/types';
+
+/** A letter a figure draws. `sort` marks a Tower variable (solid violet ∈G / teal ∈ℤ fill). */
+export interface AtomSpec { id: string; label: string; hue: number; sort?: 'G' | 'Z' }
+/** [from, to) top-level factor indices, an inline-markdown label, and the side (default under). */
+export type BraceSpec = [number, number, string, ('over' | 'under')?];
+/** A cell of a maths row: a relation ('=', '≠', '⟹', ','), a term string, or a term with braces. */
+export type MathCell = string | { t: string; br: BraceSpec[] };
+export interface MathRow { label?: string; seq: MathCell[]; strike?: boolean; why?: string }
+
+/** A machine on a card scene, in the compact form the renderer completes into a real MachineConfig. */
+export type SceneConfig =
+  | { kind: 'spool' } | { kind: 'forall' } | { kind: 'desk' } | { kind: 'gate' }
+  | { kind: 'tower'; label: string; sort: 'G' | 'Z' }
+  | { kind: 'given'; givenId: string }
+  | { kind: 'rewriter'; recipe: { k: 'cancel' } | { k: 'insertE' } | { k: 'routed' } | { k: 'law'; ref: LibRef } | null; dir?: 'fwd' | 'rev' }
+  | { kind: 'operator'; recipe: { k: 'multiply'; side: 'left' | 'right' } | { k: 'invert' } | { k: 'swap' } | null }
+  | { kind: 'joiner'; recipe: JoinerRecipe | null }
+  | { kind: 'theorem'; recipe: { k: 'library'; ref: LibRef } | { k: 'routed' } | null };
+export type GridPt = [number, number] | [number, number, number];
+export interface SceneSpec {
+  /** Grid position of the footprint's min corner (fractions allowed), unrotated. */
+  machines: { x: number; y: number; config: SceneConfig; pip?: 'working'; open?: string[] }[];
+  /** Belt centre lines through grid points, output edge first. */
+  belts?: [number, number][][];
+  rooms?: { x0: number; y0: number; x1: number; y1: number; label: string; kind?: 'assume' | 'suppose' | 'classical' }[];
+  /**
+   * Term chips for items on the belts: a pin at grid (x, y, z), the chip set beside it. `place` names the side
+   * (default 'ne', clear of the machines a belt joins); `off` moves the chip's near corner from the pin, in px
+   * (x right, y up), for a longer leader into free space.
+   */
+  items?: { at: GridPt; t: string; place?: 'ne' | 'nw' | 'se' | 'sw' | 'n' | 's'; off?: [number, number] }[];
+  /** Numbered navy markers on the scene, listed in order below it. */
+  notes?: { at: GridPt; text: string }[];
+  /** Extra grid points to keep inside the frame. */
+  extra?: GridPt[];
+  /** Max px per world px (default 1.3). */
+  scale?: number;
+}
 
 export type Figure =
   /** ℤₙ as a clock face (n ≤ 8: the catalogue's cyclic groups). */
   | { k: 'clock'; n: number }
   /** The group's multiplication table (row combined with column). `group` is a catalogue name. */
   | { k: 'table'; group: string }
-  /**
-   * Bead strings, in parseTerm syntax against the level's atoms (e.g. 'a^-1ab', "e'e") plus any
-   * illustrative `towers` (Phase B: e.g. a ℤ Tower k₁ so a figure can show '(ab)^(5k₁)'). Note the
-   * parser's legacy rule: 'a^5' is the five-bead WORD, 'a^(5)' is a power stack.
-   */
-  | { k: 'beads'; terms: string[]; towers?: { id: string; label: string; sort: 'G' | 'Z' }[] }
-  /** Cayley graph of a catalogue group; `gens` are element labels of that group. */
-  | { k: 'cayley'; group: string; gens: string[] }
-  // ── v4.1 visual-first figures (design/v4/COPY.md). Term strings use parseTerm syntax; `towers` as above. ──
-  /**
-   * One move as a picture: a bead strip `before` → `after`. The factors a rule touches are tinted in the
-   * family ink: `hit` = [start, end) factor indices in `before` (top-level word), `made` = the same in `after`.
-   * `caption` ≤ 8 words. Equations: write 'L = R' and the strip shows both rails.
-   */
-  | { k: 'transform'; before: string; after: string; family: FigFamily; hit?: [number, number]; made?: [number, number]; caption?: string; towers?: TowerDecl[] }
-  /** A tempting move that is NOT allowed: drawn like `transform` but struck through, with a ≤ 8-word reason. */
-  | { k: 'nearmiss'; before: string; after: string; why: string; towers?: TowerDecl[] }
-  /** A chain of moves (2–5 strips), each step tinted where it changed. Animated in sequence. */
-  | { k: 'chain'; steps: { term: string; family?: FigFamily; hit?: [number, number] }[]; caption?: string; towers?: TowerDecl[] }
-  /** A mini factory: one machine tile with its recipe, the pallet going in and the pallet coming out. */
-  | { k: 'machine'; kind: string; recipe?: string; input: string; output: string; rule?: string; caption?: string; towers?: TowerDecl[] };
-
-export type FigFamily = 'identity' | 'inverse' | 'structure' | 'equation' | 'scope' | 'contradiction' | 'lemma' | 'given';
-export type TowerDecl = { id: string; label: string; sort: 'G' | 'Z' };
+  /** Each element's order, in a two-row table (Lagrange). */
+  | { k: 'orders'; group: string }
+  /** Laid-out maths: rows of terms and relations; braces label what changes; struck rows are non-rules. */
+  | { k: 'math'; rows: MathRow[]; atoms?: AtomSpec[]; caption?: string }
+  /** A rendered floor state (the real floor renderer) with term chips on belts and numbered notes. */
+  | { k: 'scene'; spec: SceneSpec; atoms?: AtomSpec[] }
+  /** The looping Spool animation: a term, t = t, a belt, a Rewriter (cancel), cc⁻¹ = e. */
+  | { k: 'gif' };
 
 export interface ConceptCard {
   title: string;
-  /**
-   * v4.1: OPTIONAL and short by default — a caption-length line (≤ 25 words) under the figures.
-   * Longer text is a deliberate choice for a card that needs it (set `long: true`).
-   */
   body?: string;
-  /** Long-form card (a decision, not the norm — e.g. Matched Pair's write-up). */
+  /** Long-form card: navy 14.5px body, and the Worked example / Near miss rows. */
   long?: boolean;
-  figure?: Figure;
-  /** v4.1: several figures shown in order (preferred over `figure`). */
   figures?: Figure[];
   /** Machine kinds this card introduces (see vocabulary above). */
   machines?: string[];
-  /** One worked transformation. */
+  /** One worked transformation (long cards). */
   example?: string;
-  /** One forbidden or tempting-but-wrong move, and why. */
+  /** One forbidden or tempting-but-wrong move, and why (long cards). */
   nearMiss?: string;
-  /** One concrete floor gesture: which machines, which recipes, where to click. */
+  /** One concrete floor gesture (long cards). */
   gesture?: string;
 }
+
+/** Illustrative letters: AT('abc') → a, b, c in shape slots 0, 1, 2 (+ shift). */
+const AT = (s: string, shift = 0): AtomSpec[] => [...s].map((id, i) => ({ id, label: id, hue: i + shift }));
+/** Tower variables: TW('xy') → x, y as solid ∈G (or ∈ℤ) variables. */
+const TW = (s: string, sort: 'G' | 'Z' = 'G'): AtomSpec[] => [...s].map((id, i) => ({ id, label: id, hue: i + 2, sort }));
+const witness: LibRef = { k: 'schema', id: 'witness' };
+const cancelL: LibRef = { k: 'schema', id: 'cancel' };
+const dbl: LibRef = { k: 'schema', id: 'dbl' };
 
 /** Concept cards per level id, keys in campaign order. Every level has at least one card. */
 export const CARDS: Record<string, ConceptCard[]> = {
   // ─────────────────────────── Chapter I · The Works ───────────────────────────
   L01: [
     {
-      title: 'A group in three pictures',
-      body: 'Elements combine by lining up. Brackets never matter. Order does.',
-      figures: [
-        { k: 'transform', before: 'aeb', after: 'ab', family: 'identity', hit: [1, 2], caption: 'e changes nothing' },
-        { k: 'transform', before: 'a^-1ab', after: 'eb', family: 'inverse', hit: [0, 2], made: [0, 1], caption: 'a⁻¹ undoes a' },
-        { k: 'nearmiss', before: 'ab', after: 'ba', why: 'Beads never swap places' },
-      ],
+      title: 'What a group is',
+      body: 'A group is a collection of elements with one way to combine them, written side by side: $ab$ means $a$ combined with $b$. Every group obeys three rules, and every move a machine makes is one of them. Here $e$ is the **identity** and $a^{-1}$ is the **inverse** of $a$.',
+      figures: [{ k: 'math', atoms: AT('abc'), rows: [
+        { label: 'associativity', seq: ['(ab)c', '=', 'a(bc)'] },
+        { label: 'identity', seq: ['ea', '=', 'a', '=', 'ae'] },
+        { label: 'inverses', seq: ['a^-1a', '=', 'e', '=', 'aa^-1'] },
+      ] }],
     },
     {
       title: 'Spool and Rewriter',
-      body: 'Every proof starts at a Spool. Each machine makes one checked move.',
+      body: 'Every proof starts at a Spool, which turns a term $t$ into the equation $t = t$. From there, each machine makes one checked move.',
       machines: ['spool', 'rewriter'],
-      figures: [
-        { k: 'machine', kind: 'spool', input: 'a^-1ab', output: 'a^-1ab = a^-1ab', caption: 'Start from t = t' },
-        { k: 'machine', kind: 'rewriter', recipe: 'cancel', input: 'a^-1ab = a^-1ab', output: 'a^-1ab = b', caption: 'Cancel on the right rail' },
-      ],
+      figures: [{ k: 'gif' }],
     },
     {
-      title: 'What proving means',
-      body: 'A small checker approves every move. What reaches the dock holds in every group.',
+      title: 'What a proof is',
+      long: true,
+      body: 'A proof is an argument that a statement must be true, using only what was agreed at the start. Here that means the three group rules and any givens listed on the order. If the goal can be reached from those alone, it holds in every group at once: numbers under addition, the symmetries of a square, the shuffles of a deck. Checking examples can never do this, since there are infinitely many groups; a proof covers all of them.\n\nEach move a machine makes is approved by a checker, so a finished proof has no gaps. You are done when the goal is delivered to the **Receiving Dock**, marked ∎, the traditional sign for the end of a proof.',
     },
   ],
 
   L02: [
     {
-      title: 'Only one identity',
-      body: '$H$ says $e\'x = x$ for every $x$. Use it at $x = e$. So $e\' = e$.',
-      figures: [
-        {
-          k: 'chain', caption: 'Insert e, then H at x = e',
-          steps: [{ term: "e'" }, { term: "e'e", family: 'identity', hit: [1, 2] }, { term: 'e', family: 'given', hit: [0, 1] }],
-        },
-      ],
+      title: 'Is the identity unique?',
+      body: 'The rules promise an identity $e$. Could a group have a second one? The given $H$ describes an element $e′$ that changes nothing from the left: $\\forall x.\\; e′x = x$, read “for every $x$, $e′x = x$”. Because $H$ holds for every $x$, you may use it at any element you like. Choosing the right one is the whole trick.',
     },
     {
-      title: 'Recipes and belts',
-      body: 'Givens and axioms are recipes. Facts you build travel by belt.',
-      figures: [
-        { k: 'machine', kind: 'rewriter', recipe: 'H', input: "e' = e'e", output: "e' = e", rule: "e'x = x", towers: [{ id: 'x', label: 'x', sort: 'G' }], caption: 'A given: pick it, no belt' },
-        {
-          k: 'machine', kind: 'rewriter', recipe: 'routed', input: 'xy = xy', output: 'xy = e', rule: 'xy = e',
-          towers: [{ id: 'x', label: 'x', sort: 'G' }, { id: 'y', label: 'y', sort: 'G' }], caption: 'A room’s fact: belt it in',
-        },
-      ],
+      title: 'Givens are recipes',
+      body: 'A given is a fact you may use as often as you like. Choose it as a Rewriter’s recipe; it never travels by belt. Equations you build do travel by belt.',
+      figures: [{ k: 'scene', spec: {
+        machines: [{ x: 0, y: 0, config: { kind: 'spool' } }, { x: 3, y: 0, config: { kind: 'rewriter', recipe: { k: 'law', ref: { k: 'given', givenId: 'H' } }, dir: 'fwd' } }],
+        belts: [[[1, 0.5], [3, 0.5]], [[5, 0.5], [6.8, 0.5]]],
+        items: [{ at: [2, 0.5], t: 'e′e′ = e′e′' }, { at: [6, 0.5], t: 'e′e′ = e′' }],
+        notes: [
+          { at: [0.5, 0.5, 0.9], text: 'The Spool’s equation travels by belt.' },
+          { at: [4, 0.5, 1], text: 'The recipe is the given $H$, picked in the Rewriter’s lens. No belt needed.' },
+          { at: [6.8, 0.5, 0], text: '$H$ at $x = e′$ turns $e′e′$ into $e′$.' },
+        ] } }],
     },
   ],
 
   L03: [
     {
       title: 'Inverses are unique',
-      body: 'If $ab = e$, then $b$ is $a^{-1}$. One element, one inverse.',
-      figures: [
-        {
-          k: 'chain', caption: 'Spend a pair, then use h',
-          steps: [{ term: 'b' }, { term: 'a^-1ab', family: 'inverse', hit: [0, 2] }, { term: 'a^-1e', family: 'given', hit: [1, 2] }, { term: 'a^-1', family: 'identity' }],
-        },
-      ],
+      body: 'Every element $a$ has an inverse $a^{-1}$, with $a^{-1}a = e = aa^{-1}$. Here $h$ says some $b$ also undoes $a$ from the right: $ab = e$. Must $b$ be $a^{-1}$, or could $a$ have two inverses? A given rewrites its left side wherever that side appears, as in this example with other letters:',
+      figures: [{ k: 'math', atoms: AT('xy'), rows: [
+        { seq: ['yxy', '=', { t: 'y(xy)', br: [[1, 2, 'given: $xy = e$']] }, '=', { t: 'ye', br: [[1, 2, 'identity']] }, '=', 'y'] },
+      ] }],
     },
     {
-      title: 'Regroup, never reorder',
-      body: 'Brackets slide freely. Beads stay in order.',
-      figures: [
-        { k: 'beads', terms: ['a^-1(ab)', '(a^-1a)b'] },
-        { k: 'nearmiss', before: 'a^-1ab', after: 'aba^-1', why: 'Reordering is not a move' },
-      ],
+      title: 'Associative, not commutative',
+      body: 'Brackets can move freely. This is associativity, and the floor applies it for you, so a Rewriter can act on any neighbouring terms. Terms cannot trade places, though: group elements need not commute.',
+      figures: [{ k: 'math', rows: [
+        { seq: ['(a^-1a)b', '=', 'a^-1(ab)'], why: 'Associativity: the same terms, grouped differently.' },
+        { seq: ['ab', '=', 'ba'], strike: true, why: 'Not a rule: elements need not commute.' },
+      ] }],
     },
     {
-      title: 'A proof becomes a machine',
-      body: 'Deliver this, and you earn the Witness Stamp.',
-      figures: [{ k: 'machine', kind: 'theorem', recipe: 'Witness Stamp', input: 'ab = e', output: 'b = a^-1', caption: 'Anything that undoes a is a⁻¹' }],
+      title: 'A proof becomes a theorem',
+      body: 'Deliver this goal and it is saved as a theorem, **unique right inverse**: $uv = e \\implies v = u^{-1}$. The arrow $\\implies$ reads “implies”. A Theorem machine applies it in one move, so you never prove it again.',
+      figures: [{ k: 'scene', atoms: AT('cd', 2), spec: {
+        machines: [{ x: 2, y: 0, config: { kind: 'theorem', recipe: { k: 'library', ref: witness } } }],
+        belts: [[[0, 0.5], [2, 0.5]], [[4, 0.5], [5.8, 0.5]]],
+        items: [{ at: [1, 0.5], t: 'cd = e' }, { at: [5, 0.5], t: 'd = c^-1' }],
+        notes: [
+          { at: [3, 0.5, 1.1], text: 'A Theorem machine set to **unique right inverse**.' },
+          { at: [5.8, 0.5, 0], text: 'Premise $cd = e$ in, conclusion $d = c^{-1}$ out.' },
+        ] } }],
     },
   ],
 
   S01: [
     {
-      title: 'x can be anything',
-      body: '**x can be anything.** Prove it for $x$, and ∀ makes it true for all.',
+      title: 'Proving for every x',
+      body: 'To prove something about every element, prove it about one element you know nothing about. A Tower declares such an element: $x \\in G$, read “$x$ is an element of $G$”. Since the proof uses no special property of $x$, it works for all elements, and the Generalizer records that: $\\forall x.$ reads “for every $x$”.',
       machines: ['tower', 'forall'],
-      figures: [
-        { k: 'machine', kind: 'forall', input: '(x^-1)^-1 = x', output: '∀x. (x^-1)^-1 = x', towers: [{ id: 'x', label: 'x', sort: 'G' }], caption: 'Bind x. True for all.' },
-      ],
+      figures: [{ k: 'scene', atoms: TW('x'), spec: {
+        machines: [{ x: 0, y: 1.6, config: { kind: 'tower', label: 'x', sort: 'G' } }, { x: 2, y: 0, config: { kind: 'forall' } }],
+        belts: [[[0, 0.5], [2, 0.5]], [[4, 0.5], [6, 0.5]]],
+        items: [{ at: [1, 0.5], t: 'xx^-1 = e' }, { at: [5.1, 0.5], t: '∀x. xx^-1 = e' }],
+        notes: [
+          { at: [0.5, 2.1, 1.65], text: 'A **Tower** declares $x \\in G$.' },
+          { at: [3, 0.5, 1], text: 'A fact about $x$ arrives at the **Generalizer**.' },
+          { at: [6, 0.5, 0], text: 'Out comes $\\forall x.\\; xx^{-1} = e$: true for every element.' },
+        ] } }],
     },
     {
-      title: 'Towers',
-      body: 'A Tower names a new element. Two Towers might name the same one.',
-      figures: [{ k: 'beads', terms: ['x', 'y', 'xy'], towers: [{ id: 'x', label: 'x', sort: 'G' }, { id: 'y', label: 'y', sort: 'G' }] }],
-    },
-    {
-      title: 'Prove, then save',
-      body: 'When it docks, save it as Double Flip. You need it next.',
+      title: 'Save what you prove',
+      body: 'When the goal is delivered, save it to the Lemma Book as **double inverse**. A saved theorem becomes a recipe in every later order, and the next order needs this one.',
       machines: ['theorem', 'lemmabook'],
-      figures: [
-        {
-          k: 'chain', caption: 'Cancel, Witness Stamp, swap', towers: [{ id: 'x', label: 'x', sort: 'G' }],
-          steps: [
-            { term: 'x^-1x = x^-1x' },
-            { term: 'x^-1x = e', family: 'inverse', hit: [2, 3] },
-            { term: 'x = (x^-1)^-1', family: 'lemma', hit: [0, 2] },
-            { term: '(x^-1)^-1 = x', family: 'equation', hit: [0, 2] },
-          ],
-        },
-      ],
     },
   ],
 
@@ -193,160 +201,161 @@ export const CARDS: Record<string, ConceptCard[]> = {
       long: true,
       body:
         'Many theorems have a hypothesis: **if** $x^{-1} = y$, **then** $x = y^{-1}$, written ' +
-        '$x^{-1} = y \\Rightarrow x = y^{-1}$. To prove an if–then, assume the “if” and derive the “then”. ' +
+        '$x^{-1} = y \\implies x = y^{-1}$. To prove an if–then, assume the “if” and derive the “then”. ' +
         'The result does not claim $x^{-1} = y$ is true. The condition survives as a premise, unproved; ' +
         'the theorem promises the conclusion only when the premise holds.',
-      example: 'Assume $x_1^{-1} = y_1$. Invert both sides: $(x_1^{-1})^{-1} = y_1^{-1}$. Your Double Flip: $x_1 = y_1^{-1}$.',
-      nearMiss: 'Outside a room you cannot use $x_1^{-1} = y_1$ at all: it is not true for every pair.',
+      example: 'Assume $u = v$. Multiply both sides on the left by $w$: $wu = wv$. That proves $u = v \\implies wu = wv$, without ever claiming $u = v$.',
+      nearMiss: 'An assumption is not a fact. Outside the room that grants it, $x_1^{-1} = y_1$ cannot be used at all: it is not true for every pair.',
     },
     {
       title: 'The Assume room',
       long: true,
       body:
-        'An **Assume** room is a painted region with a desk inside. The desk hands out the assumption, usable only inside. ' +
-        'Carry any fact to the gate and it leaves as a card, “assumption” $\\Rightarrow$ “fact”. ' +
-        'Every certificate remembers **which assumptions it used**. Inside, $x_1 = y_1^{-1}$ uses the desk, an assumption about $x_1$, ' +
-        'so ∀ refuses there. The gate turns the assumption into a premise, and outside ∀ may bind both Towers.',
+        'An **Assume** room is a painted region with a desk (⊢) inside. The desk hands out the assumption, usable only inside. ' +
+        'Carry any fact to the gate (⊣) and it leaves as an if–then, “assumption $\\implies$ fact”. ' +
+        'Every result remembers **which assumptions it used**. Inside, a fact that uses the desk is about one particular pair, ' +
+        'so ∀ refuses to bind it there. The gate turns the assumption into a premise; outside, ∀ may bind both Towers.',
       machines: ['room:assume', 'operator'],
-      gesture:
-        'Towers $x_1$, $y_1$ outside. Room, desk $x_1^{-1} = y_1$ → Operator “invert” → Rewriter, your Double Flip → gate. ' +
-        'Outside: gate → ∀ → dock.',
       nearMiss: 'A ∀ machine inside the room, before the gate, jams. Try it once and read why.',
-      figures: [
-        { k: 'machine', kind: 'gate', input: 'x = y^-1', output: 'x^-1 = y ⇒ x = y^-1', towers: [{ id: 'x', label: 'x', sort: 'G' }, { id: 'y', label: 'y', sort: 'G' }], caption: 'The gate exports if ⇒ then' },
-      ],
+      figures: [{ k: 'scene', atoms: AT('uvw'), spec: {
+        rooms: [{ x0: -0.2, y0: -0.6, x1: 6.5, y1: 1.6, label: 'ASSUME', kind: 'assume' }],
+        machines: [{ x: 0.2, y: 0, config: { kind: 'desk' } }, { x: 2.8, y: 0, config: { kind: 'operator', recipe: { k: 'multiply', side: 'left' } } }, { x: 6, y: 0, config: { kind: 'gate' } }],
+        belts: [[[1.2, 0.5], [2.8, 0.5]], [[4.8, 0.5], [6, 0.5]], [[7, 0.5], [9, 0.5]]],
+        items: [{ at: [2, 0.5], t: 'u = v' }, { at: [5.4, 0.5], t: 'wu = wv', place: 'sw' }, { at: [8.4, 0.5], t: 'u = v ⟹ wu = wv', place: 'sw', off: [-4, -16] }],
+        notes: [
+          { at: [0.7, 0.5, 0.9], text: 'The desk (⊢) hands out the assumption $u = v$.' },
+          { at: [3.8, 0.5, 1], text: 'Inside, use it like any fact. Here an Operator multiplies both sides by $w$.' },
+          { at: [6.5, 0.5, 0.8], text: 'The gate (⊣) lets it out as an if–then: $u = v \\implies wu = wv$.' },
+        ] } }],
     },
     {
       title: 'Use the lemma you saved',
-      body: 'Your saved Double Flip is a recipe now. Not in your book? Replay Undo the Undo and save it.',
-      figures: [
-        { k: 'transform', before: 'x^-1 = y', after: '(x^-1)^-1 = y^-1', family: 'equation', caption: 'invert both sides', towers: [{ id: 'x', label: 'x', sort: 'G' }, { id: 'y', label: 'y', sort: 'G' }] },
-        { k: 'machine', kind: 'rewriter', recipe: 'Double Flip', input: '(x^-1)^-1 = y^-1', output: 'x = y^-1', towers: [{ id: 'x', label: 'x', sort: 'G' }, { id: 'y', label: 'y', sort: 'G' }], caption: 'Your lemma at work' },
-      ],
+      body: 'Your **double inverse**, $(u^{-1})^{-1} = u$, is a recipe now. Pick it in a Rewriter like any group law. Not in your book? Replay Undo the Undo and save it.',
     },
   ],
 
   L05: [
     {
-      title: 'Cancellation',
-      body: '$ab = ac$ forces $b = c$. Do the same to both sides.',
+      title: 'Same to both sides',
+      body: 'Doing the same thing to both sides keeps an equation true: from $u = v$, multiplying on the left by any $t$ gives $tu = tv$. An Operator makes exactly this kind of move, on both sides at once.',
       figures: [
-        {
-          k: 'chain', caption: 'Multiply both sides, then cancel',
-          steps: [{ term: 'ab = ac' }, { term: 'a^-1ab = a^-1ac', family: 'equation' }, { term: 'b = c', family: 'inverse' }],
-        },
-        { k: 'nearmiss', before: 'ab = ca', after: 'b = c', why: 'The a must be on one side' },
+        { k: 'scene', atoms: AT('pqr'), spec: {
+          machines: [{ x: 2, y: 0, config: { kind: 'operator', recipe: { k: 'multiply', side: 'left' } } }],
+          belts: [[[0, 0.5], [2, 0.5]], [[4, 0.5], [5.8, 0.5]]],
+          items: [{ at: [1, 0.5], t: 'p = q' }, { at: [5, 0.5], t: 'rp = rq' }],
+          notes: [
+            { at: [3, 0.5, 1], text: 'An Operator set to **multiply left**, with $t := r$.' },
+            { at: [5.8, 0.5, 0], text: 'Both sides change at once: $rp = rq$.' },
+          ] } },
+        { k: 'math', rows: [{ seq: ['ab', '=', 'ca', '⟹', 'b', '=', 'c'], strike: true, why: 'Not valid: $a$ is on the left of one side and the right of the other.' }] },
       ],
     },
     {
-      title: 'Both rails at once',
-      body: 'Proving this earns the Cancel Lathe.',
-      figures: [{ k: 'machine', kind: 'operator', recipe: 'multiply left by a⁻¹', input: 'ab = ac', output: 'a^-1ab = a^-1ac', caption: 'One move, both rails' }],
+      title: 'A theorem to keep',
+      body: 'Deliver this and you earn **left cancellation**: $uv = uw \\implies v = w$.',
     },
   ],
 
   L06: [
     {
       title: 'Order matters',
-      body: 'In S₃, (12)(13) = (132). But (13)(12) = (123).',
-      figures: [{ k: 'table', group: 'S₃' }, { k: 'nearmiss', before: 'ab', after: 'ba', why: 'False in S₃' }],
+      body: 'Group elements need not commute. In S₃, the symmetries of a triangle, $(12)(13) = (132)$ but $(13)(12) = (123)$.',
+      figures: [{ k: 'table', group: 'S₃' }],
     },
     {
       title: 'Shoes and socks',
-      body: 'Socks on, then shoes. Shoes come off first: $(ab)^{-1} = b^{-1}a^{-1}$.',
-      figures: [
-        {
-          k: 'chain', caption: 'b⁻¹a⁻¹ undoes ab',
-          steps: [{ term: 'ab b^-1 a^-1' }, { term: 'a e a^-1', family: 'inverse', hit: [1, 2] }, { term: 'a a^-1', family: 'identity' }, { term: 'e', family: 'inverse', hit: [0, 1] }],
-        },
-        { k: 'nearmiss', before: '(ab)^-1', after: 'a^-1b^-1', why: 'Wrong order. Test it in the lab.' },
-      ],
+      body: 'You put on socks, then shoes. To undo that, the shoes come off first. Inverting a product works the same way.',
+      figures: [{ k: 'math', rows: [{ seq: ['(ab)^-1', '=', 'a^-1b^-1'], strike: true, why: 'Wrong order. Check it in S₃.' }] }],
     },
     {
-      title: 'Name the inverse',
-      figures: [{ k: 'machine', kind: 'theorem', recipe: 'Witness Stamp', input: 'ab b^-1 a^-1 = e', output: 'b^-1 a^-1 = (ab)^-1', caption: 'Cut between ab and b⁻¹a⁻¹' }],
+      title: 'Choose where to cut',
+      body: '**Unique right inverse** needs a premise $uv = e$, and you choose where $u$ ends and $v$ begins. Its conclusion names whatever follows the cut as the inverse of what comes before it.',
+      figures: [{ k: 'math', atoms: AT('pqr'), rows: [
+        { label: 'cut after p', seq: [{ t: 'pqr', br: [[0, 1, '$u$', 'over'], [1, 3, '$v$', 'over']] }, '=', 'e', '⟹', 'qr', '=', 'p^-1'] },
+        { label: 'cut after q⁻¹', seq: [{ t: 'q^-1p', br: [[0, 1, '$u$', 'over'], [1, 2, '$v$', 'over']] }, '=', 'e', '⟹', 'p', '=', '(q^-1)^-1'] },
+      ] }],
     },
   ],
 
   T02: [
     {
-      title: 'Tools that compose',
-      body: 'Two lemmas, neither proved again.',
-      figures: [
-        {
-          k: 'chain', caption: 'Sock Drawer backwards, then Double Flip',
-          towers: [{ id: 'x', label: 'x', sort: 'G' }, { id: 'y', label: 'y', sort: 'G' }],
-          steps: [{ term: '(y^-1x^-1)^-1' }, { term: '((xy)^-1)^-1', family: 'lemma', hit: [0, 1] }, { term: 'xy', family: 'lemma', hit: [0, 2] }],
-        },
-      ],
+      title: 'Rules run both ways',
+      body: 'An equation can be read in either direction. A Rewriter set to run right to left replaces its rule’s right side with the left. Two theorems from your book are enough here; nothing needs proving again.',
+      figures: [{ k: 'scene', atoms: AT('pq'), spec: {
+        machines: [{ x: 2, y: 0, config: { kind: 'rewriter', recipe: { k: 'law', ref: dbl }, dir: 'rev' } }],
+        belts: [[[0, 0.5], [2, 0.5]], [[4, 0.5], [6.2, 0.5]]],
+        items: [{ at: [1, 0.5], t: 'pq = pq' }, { at: [5.2, 0.5], t: 'pq = (p^-1)^-1q' }],
+        notes: [
+          { at: [3.6, 0.2, 1], text: 'The gold ← chip: this Rewriter runs its rule right to left.' },
+          { at: [6.2, 0.5, 0], text: '$(u^{-1})^{-1} = u$, read backwards, turns $p$ into $(p^{-1})^{-1}$.' },
+        ] } }],
     },
   ],
 
   L04: [
     {
       title: 'Powers are copies',
-      body: '$(xy)^5$ is five copies of the block $xy$.',
-      figures: [
-        { k: 'beads', terms: ['(xy)^5'], towers: [{ id: 'x', label: 'x', sort: 'G' }, { id: 'y', label: 'y', sort: 'G' }] },
-        { k: 'nearmiss', before: '(xy)^5', after: 'x^5y^5', why: 'Copies interleave. They never sort.', towers: [{ id: 'x', label: 'x', sort: 'G' }, { id: 'y', label: 'y', sort: 'G' }] },
-      ],
+      body: '$(xy)^5$ means the block $xy$ written five times. The exponent counts copies of the whole block, so the letters interleave rather than sort.',
+      figures: [{ k: 'math', atoms: TW('xy'), rows: [
+        { seq: ['(xy)^(5)', '=', { t: '(xy)(xy)(xy)(xy)(xy)', br: [[0, 5, '5 copies', 'over']] }] },
+        { seq: ['(xy)^(5)', '=', 'x^(5)y^(5)'], strike: true, why: 'Only true when $x$ and $y$ commute.' },
+      ] }],
     },
     {
-      title: 'A shifted frame',
-      body: 'Put $x^{-1}x$ in front. The same beads now read $x^{-1}(xy)^5x$.',
-      figures: [
-        {
-          k: 'chain', caption: 'Same beads, read from x',
-          towers: [{ id: 'x', label: 'x', sort: 'G' }, { id: 'y', label: 'y', sort: 'G' }],
-          steps: [{ term: '(yx)^5' }, { term: 'x^-1x(yx)^5', family: 'inverse', hit: [0, 2] }, { term: 'x^-1ex', family: 'scope', hit: [1, 2] }, { term: 'e', family: 'inverse', hit: [0, 1] }],
-        },
-      ],
+      title: 'Reading from another place',
+      body: 'Inserting a pair like $u u^{-1}$ changes nothing, but it lets you read the same terms from a different starting point. With other letters:',
+      figures: [{ k: 'math', atoms: AT('cd'), rows: [
+        { seq: ['dc', '=', { t: 'dc(dd^-1)', br: [[2, 3, 'inserted pair']] }, '=', { t: 'd(cd)d^-1', br: [[1, 2, 'regrouped']] }] },
+      ], caption: '$dc$ and $cd$ are **conjugates**: the same block, read from a shifted start.' }],
     },
     {
-      title: 'A fact made on the floor',
-      body: 'Belt the desk’s fact into a Rewriter. The gate exports the if–then. Then ∀ binds $x$ and $y$.',
-      figures: [
-        {
-          k: 'machine', kind: 'rewriter', recipe: 'routed', input: '(yx)^5 = x^-1(xy)^5x', output: '(yx)^5 = x^-1ex', rule: '(xy)^5 = e',
-          towers: [{ id: 'x', label: 'x', sort: 'G' }, { id: 'y', label: 'y', sort: 'G' }], caption: 'The desk’s fact arrives by belt',
-        },
-      ],
+      title: 'Facts made inside a room',
+      body: 'Inside an Assume room, the desk hands out the assumption. Belt it into a Rewriter’s rule port, on its north side, and the Rewriter uses it like a recipe. The gate exports the if–then; then ∀ binds $x$ and $y$.',
+      figures: [{ k: 'scene', atoms: AT('pqr'), spec: {
+        rooms: [{ x0: -0.3, y0: -1.7, x1: 6.6, y1: 2.3, label: 'ASSUME', kind: 'assume' }],
+        machines: [{ x: 2, y: -1, config: { kind: 'desk' } }, { x: 0, y: 1, config: { kind: 'spool' } }, { x: 3, y: 1, config: { kind: 'rewriter', recipe: { k: 'routed' }, dir: 'fwd' } }],
+        belts: [[[3, -0.5], [3.5, -0.5], [3.5, 1]], [[1, 1.5], [3, 1.5]], [[5, 1.5], [6.6, 1.5]]],
+        items: [{ at: [3.5, 0.2], t: 'pq = e', off: [30, 4] }, { at: [2, 1.5], t: 'rpq = rpq', place: 'sw' }, { at: [5.9, 1.5], t: 'rpq = r' }],
+        notes: [
+          { at: [2.85, -0.85, 0.45], text: 'The desk hands out the assumption $pq = e$.' },
+          { at: [3.85, 0.6, 0.3], text: 'Belted into the Rewriter’s **rule port**, it works like a recipe.' },
+          { at: [6.6, 1.5, 0], text: 'It rewrites $pq$ to $e$: $rpq = r$.' },
+        ] } }],
     },
   ],
 
   L07: [
     {
-      title: 'When squares distribute',
-      body: 'If $(ab)^2 = a^2b^2$, then $a$ and $b$ commute.',
-      figures: [
-        {
-          k: 'chain', caption: 'Strip the shared ends',
-          steps: [{ term: 'abab = aabb' }, { term: 'bab = abb', family: 'lemma' }, { term: 'ba = ab', family: 'lemma' }],
-        },
-      ],
+      title: 'Cancellation',
+      body: 'A term on the same end of both sides can be removed.',
+      figures: [{ k: 'math', atoms: AT('pqr'), rows: [
+        { label: 'left cancellation', seq: [{ t: 'pq', br: [[0, 1, 'shared', 'over']] }, '=', { t: 'pr', br: [[0, 1, 'shared', 'over']] }, '⟹', 'q', '=', 'r'] },
+        { label: 'right cancellation', seq: [{ t: 'qp', br: [[1, 2, 'shared', 'over']] }, '=', { t: 'rp', br: [[1, 2, 'shared', 'over']] }, '⟹', 'q', '=', 'r'] },
+      ] }],
     },
     {
-      title: 'One lathe per side',
-      body: 'Earned theorems save work. Each stands in for its whole proof.',
-      figures: [{ k: 'machine', kind: 'theorem', recipe: 'Cancel Lathe', input: 'abab = aabb', output: 'bab = abb', caption: 'Strip the shared a' }],
+      title: 'Theorems as machines',
+      body: 'Earned theorems save work: each stands in for its whole proof.',
+      figures: [{ k: 'scene', atoms: AT('pqr'), spec: {
+        machines: [{ x: 2, y: 0, config: { kind: 'theorem', recipe: { k: 'library', ref: cancelL } } }],
+        belts: [[[0, 0.5], [2, 0.5]], [[4, 0.5], [5.6, 0.5]]],
+        items: [{ at: [1, 0.5], t: 'pq = pr' }, { at: [4.9, 0.5], t: 'q = r' }],
+        notes: [
+          { at: [3, 0.5, 1.1], text: 'A Theorem machine set to **left cancellation**.' },
+          { at: [5.6, 0.5, 0], text: 'It strips the shared $p$ in one move.' },
+        ] } }],
     },
   ],
 
   // ─────────────────────────── Chapter II · Suppose ───────────────────────────
   L08: [
     {
-      title: 'A law at a compound element',
-      body: 'Every square is $e$ here. The law works at $x = ab$ too.',
-      figures: [
-        {
-          k: 'chain', caption: 'H three times, once at x = ab',
-          steps: [{ term: 'ba' }, { term: 'aaba', family: 'given', hit: [0, 2] }, { term: 'aababb', family: 'given', hit: [4, 6] }, { term: 'aeb', family: 'given', hit: [1, 2] }, { term: 'ab', family: 'identity' }],
-        },
-      ],
+      title: 'A law at any element',
+      body: '$H$ holds for every $x$, so it applies to compound elements too: at $x = uv$ it says $uvuv = e$. Pick the instance in the Rewriter that uses $H$.',
     },
     {
       title: 'What commuting looks like',
-      body: 'In V₄ every square is $e$. Its table is symmetric. That is $ab = ba$.',
+      body: 'In V₄ every square is $e$, and its table is symmetric across the diagonal. A symmetric table means $ab = ba$ for every pair: the group is **commutative**.',
       figures: [{ k: 'table', group: 'V₄' }],
     },
   ],
@@ -354,38 +363,44 @@ export const CARDS: Record<string, ConceptCard[]> = {
   L09: [
     {
       title: 'Proof by contradiction',
-      body: 'Suppose the opposite. Reach a clash with $a \\neq e$. So $ab \\neq b$.',
-      figures: [
-        {
-          k: 'chain', caption: 'Suppose ab = b',
-          steps: [{ term: 'ab = b', family: 'scope' }, { term: 'abb^-1 = bb^-1', family: 'equation' }, { term: 'a = e', family: 'inverse' }, { term: '⊥', family: 'contradiction' }],
-        },
-      ],
+      long: true,
+      body: 'To show a statement is false, suppose it is true and follow the consequences until two facts clash: some $u = v$ alongside $u \\neq v$. Such a clash is a **contradiction**, written ⊥ (read “bottom”: the impossible). Valid steps from true statements never reach ⊥, so the supposition must have been false, and its negation is proved.',
+      figures: [{ k: 'math', atoms: AT('uv'), rows: [{ seq: ['u', '=', 'v', ',', 'u', '≠', 'v', '⟹', '⊥'], why: 'An equation and its negation together give ⊥.' }] }],
     },
     {
-      title: 'Suppose room',
-      body: 'The desk hands you the supposition. A Joiner clashes it. The gate lets out ≠.',
+      title: 'The Suppose room',
+      body: 'A Suppose room’s desk hands you the supposition. A Joiner set to **clash** takes an equation and its negation and makes ⊥. The gate turns ⊥ into the opposite of the supposition.',
       machines: ['room:suppose', 'joiner'],
-      figures: [{ k: 'machine', kind: 'gate', input: '⊥', output: 'ab ≠ b', caption: '⊥ in, ≠ out' }],
+      figures: [{ k: 'scene', atoms: AT('pqrs'), spec: {
+        rooms: [{ x0: -0.3, y0: -0.6, x1: 8.5, y1: 2.4, label: 'SUPPOSE', kind: 'suppose' }],
+        machines: [
+          { x: 0, y: 0, config: { kind: 'desk' } }, { x: 2, y: 0, config: { kind: 'rewriter', recipe: { k: 'cancel' } } }, { x: 2, y: 1.2, config: { kind: 'given', givenId: 'n' } },
+          { x: 5, y: 0, config: { kind: 'joiner', recipe: { k: 'clash' } } }, { x: 8, y: 0, config: { kind: 'gate' } },
+        ],
+        belts: [[[1, 0.5], [2, 0.5]], [[4, 0.5], [5, 0.5]], [[3, 1.7], [4.5, 1.7], [4.5, 1.5], [5, 1.5]], [[7, 0.5], [8, 0.5]], [[9, 0.5], [10.4, 0.5]]],
+        items: [
+          { at: [1.5, 0.5], t: 'p = q', off: [8, 30] }, { at: [4.5, 0.5], t: 'r = s', off: [8, 22] }, { at: [3.6, 1.7], t: 'r ≠ s', place: 'sw' },
+          { at: [7.5, 0.5], t: '⊥', off: [10, 22] }, { at: [9.8, 0.5], t: 'p ≠ q', place: 'sw' },
+        ],
+        notes: [
+          { at: [0.5, 0.5, 0.55], text: 'The desk hands out the supposition, $p = q$.' },
+          { at: [3, 0.5, 1], text: 'Work from it as usual until you reach an equation, here $r = s$, …' },
+          { at: [6, 1, 1], text: '… that clashes with a known $r \\neq s$, here from a given. The Joiner makes ⊥.' },
+          { at: [8.5, 0.5, 0.8], text: 'The gate lets out the opposite of the supposition: $p \\neq q$.' },
+        ] } }],
     },
   ],
 
   L10: [
     {
       title: 'Classical reasoning',
-      body: 'Suppose $a \\neq e$. That is $H$’s premise. It gives $aa = a$, so $a = e$. Clash.',
-      figures: [
-        {
-          k: 'chain', caption: 'Suppose a ≠ e',
-          steps: [{ term: 'a ≠ e', family: 'scope' }, { term: 'aa = a', family: 'given' }, { term: 'a = e', family: 'inverse' }, { term: '⊥', family: 'contradiction' }],
-        },
-      ],
+      long: true,
+      body: 'Sometimes no direct route reaches the goal. Then suppose its opposite, derive ⊥, and conclude the goal itself: from “not $P$ leads to ⊥”, conclude $P$. This step is called **classical**. It is sound, but some logics refuse it, so the kernel marks every proof that uses it.',
     },
     {
-      title: 'Classical room',
-      body: 'Its gate turns ⊥ into =. The kernel marks such proofs classical.',
+      title: 'The Classical room',
+      body: 'Its desk hands out the negation of what you want, and its gate turns ⊥ into the equation itself.',
       machines: ['room:classical'],
-      figures: [{ k: 'machine', kind: 'gate', input: '⊥', output: 'a = e', caption: '⊥ in, = out' }],
     },
   ],
 
@@ -393,172 +408,104 @@ export const CARDS: Record<string, ConceptCard[]> = {
   R01: [
     {
       title: 'Order of an element',
-      body: 'The order of $a$ counts turns until $e$. On ℤ₆, the hour 2 has order 3.',
+      body: 'The order of an element counts how many times you combine it with itself before reaching $e$. On the clock ℤ₆, where combining means adding hours, 2 has order 3: $2 + 2 + 2 = 0$.',
       figures: [{ k: 'clock', n: 6 }],
     },
     {
-      title: 'One part, two docks',
-      body: '$a^4 = e$ and $a^6 = e$ leave $a^2 = e$. Branch that belt.',
-      figures: [
-        {
-          k: 'chain', caption: 'Use h₄ inside h₆',
-          steps: [{ term: 'aaaaaa = e' }, { term: 'eaa = e', family: 'given', hit: [0, 1] }, { term: 'aa = e', family: 'identity' }],
-        },
-        { k: 'machine', kind: 'theorem', recipe: 'Witness Stamp', input: 'aa = e', output: 'a = a^-1', caption: 'The second dock' },
-      ],
+      title: 'Two goals, two docks',
+      body: 'This order has two Receiving Docks. A belt can branch, so one fact can feed several machines.',
+      figures: [{ k: 'scene', atoms: [{ id: 'c', label: 'c', hue: 2 }], spec: {
+        machines: [{ x: 0, y: 1, config: { kind: 'spool' } }, { x: 3, y: 0, config: { kind: 'rewriter', recipe: { k: 'cancel' } } }, { x: 3, y: 2, config: { kind: 'rewriter', recipe: { k: 'insertE' } } }],
+        belts: [[[1, 1.5], [2, 1.5], [2, 0.5], [3, 0.5]], [[2, 1.5], [2, 2.5], [3, 2.5]]],
+        items: [{ at: [1.5, 1.5], t: 'cc^-1 = cc^-1' }],
+        notes: [{ at: [2, 1.5, 0.15], text: 'The belt branches here: both Rewriters get the same equation.' }] } }],
     },
   ],
 
   L11: [
     {
       title: 'Cyclic groups',
-      body: 'Keep adding 1 on ℤ₅. You visit every hour. So ℤ₅ is cyclic.',
+      body: 'On ℤ₅, keep adding 1 and you visit every hour before returning to 0. A group made by repeating a single element like this is called **cyclic**.',
       figures: [{ k: 'clock', n: 5 }],
     },
     {
-      title: 'Lagrange (imported)',
-      body: 'An element’s order divides the group’s size. So $x^{|G|} = e$. This is imported, not proved here.',
-      figures: [{ k: 'cayley', group: 'S₃', gens: ['(123)', '(12)'] }],
-    },
-    {
-      title: 'Five turns, then three',
-      body: 'Lagrange gives $a^5 = e$. With $a^3 = e$ that leaves $a^2 = e$. Then $a = e$.',
-      figures: [
-        {
-          k: 'chain', caption: 'Lagrange, then h',
-          steps: [{ term: 'aaaaa = e', family: 'lemma' }, { term: 'eaa = e', family: 'given', hit: [0, 1] }, { term: 'aa = e', family: 'identity' }],
-        },
-      ],
+      title: 'Lagrange’s theorem (imported)',
+      body: '$|G|$ is the size of $G$: its number of elements. **Lagrange’s theorem** says the order of every element divides $|G|$, so $x^{|G|} = e$ for every $x$. It is imported: proved elsewhere, trusted here.',
+      figures: [{ k: 'orders', group: 'S₃' }],
     },
   ],
 
   L12: [
     {
       title: 'Prime size',
-      body: 'In a group of size 7, every element but $e$ has order 7.',
+      body: 'When $|G|$ is prime, Lagrange leaves each element only two possible orders: 1, which only $e$ has, or $|G|$ itself. On ℤ₇, every hour except 0 has order 7.',
       figures: [{ k: 'clock', n: 7 }],
-    },
-    {
-      title: 'Everything at once',
-      body: 'That clashes with $ba \\neq e$. So $(ab)^3 \\neq e$.',
-      figures: [
-        {
-          k: 'chain', caption: 'Suppose (ab)³ = e',
-          steps: [{ term: '(ab)^3 = e', family: 'scope' }, { term: 'ab = e', family: 'lemma' }, { term: 'b = a^-1', family: 'lemma' }, { term: 'ba = e', family: 'inverse' }, { term: '⊥', family: 'contradiction' }],
-        },
-      ],
     },
   ],
 
   // ─────────────────────────── Chapter IV · Powers ───────────────────────────
   B01: [
     {
-      title: 'Symbolic exponents',
-      body: '$a^k$ means $k$ copies of $a$. $k$ can be any whole number, even 0 or negative.',
-      figures: [
-        { k: 'transform', before: '(ab)^(5k)', after: '((ab)^5)^k', family: 'lemma', hit: [0, 1], made: [0, 1], caption: '5k turns are k rounds of 5', towers: [{ id: 'k', label: 'k', sort: 'Z' }] },
-        {
-          k: 'chain', caption: 'Then h, then eᵏ = e', towers: [{ id: 'k', label: 'k', sort: 'Z' }],
-          steps: [{ term: '((ab)^5)^k' }, { term: 'e^k', family: 'given', hit: [0, 1] }, { term: 'e', family: 'lemma', hit: [0, 1] }],
-        },
-      ],
+      title: 'Integer exponents',
+      body: '$u^k$ means $k$ copies of $u$. Here $k$ can be any integer, written $k \\in ℤ$ (ℤ is the integers). Zero copies is $e$, and a negative power undoes the positive one.',
+      figures: [{ k: 'math', atoms: TW('x'), rows: [
+        { seq: ['x^(3)', '=', 'xxx'] },
+        { seq: ['x^(0)', '=', 'e'] },
+        { seq: ['x^(-2)', '=', 'x^-1x^-1'] },
+      ] }],
     },
     {
-      title: 'Integer Towers, imported laws',
-      body: 'A ℤ-Tower names any whole number. Power laws are imported. They are proved elsewhere, by induction.',
+      title: 'Integer Towers and power laws',
+      body: 'A ℤ-Tower declares an integer variable, $k \\in ℤ$. Power laws such as **power of a power**, $(u^m)^n = u^{mn}$, are imported: proved elsewhere by induction, trusted here.',
       machines: ['tower'],
-      figures: [
-        {
-          k: 'machine', kind: 'rewriter', recipe: 'Exponent Multiplier', input: '(ab)^(5k) = (ab)^(5k)', output: '(ab)^(5k) = ((ab)^5)^k',
-          towers: [{ id: 'k', label: 'k', sort: 'Z' }], caption: 'An imported law, read backwards',
-        },
-      ],
+      figures: [{ k: 'scene', spec: {
+        machines: [{ x: 0, y: 0, config: { kind: 'tower', label: 'x', sort: 'G' } }, { x: 1.8, y: 0, config: { kind: 'tower', label: 'k', sort: 'Z' } }],
+        notes: [
+          { at: [0.5, 0.5, 1.65], text: 'An element Tower: $x \\in G$.' },
+          { at: [2.3, 0.5, 1.65], text: 'An integer Tower: $k \\in ℤ$, for exponents.' },
+        ] } }],
     },
   ],
 
   B02: [
     {
-      title: 'A reusable reset tool',
-      body: 'If $x^n = e$, then $x^{nk} = e$. Save it as Reset Multipliers.',
-      figures: [
-        {
-          k: 'chain', caption: 'Inside the room, desk xⁿ = e',
-          towers: [{ id: 'x', label: 'x', sort: 'G' }, { id: 'n', label: 'n', sort: 'Z' }, { id: 'k', label: 'k', sort: 'Z' }],
-          steps: [{ term: 'x^(n*k)' }, { term: '(x^n)^k', family: 'lemma', hit: [0, 1] }, { term: 'e^k', family: 'scope', hit: [0, 1] }, { term: 'e', family: 'lemma', hit: [0, 1] }],
-        },
-      ],
-    },
-    {
-      title: 'Negative and zero powers',
-      body: 'Powers run both ways. Negative means undo.',
-      figures: [
-        { k: 'transform', before: 'x^(-3)', after: '(x^(3))^-1', family: 'lemma', hit: [0, 1], made: [0, 1], caption: 'x⁻³ undoes x³', towers: [{ id: 'x', label: 'x', sort: 'G' }] },
-        { k: 'transform', before: 'x^(0)', after: 'e', family: 'lemma', hit: [0, 1], made: [0, 1], caption: 'Zero copies is e', towers: [{ id: 'x', label: 'x', sort: 'G' }] },
-      ],
+      title: 'A reusable reset',
+      body: 'If $x^n = e$, then $x^{kn} = e$. It is an if–then about three variables. Once delivered, save it as Reset Multipliers: later orders need it.',
     },
   ],
 
   B03: [
     {
       title: 'Powers do not distribute',
-      body: 'In S₃, take $a = (12)$ and $b = (23)$. Then $a^2b^2 = e$, but $(ab)^2 \\neq e$.',
-      figures: [
-        { k: 'table', group: 'S₃' },
-        { k: 'nearmiss', before: '(xy)^(n)', after: 'x^(n)y^(n)', why: 'False. Copies interleave.', towers: [{ id: 'x', label: 'x', sort: 'G' }, { id: 'y', label: 'y', sort: 'G' }, { id: 'n', label: 'n', sort: 'Z' }] },
-      ],
+      body: 'In S₃, take $a = (12)$ and $b = (23)$. Then $a^2b^2 = e$, but $(ab)^2 \\neq e$. So $(uv)^n = u^nv^n$ is not a rule.',
+      figures: [{ k: 'table', group: 'S₃' }],
     },
     {
-      title: 'Open a frame',
-      body: 'Conjugate Power moves the exponent through a frame. It is imported.',
-      figures: [
-        {
-          k: 'chain', caption: 'Open a frame, then Conjugate Power',
-          towers: [{ id: 'x', label: 'x', sort: 'G' }, { id: 'y', label: 'y', sort: 'G' }, { id: 'n', label: 'n', sort: 'Z' }],
-          steps: [
-            { term: '(yx)^(n)' },
-            { term: '(x^-1xyx)^(n)', family: 'inverse', hit: [0, 1] },
-            { term: 'x^-1(xy)^(n)x', family: 'lemma', hit: [0, 3] },
-            { term: 'x^-1ex', family: 'scope', hit: [1, 2] },
-            { term: 'e', family: 'inverse', hit: [0, 1] },
-          ],
-        },
-      ],
+      title: 'Power of a conjugate',
+      body: '**Power of a conjugate** is imported: $(u^{-1}vu)^n = u^{-1}v^nu$. The inner $uu^{-1}$ pairs cancel, so the frame stays on the outside.',
     },
   ],
 
   B04: [
     {
       title: 'Size is a certificate',
-      body: 'The size must be a given. A ℤ-Tower named |G| proves nothing.',
-      figures: [
-        { k: 'clock', n: 5 },
-        { k: 'machine', kind: 'rewriter', recipe: 'Lagrange (imported)', input: 'a^(5) = a^(5)', output: 'a^(5) = e', caption: 'Uses the given |G| = 5' },
-      ],
+      body: 'Lagrange’s theorem needs the size of the group as a given fact, $|G| = 5$. A ℤ-Tower named $|G|$ would be an arbitrary integer, not the size of anything, so it proves nothing.',
     },
     {
-      title: 'Words and stacks',
-      body: '$a^5$ can be five beads or one stack. Literal Power converts. Type a^(5) for the stack.',
-      figures: [{ k: 'beads', terms: ['a^5', 'a^(5)'] }],
+      title: 'Written out or stacked',
+      body: '$a^5$ can be written out as five terms or kept as one power. Here the dock wants the power. Type a^(5) into a Spool for the stacked form.',
+      figures: [{ k: 'math', rows: [{ seq: ['aaaaa', '=', 'a^(5)'] }] }],
     },
   ],
 
   // ─────────────────────────── Side orders ───────────────────────────
   S02: [
     {
-      title: 'Conjugates keep their order',
-      body: 'The inner $b^{-1}b$ pairs cancel. So $bab^{-1}$ resets when $a$ does.',
-      figures: [
-        {
-          k: 'chain', caption: 'Inner pairs cancel, then h',
-          steps: [
-            { term: 'bab^-1bab^-1bab^-1' },
-            { term: 'baab^-1bab^-1', family: 'inverse', hit: [1, 3] },
-            { term: 'baaab^-1', family: 'inverse', hit: [1, 4] },
-            { term: 'bb^-1', family: 'given' },
-            { term: 'e', family: 'inverse', hit: [0, 1] },
-          ],
-        },
-      ],
+      title: 'Conjugates',
+      body: '$bab^{-1}$ is a **conjugate** of $a$. When conjugates by the same element are multiplied, the inner pairs cancel. With other letters:',
+      figures: [{ k: 'math', atoms: AT('cd', 2), rows: [
+        { seq: ['(cdc^-1)(cdc^-1)', '=', { t: 'cd(c^-1c)dc^-1', br: [[2, 3, 'cancels']] }, '=', 'cddc^-1'] },
+      ] }],
     },
   ],
 };

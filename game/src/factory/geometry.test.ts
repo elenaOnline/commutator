@@ -61,7 +61,7 @@ describe('footprints and ports by recipe', () => {
     for (const k of ['spool', 'tower', 'hopper', 'carddock'] as const) expect(sz(k)).toEqual({ w: 1, h: 1 });
     for (const k of ['rewriter', 'operator', 'forall', 'theorem'] as const) expect(sz(k)).toEqual({ w: 2, h: 1 });
     expect(sz('joiner')).toEqual({ w: 2, h: 2 });
-    expect(sz('socket', { kind: 'socket', socketId: 's' })).toEqual({ w: 2, h: 1 });
+    expect(sz('socket', { kind: 'socket', socketId: 's' })).toEqual({ w: 2, h: 2 });
     expect(sz('rewriter', rw({ k: 'routed' }, { u: { k: 'port' }, v: { k: 'port' }, w: { k: 'port' } }))).toEqual({ w: 3, h: 1 });
   });
 

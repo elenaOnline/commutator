@@ -7,12 +7,15 @@ import type { Family, Term } from '../kernel/types';
 import type { MachineKind } from '../factory/types';
 import type { Tool } from '../state/factoryStore';
 import { FAMILY } from '../ui/tokens';
+import { glyphHTML } from '../ui/glyph';
 import {
-  FAMILY_ORDER, IO, KIND_WORD, atomsAll, liveSubscripts, towerLabelSet, drawerKinds, esc, fH, h, hotbarKinds, labelsAll, richHTML, safe, spec, tH,
+  FAMILY_ORDER, IO, KIND_WORD, atomsAll, towerLabelSet, drawerKinds, esc, fH, h, hotbarKinds, huesAll, labelsAll, richHTML, safe, spec, tH, varSortsOf,
   type S, type Store,
 } from './util';
+import { bareSlot, slotChips, type BareSlot } from './slot';
 import { libCard } from './library';
 import { hasDistinctMirror } from '../factory/catalog';
+import { sideName } from './merge';
 import { armPreset, earnedPresets, pending, pinned, presetKey, type Preset } from './presets';
 
 export interface HotbarApi {
@@ -49,7 +52,7 @@ export function mountHotbar(layer: HTMLElement, store: Store): HotbarApi {
     const sp = spec(kind);
     return { key: kind, tool: { k: 'place', kind }, name: sp.name, glyph: sp.glyph, family: sp.family, blurb: sp.blurb, hotkey: sp.hotkey, kind };
   };
-  /** Presets: earned theorems / Lemma Book entries (automatic) and pinned recipes. `both` adds ᵒᵖ hands (drawer). */
+  /** Presets: earned theorems / Lemma Book entries (automatic) and pinned recipes. `both` adds the mirrored sides (drawer). */
   const presetEntries = (s: S, both = false): Entry[] => {
     const ps: Preset[] = [...earnedPresets(s)];
     for (const p of pinned()) if (!ps.some((q) => q.key === p.key)) ps.push(p);
@@ -58,14 +61,14 @@ export function mountHotbar(layer: HTMLElement, store: Store): HotbarApi {
       const sc = ref?.k === 'schema' && ref.id ? s.ctx.registry[ref.id] : undefined;
       if (p.kind === 'theorem' && sc?.mirrorable && safe(() => hasDistinctMirror(sc.card), true)) {
         const r = { k: 'library' as const, ref: { k: 'schema' as const, id: ref!.id!, mirror: true } };
-        ps.push({ key: presetKey('theorem', r), kind: 'theorem', recipe: r, label: `${p.label} ᵒᵖ`, earned: true });
+        ps.push({ key: presetKey('theorem', r), kind: 'theorem', recipe: r, label: sideName(ref!.id!, true, `${p.label} (mirror)`), earned: true });
       }
     }
     return ps.map((p) => {
       const sp = spec(p.kind);
       const ref = (p.recipe as { ref?: import('../factory/types').LibRef }).ref;
       const card = ref ? libCard(s, ref) : null;
-      return { key: p.key, tool: { k: 'place', kind: p.kind } as Tool, name: p.label, glyph: p.kind === 'theorem' ? '⇒' : sp.glyph, family: p.earned ? 'lemma' : sp.family,
+      return { key: p.key, tool: { k: 'place', kind: p.kind } as Tool, name: p.label, glyph: sp.glyph, family: p.earned ? 'lemma' : sp.family,
         blurb: card ? `${sp.name} with ${p.label}` : `${sp.name} · ${p.label}`, earned: p.earned, kind: p.kind, preset: p };
     });
   };
@@ -73,9 +76,9 @@ export function mountHotbar(layer: HTMLElement, store: Store): HotbarApi {
 
   // ───────── slots ─────────
   const slotEls = new Map<string, HTMLButtonElement>();
-  const glyph = (e: Entry) => h('span', { class: `h3-glyph fam-${e.family}${e.earned ? ' earned' : ''}`, style: `--ink:${FAMILY[e.family].ink}` }, e.glyph);
+  const glyph = (e: Entry) => h('span', { class: `h3-glyph fam-${e.family}${e.earned ? ' earned' : ''}`, style: `--ink:${FAMILY[e.family].ink}`, html: glyphHTML(e.glyph) });
   const slot = (e: Entry, onClick?: () => void) => {
-    const b = h('button', { class: `h3-slot${e.earned ? ' earned' : ''}`, 'data-key': e.key, 'aria-label': `${e.name}${e.hotkey ? ` (${e.hotkey})` : ''}` },
+    const b = h('button', { class: `h3-slot${e.earned ? ' earned' : ''}${e.preset ? ' preset' : ''}`, 'data-key': e.key, 'aria-label': `${e.name}${e.hotkey ? ` (${e.hotkey})` : ''}` },
       e.hotkey && e.hotkey.length === 1 ? h('span', { class: 'h3-hk' }, e.hotkey) : null,
       e.earned ? h('span', { class: 'h3-band' }) : null,
       glyph(e), h('span', { class: 'h3-name' }, e.name));
@@ -206,8 +209,10 @@ export function mountHotbar(layer: HTMLElement, store: Store): HotbarApi {
   type RK = 'suppose' | 'classical' | 'assume';
   let roomKind: RK = 'suppose';
   let assumeRel: 'eq' | 'neq' = 'eq';
-  const inL = h('input', { class: 'h3-term', placeholder: 'l', 'aria-label': 'left side', autocomplete: 'off', spellcheck: 'false' });
-  const inR = h('input', { class: 'h3-term', placeholder: 'r', 'aria-label': 'right side', autocomplete: 'off', spellcheck: 'false' });
+  // the assumption's LHS and RHS are term slots (review 2026-10: every input that takes a term), one chip row
+  let slotL: BareSlot | null = null, slotR: BareSlot | null = null, lastSlot: 'l' | 'r' = 'l';
+  const roomRow = h('div', { class: 'h3-roomrow' });
+  const roomChips = h('div', { class: 'h3-roomchips' });
   const rel = h('button', { class: 'h3-rel math', title: 'For an Assume room: assume = or ≠' }, '=');
   const kSup = h('button', { class: 'h3-seg on', title: 'A clash proves the opposite.' }, 'Suppose');
   const kCls = h('button', { class: 'h3-seg', title: 'A clash proves P (classical).' }, 'Classical');
@@ -218,20 +223,30 @@ export function mountHotbar(layer: HTMLElement, store: Store): HotbarApi {
   roomPop.append(
     h('div', { class: 'h3-drawer-head' }, h('span', { class: 'h3-label', style: 'color:var(--scope)' }, 'Room'), h('span', { class: 'h3-dim' }, 'an assumption, a desk, a gate')),
     h('div', { class: 'h3-segs' }, kSup, kCls, kAsm),
-    h('div', { class: 'h3-roomrow' }, h('span', { class: 'h3-dim' }, 'assume'), inL, rel, inR),
+    roomRow, roomChips,
     roomMsg, presetRow, h('div', { class: 'h3-roomfoot' }, arm, h('span', { class: 'h3-dim' }, 'then drag a rectangle')));
-  const parse = (src: string): Term | null => {
-    const r = safe(() => K.parseTerm(src, atomsAll(store.get())), { ok: false as const, error: '' });
-    return r.ok ? r.term : null;
+  const termOf = (sl: BareSlot | null): Term | null => { const r = sl?.read(); return r && r.k === 'ok' ? r.term : null; };
+  const buildSlots = (lv: string, rv: string) => {
+    const s = store.get();
+    const atoms = atomsAll(s), L = labelsAll(s), H = huesAll(s), vars = varSortsOf(s);
+    const mk = (name: 'LHS' | 'RHS', side: 'l' | 'r', value: string) => bareSlot({
+      name: side, atoms, L, H, vars, value, towerLabels: () => towerLabelSet(store.get()), onChange: () => updateRoom(),
+      onFocus: () => { lastSlot = side; }, onKey: (ev) => { if (ev.key === 'Enter') arm.click(); if (ev.key === 'Escape') closePopovers(); },
+    });
+    slotL = mk('LHS', 'l', lv); slotR = mk('RHS', 'r', rv);
+    slotL.input.setAttribute('aria-label', 'LHS of the assumption'); slotR.input.setAttribute('aria-label', 'RHS of the assumption');
+    roomRow.replaceChildren(h('span', { class: 'h3-dim' }, 'assume'), slotL.el, rel, slotR.el);
+    const els = s.level.atoms;
+    const chips: Term[] = [...els.map((a) => ({ k: 'atom', id: a.id } as Term)), ...els.map((a) => ({ k: 'inv', arg: { k: 'atom', id: a.id } } as Term)), { k: 'e' }];
+    roomChips.replaceChildren(slotChips(() => (lastSlot === 'l' ? slotL! : slotR!), chips, L, H, vars));
   };
   const assumedRel = () => (roomKind === 'suppose' ? 'eq' : roomKind === 'classical' ? 'neq' : assumeRel);
   const updateRoom = () => {
     rel.textContent = assumedRel() === 'eq' ? '=' : '≠';
     rel.classList.toggle('live', roomKind === 'assume');
     kSup.classList.toggle('on', roomKind === 'suppose'); kCls.classList.toggle('on', roomKind === 'classical'); kAsm.classList.toggle('on', roomKind === 'assume');
-    const l = parse(inL.value.trim()), r = parse(inR.value.trim());
+    const l = termOf(slotL), r = termOf(slotR);
     const L = labelsAll(store.get());
-    inL.classList.toggle('bad', !!inL.value.trim() && !l); inR.classList.toggle('bad', !!inR.value.trim() && !r);
     if (l && r) {
       const P = `${tH(l, L)} <span class="m-rel">${assumedRel() === 'eq' ? '=' : '≠'}</span> ${tH(r, L)}`;
       roomMsg.innerHTML = roomKind === 'assume'
@@ -244,13 +259,8 @@ export function mountHotbar(layer: HTMLElement, store: Store): HotbarApi {
   kCls.addEventListener('click', () => { roomKind = 'classical'; updateRoom(); });
   kAsm.addEventListener('click', () => { roomKind = 'assume'; updateRoom(); });
   rel.addEventListener('click', () => { if (roomKind === 'assume') { assumeRel = assumeRel === 'eq' ? 'neq' : 'eq'; updateRoom(); } });
-  for (const i of [inL, inR]) {
-    liveSubscripts(i, () => towerLabelSet(store.get()));
-    i.addEventListener('input', updateRoom);
-    i.addEventListener('keydown', (ev) => { ev.stopPropagation(); if (ev.key === 'Enter') arm.click(); if (ev.key === 'Escape') closePopovers(); });
-  }
   arm.addEventListener('click', () => {
-    const l = parse(inL.value.trim()), r = parse(inR.value.trim());
+    const l = termOf(slotL), r = termOf(slotR);
     if (!l || !r) return;
     armRoom(roomKind, l, r, roomKind === 'assume' ? assumeRel : undefined);
   });
@@ -265,7 +275,9 @@ export function mountHotbar(layer: HTMLElement, store: Store): HotbarApi {
     drawer.hidden = true; hideCard();
     const L = labelsAll(s);
     const t = s.ui.tool;
-    if (t.k === 'room' && t.l && t.r) { roomKind = t.kind; inL.value = safe(() => K.termText(t.l!, L), ''); inR.value = safe(() => K.termText(t.r!, L), ''); }
+    const keep = t.k === 'room' && t.l && t.r;
+    if (keep) roomKind = t.kind;
+    buildSlots(keep ? safe(() => K.termText(t.l!, L), '') : slotL?.input.value ?? '', keep ? safe(() => K.termText(t.r!, L), '') : slotR?.input.value ?? '');
     presetRow.innerHTML = '';
     for (const sk of s.level.sockets) {
       const g = sk.target;
@@ -279,7 +291,8 @@ export function mountHotbar(layer: HTMLElement, store: Store): HotbarApi {
     roomPop.hidden = false;
     placeAbove(roomPop, slotEls.get('room')!);
     updateRoom();
-    inL.focus({ preventScroll: true });
+    lastSlot = 'l';
+    slotL?.input.focus({ preventScroll: true });
   };
   const toggleRoomPopover = () => { if (roomPop.hidden) openRoomPopover(); else roomPop.hidden = true; };
 
@@ -355,7 +368,7 @@ function footprintSVG(lay: { w: number; h: number; ports: { x: number; y: number
     const out = p.dir === 'out';
     const sgn = out ? 1 : -1;
     const tip = [cx + dx * 3 * sgn, cy + dy * 3 * sgn], b1 = [cx - dx * 3 * sgn - dy * 3, cy - dy * 3 * sgn - dx * 3], b2 = [cx - dx * 3 * sgn + dy * 3, cy - dy * 3 * sgn + dx * 3];
-    const fill = out ? '#1B2340' : p.role === 'rule' ? '#11806C' : p.role === 'param' ? '#1F4FD1' : '#545B73';
+    const fill = out ? FAMILY.lemma.ink : p.role === 'rule' ? FAMILY.equation.text : p.role === 'param' ? FAMILY.structure.text : '#545B73';
     s += `<path d="M${tip[0]},${tip[1]}L${b1[0]},${b1[1]}L${b2[0]},${b2[1]}Z" fill="${fill}"/>`;
   }
   return s + '</svg>';

@@ -1,47 +1,105 @@
-// Concept cards (v4.1, design/v4/COPY.md): coverage, copy length, and figures that actually exist —
-// every term string parses, every tint span is in bounds, every group/generator is in the catalogue.
+// Concept cards (review 2026-10, design/review-2026-10/DESIGN_NORMS.md): coverage, copy rules, figures that
+// actually exist (every term parses, every brace is in range, every machine recipe and group is real), and the
+// norms that are checkable: terms never beads, no → in maths, symbols defined where they first appear, and
+// no card showing its own level's target statement as a figure result.
 import { describe, expect, it } from 'vitest';
-import { norm, parseTerm } from '../kernel';
+import { POWER_SCHEMAS, norm } from '../kernel';
 import { powerSchema } from '../kernel/powers';
 import type { AtomDecl, Card, Pallet, Term } from '../kernel/types';
 import { catalogue } from '../groups';
-import { LEVELS, LEVEL_BY_ID } from './levels';
-import { CARDS, type ConceptCard, type Figure, type TowerDecl } from './cards';
+import { LEVELS, LEVEL_BY_ID, REGISTRY } from './levels';
+import { CARDS, type AtomSpec, type ConceptCard, type Figure, type MathCell } from './cards';
+import { RELS, displayTerm, parseDisplay, parseDisplayFig, type DFactor } from '../hud/figures/parse';
 
 const words = (s: string) => s.trim().split(/\s+/).filter(Boolean).length;
 const groupNamed = (name: string) => catalogue().find((g) => g.name === name);
 const SUB = ['₀', '₁', '₂', '₃', '₄', '₅', '₆', '₇', '₈'];
-const figuresOf = (c: ConceptCard): Figure[] => [...(c.figure ? [c.figure] : []), ...(c.figures ?? [])];
+const figuresOf = (c: ConceptCard): Figure[] => c.figures ?? [];
 /** Sentences, splitting on . ? ! (maths in $…$ is masked first so a⁻¹ etc. do not split). */
 const sentences = (s: string) => s.replace(/\$[^$]*\$/g, 'M').split(/[.?!]+\**\s|[.?!]+\**$/).map((x) => x.trim()).filter(Boolean);
+const cellText = (x: MathCell) => (typeof x === 'string' ? x : x.t);
+const atomsOf = (lvId: string, own?: AtomSpec[]): AtomDecl[] =>
+  (own ?? LEVEL_BY_ID[lvId]!.atoms).map((a) => ({ id: a.id, label: a.label, hue: a.hue }));
 
-/**
- * Parse a figure string (see the FIGURE STRINGS grammar in cards.ts). Returns the number of factors in
- * the strip (both rails for an equation), or an error.
- */
-function parseFigure(src: string, atoms: AtomDecl[], towers: TowerDecl[] = []): { ok: true; factors: number } | { ok: false; error: string } {
-  const decls: AtomDecl[] = [...atoms, ...towers.map((t, i) => ({ id: t.id, label: t.label, hue: i, variable: true, sort: t.sort }))];
-  if (src.trim() === '⊥') return { ok: true, factors: 1 };
-  const body = src.replace(/^\s*∀[^.]*\.\s*/, '');
-  let factors = 0;
-  for (const part of body.split('⇒')) {
-    const sides = part.split(/[=≠]/);
-    if (sides.length > 2) return { ok: false, error: `${part}: more than one relation` };
-    for (const side of sides) {
-      const r = parseTerm(side.trim(), decls);
-      if (!r.ok) return { ok: false, error: `${side.trim()}: ${r.error}` };
-      factors += r.term.k === 'mul' ? r.term.fs.length : 1;
+/** Every piece of copy a card shows, as [where, text] — prose and figure text alike. */
+function copyOf(c: ConceptCard): { prose: string[]; maths: string[] } {
+  const prose = [c.title, c.body, c.example, c.nearMiss, c.gesture].filter((x): x is string => !!x);
+  const maths: string[] = [];
+  for (const f of figuresOf(c)) {
+    if (f.k === 'math') {
+      if (f.caption) prose.push(f.caption);
+      for (const r of f.rows) {
+        if (r.label) prose.push(r.label);
+        if (r.why) prose.push(r.why);
+        for (const x of r.seq) { maths.push(cellText(x)); if (typeof x !== 'string') for (const b of x.br) prose.push(b[2]); }
+      }
+    }
+    if (f.k === 'scene') {
+      for (const n of f.spec.notes ?? []) prose.push(n.text);
+      for (const it of f.spec.items ?? []) maths.push(it.t);
     }
   }
-  return { ok: true, factors };
+  return { prose, maths };
 }
+const allText = (c: ConceptCard) => { const { prose, maths } = copyOf(c); return [...prose, ...maths].join('\n'); };
+/** The $…$ spans of a piece of prose. */
+const texSpans = (s: string) => (s.match(/\$[^$]*\$/g) ?? []).map((x) => x.slice(1, -1));
+/** Cards in campaign order. */
+const ordered = () => LEVELS.flatMap((lv) => (CARDS[lv.id] ?? []).map((c, i) => ({ lv: lv.id, i, c })));
 
-function checkSpan(span: [number, number] | undefined, factors: number, where: string) {
-  if (!span) return;
-  expect(Number.isInteger(span[0]) && Number.isInteger(span[1]), where).toBe(true);
-  expect(span[0], where).toBeGreaterThanOrEqual(0);
-  expect(span[1], where).toBeGreaterThan(span[0]);
-  expect(span[1], where).toBeLessThanOrEqual(factors);
+// ───────── spoiler check: figure equations vs the level's target statement ─────────
+type Pair = { l: Term; rel: 'eq' | 'neq'; r: Term };
+const metasToAtoms = (t: Term): Term => JSON.parse(JSON.stringify(t), (_k, v) => (v && v.k === 'meta' ? { k: 'atom', id: v.id } : v)) as Term;
+const key = (t: Term) => JSON.stringify(norm(t));
+function targetPairs(t: Pallet | Card): Pair[] {
+  const P = (l: Term, rel: 'eq' | 'neq', r: Term): Pair => ({ l: metasToAtoms(l), rel, r: metasToAtoms(r) });
+  switch (t.k) {
+    case 'eq': case 'neq': return [P(t.l, t.k, t.r)];
+    case 'law': return [P(t.l, 'eq', t.r)];
+    case 'cond': return [P(t.concl.l, t.concl.k === 'neq' ? 'neq' : 'eq', t.concl.r)];
+    default: return [];
+  }
+}
+/** Equations a card's figures show as results (struck rows are non-rules and do not count). */
+function figurePairs(lvId: string, c: ConceptCard): Pair[] {
+  const out: Pair[] = [];
+  const add = (l: DFactor[] | null, rel: string, r: DFactor[] | null) => { if (l && r && (rel === '=' || rel === '≠')) out.push({ l: displayTerm(l), rel: rel === '=' ? 'eq' : 'neq', r: displayTerm(r) }); };
+  for (const f of figuresOf(c)) {
+    if (f.k === 'math') {
+      const atoms = atomsOf(lvId, f.atoms);
+      for (const row of f.rows) {
+        if (row.strike) continue;
+        // a chain t₀ = t₁ = … = tₙ shows every tᵢ = tⱼ (transitivity); ≠ relates its two neighbours only
+        let run: (DFactor[] | null)[] = [];
+        const close = () => { for (let i = 0; i < run.length; i++) for (let j = i + 1; j < run.length; j++) add(run[i]!, '=', run[j]!); run = []; };
+        const s = row.seq;
+        s.forEach((x, i) => {
+          if (typeof x === 'string' && RELS.includes(x)) {
+            if (x === '≠') { const l = s[i - 1], r = s[i + 1]; if (l !== undefined && r !== undefined) add(parseDisplay(cellText(l), atoms), '≠', parseDisplay(cellText(r), atoms)); }
+            if (x !== '=') close();
+            return;
+          }
+          const prev = s[i - 1];
+          if (prev !== undefined && prev !== '=') close();
+          run.push(parseDisplay(cellText(x), atoms));
+        });
+        close();
+      }
+    }
+    if (f.k === 'scene') {
+      const atoms = atomsOf(lvId, f.atoms);
+      for (const it of f.spec.items ?? []) for (const p of parseDisplayFig(it.t, atoms)?.parts ?? []) if (p.r) add(p.l, p.rel ?? '=', p.r);
+    }
+  }
+  return out;
+}
+const same = (a: Pair, b: Pair) => a.rel === b.rel && ((key(a.l) === key(b.l) && key(a.r) === key(b.r)) || (key(a.l) === key(b.r) && key(a.r) === key(b.l)));
+function spoilers(lvId: string, cards: ConceptCard[]): string[] {
+  const lv = LEVEL_BY_ID[lvId]!;
+  const targets = lv.sockets.flatMap((s) => targetPairs(s.target));
+  const hits: string[] = [];
+  cards.forEach((c, i) => { for (const p of figurePairs(lvId, c)) if (targets.some((t) => same(p, t))) hits.push(`${lvId}#${i + 1} ${c.title}`); });
+  return hits;
 }
 
 describe('concept cards', () => {
@@ -59,111 +117,155 @@ describe('concept cards', () => {
     expect(Object.keys(CARDS)).toEqual(LEVELS.map((l) => l.id));
   });
 
-  it('copy is caption-length unless the card is deliberately long (COPY.md)', () => {
+  it('copy is short unless the card is deliberately long; worked example / near miss only on long cards', () => {
     for (const [id, cs] of Object.entries(CARDS)) {
       for (const c of cs) {
         const where = `${id} · ${c.title}`;
         expect(c.title.trim(), id).not.toBe('');
         expect(c.body !== undefined || figuresOf(c).length > 0, `${where}: needs a figure or a body`).toBe(true);
-        if (c.long) {
-          if (c.body) expect(words(c.body), where).toBeLessThan(120);
-          for (const k of ['example', 'nearMiss', 'gesture'] as const) if (c[k] !== undefined) expect(words(c[k]!), `${where} · ${k}`).toBeLessThan(60);
-          continue;
-        }
-        // short cards: a figure does the job of the old prose fields
-        for (const k of ['example', 'nearMiss', 'gesture'] as const) expect(c[k], `${where} · ${k} (use a figure)`).toBeUndefined();
-        if (c.body) {
-          expect(words(c.body), where).toBeLessThanOrEqual(25);
-          expect(c.body, `${where}: no semicolons`).not.toMatch(/;/);
-          for (const s of sentences(c.body)) expect(words(s), `${where}: “${s}”`).toBeLessThanOrEqual(14);
-        }
-      }
-    }
-  });
-
-  it('figure captions and near-miss reasons are ≤ 8 words', () => {
-    for (const [id, cs] of Object.entries(CARDS)) {
-      for (const c of cs) {
-        for (const f of figuresOf(c)) {
-          const t = f.k === 'nearmiss' ? f.why : 'caption' in f ? f.caption : undefined;
-          if (t !== undefined) {
-            expect(words(t), `${id} · ${c.title} · ${f.k}: ${t}`).toBeLessThanOrEqual(8);
-            expect(t, `${id} · ${c.title}`).not.toMatch(/[;$*]/);
-          }
+        if (c.body) expect(words(c.body), where).toBeLessThanOrEqual(c.long ? 160 : 75);
+        for (const k of ['example', 'nearMiss', 'gesture'] as const) {
+          if (!c.long) expect(c[k], `${where} · ${k} (long cards only)`).toBeUndefined();
+          else if (c[k] !== undefined) expect(words(c[k]!), `${where} · ${k}`).toBeLessThan(60);
         }
       }
     }
   });
 
   it('maths delimiters are balanced', () => {
-    for (const [id, cs] of Object.entries(CARDS)) {
-      for (const c of cs) {
-        for (const s of [c.body, c.example, c.nearMiss, c.gesture]) {
-          if (s) expect((s.match(/\$/g) ?? []).length % 2, `${id} · ${c.title}: ${s}`).toBe(0);
-        }
-      }
-    }
+    for (const [id, cs] of Object.entries(CARDS)) for (const c of cs) for (const s of copyOf(c).prose) expect((s.match(/\$/g) ?? []).length % 2, `${id} · ${c.title}: ${s}`).toBe(0);
   });
 
   it('markdown the HUD renders cleanly: no *italic*, and no maths inside **bold**', () => {
     for (const [id, cs] of Object.entries(CARDS)) {
       for (const c of cs) {
-        for (const t of [c.title, c.body, c.example, c.nearMiss, c.gesture]) {
-          if (!t) continue;
-          const noBold = t.replace(/\*\*[^*]+\*\*/g, '');
-          expect(noBold, `${id} · ${c.title}: stray *`).not.toMatch(/\*/);
+        for (const t of copyOf(c).prose) {
+          expect(t.replace(/\*\*[^*]+\*\*/g, ''), `${id} · ${c.title}: stray *`).not.toMatch(/\*/);
           for (const b of t.match(/\*\*[^*]+\*\*/g) ?? []) expect(b, `${id} · ${c.title}`).not.toMatch(/\$/);
         }
       }
     }
   });
 
-  it('every figure string parses against the level atoms (+ towers); tint spans are in bounds', () => {
+  it('terms, never beads', () => {
+    for (const [id, cs] of Object.entries(CARDS)) for (const c of cs) expect(allText(c), `${id} · ${c.title}`).not.toMatch(/\bbeads?\b/i);
+  });
+
+  it('no → in maths: = for equal terms, ⟹ for implication', () => {
+    const arrow = /→|->|\\to\b|\\rightarrow|\\longrightarrow|⟶/;
+    for (const [id, cs] of Object.entries(CARDS)) {
+      for (const c of cs) {
+        const { prose, maths } = copyOf(c);
+        for (const s of prose) for (const m of texSpans(s)) expect(m, `${id} · ${c.title}: $${m}$`).not.toMatch(arrow);
+        for (const m of maths) expect(m, `${id} · ${c.title}: ${m}`).not.toMatch(arrow);
+      }
+    }
+  });
+
+  it('one implication symbol, ⟹ (as in figures and the lens), and the prime is e′, never ASCII e\'', () => {
+    for (const [id, cs] of Object.entries(CARDS)) {
+      for (const c of cs) {
+        const t = allText(c);
+        expect(t, `${id} · ${c.title}`).not.toMatch(/⇒|\\Rightarrow/);
+        expect(t, `${id} · ${c.title}`).not.toMatch(/e'/);
+      }
+    }
+  });
+
+  it('scenes show identifiable machines: no unset "?" placeholder', () => {
+    for (const [id, cs] of Object.entries(CARDS)) for (const c of cs) for (const f of figuresOf(c)) if (f.k === 'scene') {
+      for (const m of f.spec.machines) expect('recipe' in m.config ? m.config.recipe : 'set', `${id} · ${c.title}: ${m.config.kind}`).not.toBeNull();
+    }
+  });
+
+  it('standard theorem names, never the old machine nicknames', () => {
+    const old = /Witness Stamp|Cancel Lathe|Double Flip|Sock Drawer|Exponent Multiplier|Conjugate Power|ᵒᵖ/;
+    for (const [id, cs] of Object.entries(CARDS)) for (const c of cs) expect(allText(c), `${id} · ${c.title}`).not.toMatch(old);
+  });
+
+  it('every symbol is defined on the card where it first appears (campaign order)', () => {
+    const SYMBOLS: [string, RegExp, RegExp][] = [
+      ['∎', /∎/, /end of a proof/],
+      ['∀', /∀|\\forall/, /for every/],
+      ['⟹', /⟹|⇒|\\Rightarrow/, /implies/],
+      ['∈', /∈|\\in\b/, /element of/],
+      ['⊢', /⊢/, /desk \(⊢\)/],
+      ['⊣', /⊣/, /gate \(⊣\)/],
+      ['⊥', /⊥|\\bot/, /“bottom”/],
+      ['|G|', /\|G\|/, /size of/],
+      ['ℤ', /ℤ(?![₀-₉])|\\mathbb\{Z\}/, /integers/],
+    ];
+    const cards = ordered();
+    for (const [sym, uses, defines] of SYMBOLS) {
+      const first = cards.find(({ c }) => uses.test(allText(c)));
+      expect(first, `${sym} appears on some card`).toBeDefined();
+      expect(allText(first!.c), `${sym} first appears on ${first!.lv}#${first!.i + 1} (${first!.c.title}) and must be defined there`).toMatch(defines);
+    }
+  });
+
+  it('no card shows its own level’s target statement as a figure result (no spoilers)', () => {
+    for (const lv of LEVELS) expect(spoilers(lv.id, CARDS[lv.id] ?? []), lv.id).toEqual([]);
+  });
+
+  it('the spoiler check catches a figure that gives a level away', () => {
+    const leak: ConceptCard = { title: 'leak', figures: [{ k: 'math', rows: [{ seq: ['a^-1ab', '=', 'eb', '=', 'b'] }] }] };
+    expect(spoilers('L01', [leak])).toHaveLength(1); // the chain's ends are the goal a⁻¹ab = b
+    const struck: ConceptCard = { title: 'near miss', figures: [{ k: 'math', rows: [{ seq: ['a^-1ab', '=', 'b'], strike: true }] }] };
+    expect(spoilers('L01', [struck])).toEqual([]);
+    const other: ConceptCard = { title: 'other letters', figures: [{ k: 'math', atoms: [{ id: 'c', label: 'c', hue: 2 }, { id: 'd', label: 'd', hue: 3 }], rows: [{ seq: ['c^-1cd', '=', 'd'] }] }] };
+    expect(spoilers('L01', [other])).toEqual([]);
+    const scene: ConceptCard = { title: 'scene', figures: [{ k: 'scene', spec: { machines: [], items: [{ at: [0, 0], t: 'b = a^-1' }] } }] };
+    expect(spoilers('L03', [scene])).toHaveLength(1);
+  });
+
+  it('every figure is real: terms parse, braces are in range, machines and groups exist', () => {
+    const registry = { ...REGISTRY, ...POWER_SCHEMAS };
     for (const [id, cs] of Object.entries(CARDS)) {
       const lv = LEVEL_BY_ID[id]!;
       for (const c of cs) {
         for (const f of figuresOf(c)) {
           const where = `${id} · ${c.title} · ${f.k}`;
-          const P = (src: string) => {
-            const r = parseFigure(src, lv.atoms, 'towers' in f ? f.towers : undefined);
-            expect(r.ok ? 'ok' : `${src} → ${r.error}`, where).toBe('ok');
-            return r.ok ? r.factors : 0;
-          };
           switch (f.k) {
-            case 'beads':
-              expect(f.terms.length, where).toBeGreaterThan(0);
-              for (const t of f.terms) P(t);
-              break;
-            case 'transform':
-              checkSpan(f.hit, P(f.before), `${where} hit`);
-              checkSpan(f.made, P(f.after), `${where} made`);
-              break;
-            case 'nearmiss':
-              P(f.before); P(f.after);
-              break;
-            case 'chain':
-              expect(f.steps.length, where).toBeGreaterThanOrEqual(2);
-              expect(f.steps.length, where).toBeLessThanOrEqual(5);
-              for (const st of f.steps) checkSpan(st.hit, P(st.term), `${where} step ${st.term}`);
-              break;
-            case 'machine':
-              P(f.input); P(f.output);
-              if (f.rule !== undefined) P(f.rule);
-              break;
-            case 'clock':
-              expect(groupNamed(`ℤ${SUB[f.n] ?? '?'}`), `${where}: ℤ${f.n}`).toBeDefined();
-              break;
-            case 'table':
-            case 'cayley': {
-              const g = groupNamed(f.group);
-              expect(g, `${where}: ${f.group}`).toBeDefined();
-              if (f.k === 'cayley') for (const gen of f.gens) expect(g!.labels, `${where}: generator ${gen}`).toContain(gen);
+            case 'math': {
+              const atoms = atomsOf(id, f.atoms);
+              for (const r of f.rows) for (const x of r.seq) {
+                if (typeof x === 'string' && (RELS.includes(x) || x === '⊥')) continue;
+                const fs = parseDisplay(cellText(x), atoms);
+                expect(fs, `${where}: ${cellText(x)}`).not.toBeNull();
+                if (typeof x !== 'string') for (const [from, to] of x.br) { expect(from, where).toBeGreaterThanOrEqual(0); expect(to, where).toBeGreaterThan(from); expect(to, `${where}: brace ${from}–${to} over ${x.t}`).toBeLessThanOrEqual(fs!.length); }
+              }
               break;
             }
+            case 'scene': {
+              const atoms = atomsOf(id, f.atoms);
+              for (const it of f.spec.items ?? []) expect(parseDisplayFig(it.t, atoms), `${where}: ${it.t}`).not.toBeNull();
+              for (const n of f.spec.notes ?? []) expect(n.text.trim(), where).not.toBe('');
+              for (const m of f.spec.machines) {
+                const c2 = m.config;
+                const ref = (c2.kind === 'rewriter' && c2.recipe?.k === 'law') ? c2.recipe.ref : (c2.kind === 'theorem' && c2.recipe?.k === 'library') ? c2.recipe.ref : null;
+                if (ref?.k === 'schema') expect(registry[ref.id], `${where}: schema ${ref.id}`).toBeDefined();
+                if (ref?.k === 'given') expect(lv.givens.map((g) => g.id), where).toContain(ref.givenId);
+                if (c2.kind === 'given') expect(lv.givens.map((g) => g.id), where).toContain(c2.givenId);
+              }
+              break;
+            }
+            case 'clock': expect(groupNamed(`ℤ${SUB[f.n] ?? '?'}`), `${where}: ℤ${f.n}`).toBeDefined(); break;
+            case 'table': case 'orders': expect(groupNamed(f.group), `${where}: ${f.group}`).toBeDefined(); break;
+            case 'gif': break;
           }
         }
       }
     }
+  });
+
+  it('brackets in figures are display-only groups: the kernel term is unchanged', () => {
+    const atoms = atomsOf('L01', [{ id: 'a', label: 'a', hue: 0 }, { id: 'b', label: 'b', hue: 1 }, { id: 'c', label: 'c', hue: 2 }]);
+    const fs = parseDisplay('(ab)c', atoms)!;
+    expect(fs.map((f) => f.k)).toEqual(['grp', 'term']);
+    expect(key(displayTerm(fs))).toBe(key(displayTerm(parseDisplay('abc', atoms)!)));
+    expect(parseDisplay('(ab)^-1', atoms)!.map((f) => f.k)).toEqual(['term']); // a real inverse, not a group
+    expect(parseDisplay('a^(5)', atoms)!.map((f) => f.k)).toEqual(['term']); // an exponent, not a group
+    expect(parseDisplay('a(bq)', atoms)).toBeNull();
   });
 
   it('the group facts the cards cite hold in the catalogue', () => {
@@ -176,8 +278,15 @@ describe('concept cards', () => {
     expect(S3.mul(S3.mul(s('(12)'), s('(12)')), S3.mul(s('(23)'), s('(23)')))).toBe(0);
     const V4 = groupNamed('V₄')!;
     for (let i = 0; i < V4.order; i++) expect(V4.mul(i, i)).toBe(0);
+    const pow = (G: ReturnType<typeof groupNamed> & object, k: number, n: number) => Array.from({ length: n }, () => k).reduce((x, y) => G.mul(x, y));
+    const ord = (G: ReturnType<typeof groupNamed> & object, k: number) => { let n = 1; while (pow(G, k, n) !== 0) n++; return n; };
     const Z6 = groupNamed('ℤ₆')!; // R01: hour 2 has order 3
-    expect([1, 2, 3].map((n) => Array.from({ length: n }, () => 2).reduce((x, y) => Z6.mul(x, y)))).toEqual([2, 4, 0]);
+    expect([1, 2, 3].map((n) => pow(Z6, 2, n))).toEqual([2, 4, 0]);
+    for (let k = 0; k < S3.order; k++) expect(6 % ord(S3, k), `S₃ ${S3.labels[k]}`).toBe(0); // L11: every order divides |G|
+    const Z7 = groupNamed('ℤ₇')!; // L12: every hour but 0 has order 7
+    for (let k = 1; k < 7; k++) expect(ord(Z7, k)).toBe(7);
+    const Z5 = groupNamed('ℤ₅')!; // L11: adding 1 visits every hour
+    expect(new Set([1, 2, 3, 4, 5].map((n) => pow(Z5, 1, n))).size).toBe(5);
   });
 });
 

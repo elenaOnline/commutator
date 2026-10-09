@@ -78,9 +78,9 @@ export function mountFollow(layer: HTMLElement, store: Store) {
         body = inF ? `<div class="h3-f-out math">${fH(inF, L, 'proof')}<span class="h3-f-seal"><span class="tomb"></span></span></div>` : '';
       } else if (outF && (outF.k === 'eq' || outF.k === 'neq') && inF && (inF.k === 'eq' || inF.k === 'neq')) {
         body = `<div class="h3-f-in math">${fH(inF, L, 'proof')}</div>
-          <div class="h3-f-out math"><span class="h3-f-arrow" style="color:${FAMILY[fam].text}">→</span>${railDiff(inF.l, outF.l, L)} <span class="m-rel">${outF.k === 'eq' ? '=' : '≠'}</span> ${railDiff(inF.r, outF.r, L)}</div>`;
+          <div class="h3-f-out math">${railDiff(inF.l, outF.l, L)} <span class="m-rel">${outF.k === 'eq' ? '=' : '≠'}</span> ${railDiff(inF.r, outF.r, L)}</div>`;
       } else if (outF) {
-        body = `<div class="h3-f-out math"><span class="h3-f-arrow" style="color:${FAMILY[fam].text}">→</span>${fH(outF, L, 'proof')}</div>`;
+        body = `<div class="h3-f-out math">${fH(outF, L, 'proof')}</div>`;
       }
       if (!body) continue;
       n++;

@@ -165,7 +165,8 @@ export function mountApp(root: HTMLElement, store: FactoryStore, opts: AppOpts =
     const p = pending.preset;
     setTimeout(() => {
       if (p && p.kind === m.kind && !(m.config as { recipe?: unknown }).recipe) store.configure(m.id, withRecipe(m.config, p.recipe));
-      if (VERBS.includes(m.kind) || m.kind === 'tower' || m.kind === 'forall') store.openLens(m.id);
+      // verbs need a recipe, Spool / Hopper a term (t := slot), Towers a name: their lens opens on placement
+      if (VERBS.includes(m.kind) || m.kind === 'spool' || m.kind === 'hopper' || m.kind === 'tower' || m.kind === 'forall') store.openLens(m.id);
     }, 0);
   });
   addEventListener('pointerdown', (ev) => {

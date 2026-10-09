@@ -35,7 +35,7 @@ export function v4Fixture(): { state: FState; outs: Record<string, ItemValue> } 
     m('sp1', 'spool', 0, 0, { kind: 'spool', t: { k: 'knob', term: I(M(x1, y1)) } }),
     m('rw1', 'rewriter', 3, 0, rw({ k: 'law', ref: { k: 'schema', id: 'socks' } })),
     m('fa', 'forall', 7, 0, { kind: 'forall' }),
-    m('sock', 'socket', 11, 0, { kind: 'socket', socketId: 's' }, true),
+    m('sock', 'socket', 11, -1, { kind: 'socket', socketId: 's' }, true), // 2×2: its W inlet q on (11,0)
     m('sp2', 'spool', 0, 3, { kind: 'spool', t: { k: 'knob', term: M(x1, I(x1), y1) } }),
     m('rw2', 'rewriter', 3, 3, rw({ k: 'cancel' })),
     m('op1', 'operator', 7, 3, { kind: 'operator', recipe: { k: 'invert' } }),

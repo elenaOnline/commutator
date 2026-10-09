@@ -452,7 +452,8 @@ function approaches(m: Machine, p: Port, ctx: KernelCtx): { tile: Tile; dir: Fac
   const fp = new Set(footprint(m, ctx).map(tileKey));
   const out = [{ tile: frontOf(p), dir: p.face, cost: 0 }];
   if (m.kind === 'socket') {
-    // Docks take a belt on every free face of their inlet (doorstep and both sides), cheapest route wins.
+    // Each of a dock's four inlets takes a belt on its doorstep and on its free side (the other side is the dock):
+    // belts saved against the old 2×1 dock keep landing on 'q' after it grew to 2×2.
     const i0 = FACES.indexOf(p.face);
     for (const side of [FACES[(i0 + 1) % 4]!, FACES[(i0 + 3) % 4]!]) {
       const t = addTile(p.tile, FACE_DELTA[side]);
@@ -953,7 +954,7 @@ export const INITIAL_GAP = 10;
 
 /**
  * The level's starting floor. West column (x = 0): given inlets, then pre-start spools, one empty row between
- * each. East column: receiving docks (2×2), one empty row between. INITIAL_GAP empty tiles between the columns.
+ * each. East column: receiving docks (2×2), two empty rows between (room for each dock's label). INITIAL_GAP empty tiles between the columns.
  * The shorter column is centred against the taller. Ids: `given:<id>`, `pre:<i>`, `socket:<id>`; all locked.
  */
 export function initialCanvas(level: LevelManifest, ctx: KernelCtx): Canvas {
@@ -963,8 +964,9 @@ export function initialCanvas(level: LevelManifest, ctx: KernelCtx): Canvas {
     ...(level.preStarts ?? []).map((t, i): Machine => ({ id: `pre:${i}`, kind: 'spool', at: { x: 0, y: 0 }, rot: 0, config: { kind: 'spool', t: { k: 'knob', term: t } }, locked: true })),
   ];
   const east: Machine[] = level.sockets.map((s): Machine => ({ id: `socket:${s.id}`, kind: 'socket', at: { x: 0, y: 0 }, rot: 0, config: { kind: 'socket', socketId: s.id }, locked: true }));
-  const stack = (ms: Machine[]): number => { let y = 0; for (const m of ms) { m.at = { x: m.at.x, y }; y += sizeOf(m, ctx).h + 1; } return Math.max(0, y - 1); };
-  const hw = stack(west), he = stack(east);
+  const stack = (ms: Machine[], gap = 1): number => { let y = 0; for (const m of ms) { m.at = { x: m.at.x, y }; y += sizeOf(m, ctx).h + gap; } return Math.max(0, y - gap); };
+  // docks keep two empty rows between them: a dock's DELIVER label sits to its east, where the next dock up would be
+  const hw = stack(west), he = stack(east, 2);
   const westW = Math.max(1, ...west.map((m) => sizeOf(m, ctx).w));
   const dyW = Math.floor(Math.max(0, he - hw) / 2), dyE = Math.floor(Math.max(0, hw - he) / 2);
   for (const m of west) m.at = { x: 0, y: m.at.y + dyW };
