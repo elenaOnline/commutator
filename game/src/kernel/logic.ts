@@ -28,7 +28,7 @@ export const AXIOM_IDS: AxiomId[] = ['unitL', 'unitR', 'invL', 'invR'];
 
 export function axiomCard(id: AxiomId): Card & { k: 'law' } {
   const c = AXIOMS[id];
-  if (!c) throw new KErr(`there is no group axiom called ${String(id)}`);
+  if (!c) throw new KErr(`There is no group axiom ${String(id)}.`);
   return { k: 'law', metas: [...c.metas], l: c.l, r: c.r };
 }
 
@@ -36,7 +36,7 @@ export function axiomCard(id: AxiomId): Card & { k: 'law' } {
 export const validSize = (n: unknown): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 1 && n <= 24;
 
 export function pressCard(n: number, power = false): Card & { k: 'law' } {
-  if (!validSize(n)) throw new KErr('the order of a group must be a whole number from 1 to 24');
+  if (!validSize(n)) throw new KErr('A group order must be a whole number from 1 to 24.');
   if (power) return { k: 'law', metas: ['x'], l: norm({ k: 'pow', base: x, exp: polyNorm([{ coefficient: String(n), monomial: [] }]) }), r: E };
   return { k: 'law', metas: ['x'], l: pow(x, n), r: E };
 }
@@ -53,7 +53,7 @@ export function cardZmetas(c: Card): Set<MetaId> {
   const g = new Set<MetaId>(), z = new Set<MetaId>();
   const add = (t: Term) => { for (const id of gmetasOf(t)) g.add(id); for (const id of zmetasOf(t)) z.add(id); };
   if (c.k === 'law') { add(c.l); add(c.r); } else { for (const p of [...c.premises, c.concl]) { add(p.l); add(p.r); } }
-  for (const id of z) if (g.has(id)) throw new KErr(`${id} is used both as a group element and as an integer; the statement is ill-typed`);
+  for (const id of z) if (g.has(id)) throw new KErr(`${id} is used as both an element and an integer. The statement is ill-typed.`);
   return z;
 }
 
@@ -68,15 +68,15 @@ export function schemaCard(id: string, mirror: boolean | undefined, ctx: KernelC
   // imported power laws: kernel-owned authority; a registry entry with the same id grants nothing
   const imported = typeof id === 'string' ? powerSchema(id) : null;
   if (imported) {
-    if (!powerAllowed(id, ctx.level.tools.schemas)) throw new KErr(`${imported.name} (${imported.textbook}) is not available in this work order`);
-    if (mirror && !imported.mirrorable) throw new KErr(`${imported.name} has no mirror image on offer`);
+    if (!powerAllowed(id, ctx.level.tools.schemas)) throw new KErr(`${imported.name} is not available here.`);
+    if (mirror && !imported.mirrorable) throw new KErr(`${imported.name} has no mirror version.`);
     return mirror ? mirrorCard(imported.card) : imported.card;
   }
   const sc = ctx.registry[id];
-  if (!sc) throw new KErr(`there is no theorem called “${id}”`);
-  if (ctx.level.unlocks.includes(id)) throw new KErr(`${sc.name} is the theorem this work order is proving; it cannot be used to prove itself`);
-  if (!ctx.level.tools.schemas.includes(id)) throw new KErr(`${sc.name} (${sc.textbook}) is not available in this work order`);
-  if (mirror && !sc.mirrorable) throw new KErr(`${sc.name} has no mirror image on offer`);
+  if (!sc) throw new KErr(`There is no theorem “${id}”.`);
+  if (ctx.level.unlocks.includes(id)) throw new KErr(`${sc.name} is what this order proves. It can't prove itself.`);
+  if (!ctx.level.tools.schemas.includes(id)) throw new KErr(`${sc.name} is not available here.`);
+  if (mirror && !sc.mirrorable) throw new KErr(`${sc.name} has no mirror version.`);
   return mirror ? mirrorCard(sc.card) : sc.card;
 }
 
@@ -94,7 +94,7 @@ export function ruleName(rule: RuleRef, ctx: KernelCtx): string {
 
 /** Resolve a rewrite rule to an equation l = r with metas. */
 export function resolveLaw(rule: RuleRef, ctx: KernelCtx, ruleFact: Fact | undefined, L: Labels): Law {
-  if (!rule || typeof rule !== 'object') throw new KErr('malformed rule');
+  if (!rule || typeof rule !== 'object') throw new KErr('This rule is malformed.');
   if (rule.k === 'axiom') {
     const c = axiomCard(rule.id);
     return { l: c.l, r: c.r, metas: ['x'], zmetas: new Set(), name: ruleName(rule, ctx) };
@@ -102,22 +102,22 @@ export function resolveLaw(rule: RuleRef, ctx: KernelCtx, ruleFact: Fact | undef
   if (rule.k === 'schema') {
     const c = schemaCard(rule.id, rule.mirror, ctx);
     if (c.k !== 'law') {
-      throw new KErr(`${ruleName(rule, ctx)} is a conditional theorem (${factText(c, L)}); feed it its premises first, it cannot rewrite directly`);
+      throw new KErr(`${cap(ruleName(rule, ctx))} is an if–then theorem. Feed it its premises first.`);
     }
     return { l: norm(c.l), r: norm(c.r), metas: cardMetas(c), zmetas: cardZmetas(c), name: ruleName(rule, ctx) };
   }
   if (rule.k === 'node') {
-    if (!ruleFact) throw new KErr('the cited fact is not available');
+    if (!ruleFact) throw new KErr('The cited fact is missing.');
     switch (ruleFact.k) {
       case 'eq': return { l: norm(ruleFact.l), r: norm(ruleFact.r), metas: [], zmetas: new Set(), name: factText(ruleFact, L) };
       case 'law': return { l: norm(ruleFact.l), r: norm(ruleFact.r), metas: cardMetas(ruleFact), zmetas: cardZmetas(ruleFact), name: factText(ruleFact, L) };
-      case 'neq': throw new KErr(`an inequation cannot be used to rewrite: ${factText(ruleFact, L)} says nothing about replacing one side by the other`);
-      case 'bot': throw new KErr('a contradiction (⊥) has no sides; it cannot be used to rewrite');
-      case 'size': throw new KErr(`|G| = ${ruleFact.n} is about the size of the group, not an equation between elements`);
-      case 'cond': throw new KErr(`${factText(ruleFact, L)} is conditional: apply it to its premise first; only the resulting equation can rewrite`);
+      case 'neq': throw new KErr(`${factText(ruleFact, L)} is an inequation. It can't rewrite anything.`);
+      case 'bot': throw new KErr("⊥ has no sides. It can't rewrite anything.");
+      case 'size': throw new KErr(`|G| = ${ruleFact.n} is the group's size, not an equation. It can't rewrite anything.`);
+      case 'cond': throw new KErr(`${factText(ruleFact, L)} is if–then. Apply it to its premise first.`);
     }
   }
-  throw new KErr('malformed rule');
+  throw new KErr('This rule is malformed.');
 }
 
 export interface CondCard { metas: MetaId[]; zmetas: Set<MetaId>; premises: PatFact[]; concl: PatFact; name: string }
@@ -126,17 +126,17 @@ export interface CondCard { metas: MetaId[]; zmetas: Set<MetaId>; premises: PatF
 export function resolveCond(rule: RuleRef, ctx: KernelCtx, ruleFact: Fact | undefined, L: Labels): CondCard {
   let c: Card;
   let name: string;
-  if (!rule || typeof rule !== 'object') throw new KErr('malformed rule');
+  if (!rule || typeof rule !== 'object') throw new KErr('This rule is malformed.');
   if (rule.k === 'axiom') { c = axiomCard(rule.id); name = ruleName(rule, ctx); }
   else if (rule.k === 'schema') { c = schemaCard(rule.id, rule.mirror, ctx); name = ruleName(rule, ctx); }
   else if (rule.k === 'node') {
-    if (!ruleFact) throw new KErr('the cited fact is not available');
+    if (!ruleFact) throw new KErr('The cited fact is missing.');
     if (ruleFact.k !== 'law' && ruleFact.k !== 'cond') {
-      throw new KErr(`${factText(ruleFact, L)} is not a universal statement; there is nothing to apply`);
+      throw new KErr(`${factText(ruleFact, L)} has no ∀. There is nothing to apply.`);
     }
     c = ruleFact;
     name = factText(ruleFact, L);
-  } else throw new KErr('malformed rule');
+  } else throw new KErr('This rule is malformed.');
   if (c.k === 'law') return { metas: cardMetas(c), zmetas: cardZmetas(c), premises: [], concl: { k: 'eq', l: norm(c.l), r: norm(c.r) }, name };
   return { metas: cardMetas(c), zmetas: cardZmetas(c), premises: c.premises, concl: c.concl, name };
 }
@@ -158,28 +158,28 @@ function validateRaw(t: unknown, ctx: KernelCtx, what: string, allowMetas: boole
     void n;
     for (const e of p) for (const mm of e.monomial) {
       const r = mm.ref as ZRef;
-      if (r.k === 'zmeta') { if (!allowMetas) throw new KErr(`${what} still contains the integer variable ${r.id}; choose a concrete integer`); continue; }
-      if (!Z.has(r.id)) throw new KErr(G.has(r.id) ? `${label(r.id)} is a group element, not an integer` : `${r.id} is not an integer variable of this work order`);
+      if (r.k === 'zmeta') { if (!allowMetas) throw new KErr(`${cap(what)} still has the integer variable ${r.id}. Choose an integer.`); continue; }
+      if (!Z.has(r.id)) throw new KErr(G.has(r.id) ? `${label(r.id)} is a group element, not an integer.` : `${r.id} is not an integer variable here.`);
     }
   };
   const go = (u: unknown, depth: number): void => {
-    if (depth > POLY_LIMITS.astDepth) throw new ResourceLimit(`a term nested more than ${POLY_LIMITS.astDepth} deep`);
-    if (++nodes > POLY_LIMITS.termNodes) throw new ResourceLimit(`a term with more than ${POLY_LIMITS.termNodes} parts`);
-    if (!u || typeof u !== 'object') throw new KErr(`${what} is not an element`);
+    if (depth > POLY_LIMITS.astDepth) throw new ResourceLimit(`this term is nested over ${POLY_LIMITS.astDepth} deep.`);
+    if (++nodes > POLY_LIMITS.termNodes) throw new ResourceLimit(`this term has over ${POLY_LIMITS.termNodes} parts.`);
+    if (!u || typeof u !== 'object') throw new KErr(`${cap(what)} is not an element.`);
     const v = u as Term;
     switch (v.k) {
       case 'e': return;
       case 'atom':
-        if (typeof v.id !== 'string') throw new KErr(`${what} is not an element`);
-        if (Z.has(v.id)) throw new KErr(`${label(v.id)} is an integer, not a group element`);
-        if (!G.has(v.id)) throw new KErr(`${v.id} is not an element of this work order`);
+        if (typeof v.id !== 'string') throw new KErr(`${cap(what)} is not an element.`);
+        if (Z.has(v.id)) throw new KErr(`${label(v.id)} is an integer, not a group element.`);
+        if (!G.has(v.id)) throw new KErr(`${v.id} is not an element here.`);
         return;
-      case 'meta': if (!allowMetas) throw new KErr(`${what} still contains the variable ${v.id}; choose a concrete element`); return;
+      case 'meta': if (!allowMetas) throw new KErr(`${cap(what)} still has the variable ${v.id}. Choose an element for it.`); return;
       case 'inv': go(v.arg, depth + 1); return;
-      case 'mul': if (!Array.isArray(v.fs) || !v.fs.length) throw new KErr('an empty product is not an element'); v.fs.forEach((f) => go(f, depth + 1)); return;
+      case 'mul': if (!Array.isArray(v.fs) || !v.fs.length) throw new KErr('An empty product is not an element.'); v.fs.forEach((f) => go(f, depth + 1)); return;
       case 'pow': go(v.base, depth + 1); exp(v.exp); return;
-      case 'int': throw new KErr(`${what} is an integer, not a group element`);
-      default: throw new KErr(`${what} is not an element`);
+      case 'int': throw new KErr(`${cap(what)} is an integer, not a group element.`);
+      default: throw new KErr(`${cap(what)} is not an element.`);
     }
   };
   go(t, 0);
@@ -193,29 +193,32 @@ export function checkGround(t: Term, ctx: KernelCtx, what = 'that term'): Term {
 
 /** A concrete integer (value of a ℤ meta): an int value over declared ℤ Towers. */
 export function checkInt(t: Term, ctx: KernelCtx, what = 'that integer'): Term {
-  if (!t || typeof t !== 'object' || t.k !== 'int') throw new KErr(`${what} must be an integer, not a group element`);
+  if (!t || typeof t !== 'object' || t.k !== 'int') throw new KErr(`${cap(what)} must be an integer, not a group element.`);
   const Z = declaredZ(ctx), G = declaredSet(ctx);
   const n = polyNorm(t.val);
   for (const e of t.val) for (const mm of e.monomial) {
     const r = mm.ref as ZRef;
-    if (r.k === 'zmeta') throw new KErr(`${what} still contains the integer variable ${r.id}; a value may not mention another variable of a statement`);
-    if (!Z.has(r.id)) throw new KErr(G.has(r.id) ? `${r.id} is a group element, not an integer` : `${r.id} is not an integer variable of this work order`);
+    if (r.k === 'zmeta') throw new KErr(`${cap(what)} mentions the variable ${r.id}. Use only numbers and ℤ Towers.`);
+    if (!Z.has(r.id)) throw new KErr(G.has(r.id) ? `${r.id} is a group element, not an integer.` : `${r.id} is not an integer variable here.`);
   }
   return { k: 'int', val: n };
 }
 
 /** σ must bind exactly the rule's metas — group metas to concrete elements, ℤ metas to integers. */
 export function checkSubst(s: Subst, metas: MetaId[], ctx: KernelCtx, zmetas: Set<MetaId> = new Set()): Subst {
-  if (!s || typeof s !== 'object') throw new KErr('malformed substitution');
+  if (!s || typeof s !== 'object') throw new KErr('These values are malformed.');
   const out: Subst = {};
-  for (const k of Object.keys(s)) if (!metas.includes(k)) throw new KErr(`${k} is not a variable of this rule`);
+  for (const k of Object.keys(s)) if (!metas.includes(k)) throw new KErr(`${k} is not a variable of this rule.`);
   for (const m of metas) {
     const v = s[m];
-    if (!v) throw new KErr(`the rule needs a value for ${m}`);
+    if (!v) throw new KErr(`The rule needs a value for ${m}.`);
     out[m] = zmetas.has(m) ? checkInt(v, ctx, `the value chosen for ${m}`) : checkGround(v, ctx, `the value chosen for ${m}`);
   }
   return out;
 }
+
+/** Capitalize the first letter of a message clause (maths symbols are left alone). */
+export const cap = (s: string) => (/^[a-z]/.test(s) ? s[0]!.toUpperCase() + s.slice(1) : s);
 
 // ───────────── stacks vs words (v4 playtest r1 #9) ─────────────
 
@@ -270,66 +273,66 @@ function mismatch(rule: RuleRef, srcInst: Term, redex: Term, s: Subst, L: Labels
   if (rule.k === 'axiom') {
     const w = word(redex);
     if (rule.id === 'invL' || rule.id === 'invR') {
-      if (w.length === 2) return `${termText(w[0]!, L)} and ${termText(w[1]!, L)} are not inverses of each other`;
-      if (w.length === 1 && redex.k !== 'e') return `${R} is a single factor; cancelling needs an element next to its inverse`;
-      return `${R} is not an element next to its inverse`;
+      if (w.length === 2) return `${termText(w[0]!, L)} and ${termText(w[1]!, L)} are not inverses of each other.`;
+      if (w.length === 1 && redex.k !== 'e') return `${R} is a single factor. Cancelling needs an element next to its inverse.`;
+      return `${R} is not an element next to its inverse.`;
     }
-    if (!w.some((f) => f.k === 'e')) return `there is no e in ${R} to remove`;
-    return `${R} is not e next to an element`;
+    if (!w.some((f) => f.k === 'e')) return `There is no e in ${R} to remove.`;
+    return `${R} is not e next to an element.`;
   }
   const at = Object.keys(s).length ? ` at ${Object.keys(s).sort().map((k) => `${k} = ${termText(s[k]!, L)}`).join(', ')}` : '';
   const conf = stackWordHint(loc_redex(redex), srcInst, L);
-  if (conf) return `the selected part is ${conf.have}, but ${name}${at} needs ${conf.want} here — ${conf.hint}`;
-  return `the selected part is ${R}, but ${name}${at} needs ${termText(srcInst, L)} here`;
+  if (conf) return `The selection is ${conf.have}, but ${name}${at} needs ${conf.want}. ${cap(conf.hint)}.`;
+  return `The selection is ${R}, but ${name}${at} needs ${termText(srcInst, L)}.`;
 }
 
 export function stepCore(p: Pallet, op: StepOp, ctx: KernelCtx, ruleFact: Fact | undefined): Pallet {
   const L = labelsOf(ctx.level.atoms);
-  if (!op || typeof op !== 'object') throw new KErr('malformed step');
+  if (!op || typeof op !== 'object') throw new KErr('This step is malformed.');
   if (op.k === 'swap') {
-    if (p.k !== 'eq' && p.k !== 'neq') throw new KErr(p.k === 'bot' ? '⊥ has no sides to swap' : 'only an equation or an inequation can be read the other way round');
+    if (p.k !== 'eq' && p.k !== 'neq') throw new KErr(p.k === 'bot' ? '⊥ has no sides to swap.' : 'Only an equation or inequation can be swapped.');
     return { k: p.k, l: p.r, r: p.l };
   }
   if (op.k === 'invert') {
     // L = R ⟹ L⁻¹ = R⁻¹ (congruence); L ≠ R ⟹ L⁻¹ ≠ R⁻¹ (inversion is injective)
-    if (p.k !== 'eq' && p.k !== 'neq') throw new KErr('only an equation or an inequation can be inverted on both sides');
+    if (p.k !== 'eq' && p.k !== 'neq') throw new KErr('Only an equation or inequation can be inverted.');
     return { k: p.k, l: inv(p.l), r: inv(p.r) };
   }
   if (p.k !== 'eq') {
-    if (p.k === 'neq') throw new KErr('only an equation can be rewritten or multiplied; this is an inequation');
-    if (p.k === 'bot') throw new KErr('⊥ cannot be rewritten');
-    throw new KErr('only an equation between elements can be rewritten');
+    if (p.k === 'neq') throw new KErr('This is an inequation. Only equations can be rewritten or multiplied.');
+    if (p.k === 'bot') throw new KErr('⊥ cannot be rewritten.');
+    throw new KErr('Only an equation between elements can be rewritten.');
   }
   switch (op.k) {
     case 'insertE': {
       const g = locateGap(p, op.at);
-      if (!g) throw new KErr('that gap does not exist in this equation (the address is out of date)');
+      if (!g) throw new KErr('That gap is gone. Pick the gap again.');
       return withRail(p, g.side, spliceRail(p[g.side], g.wordPath, g.gap, g.gap, [E]));
     }
     case 'lift': {
-      if (!ctx.level.tools.lift) throw new KErr('multiplying both sides is not available in this work order');
+      if (!ctx.level.tools.lift) throw new KErr('Multiplying both sides is not available here.');
       const t = checkGround(op.term, ctx, 'the multiplier');
       if (op.side === 'left') return { k: 'eq', l: mul([t, p.l]), r: mul([t, p.r]) };
       if (op.side === 'right') return { k: 'eq', l: mul([p.l, t]), r: mul([p.r, t]) };
-      throw new KErr('multiply on the left or on the right');
+      throw new KErr('Multiply on the left or the right.');
     }
     case 'rewrite': {
       const law = resolveLaw(op.rule, ctx, ruleFact, L);
       const s = checkSubst(op.subst, law.metas, ctx, law.zmetas);
       if (op.rule.k === 'schema') {
         const r = literalOf(op.rule.id);
-        if (r !== null && s.x && Number(r) * beads(s.x) > POLY_LIMITS.termNodes) throw new ResourceLimit(`expanding that power would produce more than ${POLY_LIMITS.termNodes} factors`);
+        if (r !== null && s.x && Number(r) * beads(s.x) > POLY_LIMITS.termNodes) throw new ResourceLimit(`that expansion is over ${POLY_LIMITS.termNodes} factors.`);
       }
-      if (op.dir !== 'fwd' && op.dir !== 'rev') throw new KErr('malformed direction');
+      if (op.dir !== 'fwd' && op.dir !== 'rev') throw new KErr('This direction is malformed.');
       const [src, dst] = op.dir === 'fwd' ? [law.l, law.r] : [law.r, law.l];
       const loc = locate(p, op.at);
-      if (!loc) throw new KErr('that part of the equation does not exist (the address is out of date)');
+      if (!loc) throw new KErr('That part of the equation is gone. Select it again.');
       const srcInst = instantiate(src, s);
       if (!same(srcInst, norm(loc.redex))) throw new KErr(mismatch(op.rule, srcInst, loc.redex, s, L, law.name));
       const dstInst = instantiate(dst, s);
       return withRail(p, loc.side, spliceRail(p[loc.side], loc.wordPath, loc.s, loc.e, word(dstInst)));
     }
-    default: throw new KErr('malformed step');
+    default: throw new KErr('This step is malformed.');
   }
 }
 
@@ -339,15 +342,15 @@ export function applyCore(card: CondCard, inputs: Fact[], s0: Subst, ctx: Kernel
   const s = checkSubst(s0, card.metas, ctx, card.zmetas);
   if (inputs.length !== card.premises.length) {
     const n = card.premises.length;
-    throw new KErr(`${card.name} takes ${n} premise${n === 1 ? '' : 's'}, but ${inputs.length} ${inputs.length === 1 ? 'was' : 'were'} supplied`);
+    throw new KErr(`${cap(card.name)} takes ${n} premise${n === 1 ? '' : 's'}. It got ${inputs.length}.`);
   }
   card.premises.forEach((pr, i) => {
     const want: PatFact = { k: pr.k, l: instantiate(pr.l, s), r: instantiate(pr.r, s) };
     const got = inputs[i]!;
     const ok = (got.k === 'eq' || got.k === 'neq') && got.k === want.k && same(norm(got.l), want.l) && same(norm(got.r), want.r);
     if (!ok) {
-      const which = card.premises.length > 1 ? `premise ${i + 1}` : 'the premise';
-      throw new KErr(`${which} must read ${factText(want, L)}, but the supplied fact is ${factText(got, L)}`);
+      const which = card.premises.length > 1 ? `Premise ${i + 1}` : 'The premise';
+      throw new KErr(`${which} must read ${factText(want, L)}. It reads ${factText(got, L)}.`);
     }
   });
   return { k: card.concl.k, l: instantiate(card.concl.l, s), r: instantiate(card.concl.r, s) };
@@ -397,7 +400,7 @@ export function check(g: ProofGraph, ctx0: KernelCtx): CheckResult {
   const rooms = new Map<ScopeId, Room>();
   const roomErr = new Map<ScopeId, string>();
   for (const r of roomsArr) {
-    if (rooms.has(r.id) || r.id === ROOT) { roomErr.set(r.id, 'two rooms share one name'); continue; }
+    if (rooms.has(r.id) || r.id === ROOT) { roomErr.set(r.id, 'Two rooms share one name.'); continue; }
     rooms.set(r.id, r);
   }
   for (const r of rooms.values()) {
@@ -407,16 +410,16 @@ export function check(g: ProofGraph, ctx0: KernelCtx): CheckResult {
     const seen = new Set<ScopeId>([r.id]);
     let bad: string | null = null;
     while (cur !== ROOT) {
-      if (seen.has(cur)) { bad = 'rooms cannot be nested inside themselves'; break; }
+      if (seen.has(cur)) { bad = "A room can't be inside itself."; break; }
       seen.add(cur);
       const p = rooms.get(cur);
-      if (!p) { bad = 'this room sits inside a room that does not exist'; break; }
+      if (!p) { bad = 'This room is inside a room that no longer exists.'; break; }
       cur = p.parent;
     }
-    if (!bad && r.kind === 'suppose' && !ctx.level.tools.suppose) bad = 'supposing is not available in this work order';
-    if (!bad && r.kind === 'classical' && !ctx.level.tools.classical) bad = 'proof by contradiction of an equation (classical) is not available in this work order';
-    if (!bad && r.kind !== 'suppose' && r.kind !== 'classical' && r.kind !== 'assume') bad = 'unknown kind of room';
-    if (!bad && r.kind === 'assume' && r.rel !== undefined && r.rel !== 'eq' && r.rel !== 'neq') bad = 'an assumption is an equation or an inequation';
+    if (!bad && r.kind === 'suppose' && !ctx.level.tools.suppose) bad = 'Supposing is not available here.';
+    if (!bad && r.kind === 'classical' && !ctx.level.tools.classical) bad = 'Proof by contradiction is not available here.';
+    if (!bad && r.kind !== 'suppose' && r.kind !== 'classical' && r.kind !== 'assume') bad = 'Unknown kind of room.';
+    if (!bad && r.kind === 'assume' && r.rel !== undefined && r.rel !== 'eq' && r.rel !== 'neq') bad = 'An assumption must be an equation or inequation.';
     if (!bad) {
       const what = r.kind === 'suppose' ? 'the supposition' : 'the assumption';
       try { checkGround(r.l, ctx, what); checkGround(r.r, ctx, what); }
@@ -429,7 +432,7 @@ export function check(g: ProofGraph, ctx0: KernelCtx): CheckResult {
     if (roomErr.has(r.id)) continue;
     let cur = r.parent;
     for (let guard = 0; cur !== ROOT && guard < 1000; guard++) {
-      if (roomErr.has(cur)) { roomErr.set(r.id, 'this room sits inside a room that is not valid'); break; }
+      if (roomErr.has(cur)) { roomErr.set(r.id, 'This room is inside a broken room.'); break; }
       cur = rooms.get(cur)?.parent ?? ROOT;
     }
   }
@@ -459,15 +462,15 @@ export function check(g: ProofGraph, ctx0: KernelCtx): CheckResult {
 
   for (const id of order) {
     const n = byId.get(id)!;
-    if (dupes.has(id)) { results[id] = fail(id, 'two steps share one name'); continue; }
-    if (inCycle.has(id)) { results[id] = fail(id, 'circular reasoning: this step depends on itself'); continue; }
+    if (dupes.has(id)) { results[id] = fail(id, 'Two steps share one name.'); continue; }
+    if (inCycle.has(id)) { results[id] = fail(id, 'This step depends on itself. That is circular.'); continue; }
     try {
       results[id] = evalNode(n, ctx, L, results, byId, rooms, roomErr, vx.vars);
     } catch (e) {
-      results[id] = fail(id, e instanceof KErr ? e.message : `malformed step (${(e as Error)?.message ?? 'unknown'})`);
+      results[id] = fail(id, e instanceof KErr ? e.message : `This step is malformed (${(e as Error)?.message ?? 'unknown'}).`);
     }
   }
-  for (const id of dupes) if (!results[id]) results[id] = fail(id, 'two steps share one name');
+  for (const id of dupes) if (!results[id]) results[id] = fail(id, 'Two steps share one name.');
   for (const r of Object.values(results)) if (!r.ok) ok = false;
 
   const sockets = ctx.level.sockets.map((sock) => socketResult(sock, nodes, results, L));
@@ -491,12 +494,12 @@ function socketResult(
       // (premises must match exactly)
       if (!sameCardUpToRenaming(r.fact, t) && !sameCardUpToRenaming(flipConclusion(r.fact), t)) continue;
       const extra = r.deps.filter((d) => !allowed.has(d));
-      if (extra.length) { nearly = `this proof of ${factText(t, L)} still relies on ${reliesOn(extra)}, which this goal does not allow`; continue; }
+      if (extra.length) { nearly = `This proof rests on ${reliesOn(extra)}. This goal doesn't allow that.`; continue; }
       return { id: sock.id, ok: true, filledBy: n.id };
     }
-    return { id: sock.id, ok: false, error: nearly ?? `${factText(t, L)} is not proved yet` };
+    return { id: sock.id, ok: false, error: nearly ?? `${factText(t, L)} is not proved yet.` };
   }
-  if (t.k !== 'eq' && t.k !== 'neq') return { id: sock.id, ok: false, error: 'malformed goal' };
+  if (t.k !== 'eq' && t.k !== 'neq') return { id: sock.id, ok: false, error: 'This goal is malformed.' };
   for (const n of nodes) {
     if (n.scope !== ROOT) continue;
     const r = results[n.id];
@@ -505,23 +508,23 @@ function socketResult(
     if (f.k !== t.k) continue;
     const exact = same(norm(f.l), norm(t.l)) && same(norm(f.r), norm(t.r));
     if (!exact) {
-      if (!nearly && same(norm(f.l), norm(t.r)) && same(norm(f.r), norm(t.l))) nearly = 'the goal is proved with its sides the other way round; swap them';
+      if (!nearly && same(norm(f.l), norm(t.r)) && same(norm(f.r), norm(t.l))) nearly = 'The goal is proved backwards. Swap the sides.';
       if (!nearly) {
         const hl = stackWordHint(f.l, t.l, L), hr = stackWordHint(f.r, t.r, L);
         const sideOk = (x: Term, y: Term, h: unknown) => h || same(norm(x), norm(y));
         const h = hl ?? hr;
-        if (h && sideOk(f.l, t.l, hl) && sideOk(f.r, t.r, hr)) nearly = `this proves ${h.have} where the goal has ${h.want} — ${h.hint}`;
+        if (h && sideOk(f.l, t.l, hl) && sideOk(f.r, t.r, hr)) nearly = `This proves ${h.have}, but the goal has ${h.want}. ${cap(h.hint)}.`;
       }
       continue;
     }
     const extra = r.deps.filter((d) => !allowed.has(d));
     if (extra.length) {
-      nearly = `this proof of ${factText(t, L)} still relies on ${extra.map((d) => (d.startsWith('a:') ? 'an open assumption' : `given ${d.slice(2)}`)).join(', ')}, which this goal does not allow`;
+      nearly = `This proof rests on ${extra.map((d) => (d.startsWith('a:') ? 'an open assumption' : `given ${d.slice(2)}`)).join(', ')}. This goal doesn't allow that.`;
       continue;
     }
     return { id: sock.id, ok: true, filledBy: n.id };
   }
-  return { id: sock.id, ok: false, error: nearly ?? `${factText(t, L)} is not proved yet` };
+  return { id: sock.id, ok: false, error: nearly ?? `${factText(t, L)} is not proved yet.` };
 }
 
 function evalNode(
@@ -531,9 +534,9 @@ function evalNode(
 ): NodeResult {
   const id = n.id;
   const scope = n.scope;
-  if (typeof scope !== 'string') throw new KErr('this step has no scope');
+  if (typeof scope !== 'string') throw new KErr('This step has no scope.');
   if (scope !== ROOT) {
-    if (!rooms.has(scope)) throw new KErr('this step sits in a room that does not exist');
+    if (!rooms.has(scope)) throw new KErr('This step is in a room that no longer exists.');
     const re = roomErr.get(scope);
     if (re) throw new KErr(re);
   }
@@ -543,11 +546,11 @@ function evalNode(
   /** Fetch an upstream node's result, enforcing existence, validity and the scope law. */
   const use = (ref: NodeId, role: string): { fact: Fact; node: ProofNode } => {
     const m = byId.get(ref);
-    if (!m) throw new KErr(`${role} does not exist`);
+    if (!m) throw new KErr(`${cap(role)} is missing.`);
     const r = results[ref];
-    if (!r || !r.ok || !r.fact) throw new KErr(`${role} is not valid, so this step cannot be trusted`);
+    if (!r || !r.ok || !r.fact) throw new KErr(`${cap(role)} is broken. Fix it first.`);
     if (!scopeWithin(scope, m.scope, rooms)) {
-      throw new KErr(`${role} was proved under an assumption that is not in force here`);
+      throw new KErr(`${cap(role)} rests on an assumption that doesn't hold here. Use it inside that room.`);
     }
     for (const d of r.deps) deps.add(d);
     if (r.classical) classical = true;
@@ -563,22 +566,22 @@ function evalNode(
     }
     case 'given': {
       const gd = ctx.level.givens.find((x) => x.id === n.givenId);
-      if (!gd) throw new KErr(`there is no given “${String(n.givenId)}” in this work order`);
-      if (gd.fact.k === 'size' && !validSize(gd.fact.n)) throw new KErr('the order of a group must be a whole number from 1 to 24');
+      if (!gd) throw new KErr(`There is no given “${String(n.givenId)}” here.`);
+      if (gd.fact.k === 'size' && !validSize(gd.fact.n)) throw new KErr('A group order must be a whole number from 1 to 24.');
       deps.add(`g:${gd.id}`);
       const f = gd.fact;
       return done(f.k === 'eq' || f.k === 'neq' ? { k: f.k, l: norm(f.l), r: norm(f.r) } : f);
     }
     case 'assume': {
       const room = rooms.get(n.room);
-      if (!room) throw new KErr('there is no such room to suppose in');
-      if (scope !== n.room) throw new KErr('a supposition lives inside its own room');
+      if (!room) throw new KErr('There is no such room.');
+      if (scope !== n.room) throw new KErr('A supposition belongs inside its own room.');
       deps.add(`a:${room.id}`);
       return done(assumptionOf(room));
     }
     case 'step': {
       const inp = use(n.input, 'the equation this step continues');
-      if (!isPallet(inp.fact)) throw new KErr('a universal statement cannot be rewritten; cite it as a rule instead');
+      if (!isPallet(inp.fact)) throw new KErr("A ∀ statement can't be rewritten. Use it as a rule instead.");
       let ruleFact: Fact | undefined;
       if (n.op?.k === 'rewrite' && n.op.rule?.k === 'node') ruleFact = use(n.op.rule.id, 'the cited fact').fact;
       return done(stepCore(inp.fact, n.op, ctx, ruleFact));
@@ -589,71 +592,71 @@ function evalNode(
       const card = resolveCond(n.rule, ctx, ruleFact, L);
       const ins = (Array.isArray(n.inputs) ? n.inputs : []).map((ref, i) => {
         const f = use(ref, `premise ${i + 1}`).fact;
-        if (f.k !== 'eq' && f.k !== 'neq') throw new KErr(`premise ${i + 1} must be an equation or an inequation`);
+        if (f.k !== 'eq' && f.k !== 'neq') throw new KErr(`Premise ${i + 1} must be an equation or inequation.`);
         return f;
       });
       return done(applyCore(card, ins, n.subst ?? {}, ctx));
     }
     case 'merge': {
-      if (!ctx.level.tools.merge) throw new KErr('the merge machine is not available in this work order');
-      if (!Array.isArray(n.inputs) || n.inputs.length !== 2) throw new KErr('merging needs exactly two equations');
+      if (!ctx.level.tools.merge) throw new KErr('Merging is not available here.');
+      if (!Array.isArray(n.inputs) || n.inputs.length !== 2) throw new KErr('Merging needs exactly two equations.');
       const a = use(n.inputs[0], 'the first equation').fact;
       const b = use(n.inputs[1], 'the second equation').fact;
-      if (a.k !== 'eq' || b.k !== 'eq') throw new KErr('only two equations can be merged');
+      if (a.k !== 'eq' || b.k !== 'eq') throw new KErr('Only equations can be merged.');
       if (!same(norm(a.r), norm(b.r))) {
-        throw new KErr(`the right-hand sides ${termText(a.r, L)} and ${termText(b.r, L)} differ; both equations must end in the same element`);
+        throw new KErr(`The right sides ${termText(a.r, L)} and ${termText(b.r, L)} differ. Both must end the same.`);
       }
       return done({ k: 'eq', l: norm(a.l), r: norm(b.l) });
     }
     case 'clash': {
-      if (!Array.isArray(n.inputs) || n.inputs.length !== 2) throw new KErr('a contradiction needs an equation and an inequation');
+      if (!Array.isArray(n.inputs) || n.inputs.length !== 2) throw new KErr('A contradiction needs an equation and an inequation.');
       const a = use(n.inputs[0], 'the equation').fact;
       const b = use(n.inputs[1], 'the inequation').fact;
       // accept either order: clash is symmetric in its two inputs
       const [q, ne] = a.k === 'eq' && b.k === 'neq' ? [a, b] : b.k === 'eq' && a.k === 'neq' ? [b, a] : [null, null];
-      if (!q || !ne) throw new KErr('a contradiction needs one equation and one inequation');
+      if (!q || !ne) throw new KErr('A contradiction needs one equation and one inequation.');
       const ql = norm(q.l), qr = norm(q.r), nl = norm(ne.l), nr = norm(ne.r);
       const hit = (same(ql, nl) && same(qr, nr)) || (same(ql, nr) && same(qr, nl));
-      if (!hit) throw new KErr(`${factText(q, L)} and ${factText(ne, L)} do not contradict each other`);
+      if (!hit) throw new KErr(`${factText(q, L)} and ${factText(ne, L)} don't contradict each other.`);
       return done({ k: 'bot' });
     }
     case 'exit': {
       const room = rooms.get(n.room);
-      if (!room) throw new KErr('there is no such room to close');
-      if (scope !== room.parent) throw new KErr('a room’s conclusion lands in the scope that contains the room');
+      if (!room) throw new KErr('There is no such room to close.');
+      if (scope !== room.parent) throw new KErr('A room’s result lands just outside the room.');
       const m = byId.get(n.input);
-      if (!m) throw new KErr('the contradiction closing this room does not exist');
-      if (m.scope !== room.id) throw new KErr('the contradiction must be reached inside this room itself');
+      if (!m) throw new KErr('The contradiction closing this room is missing.');
+      if (m.scope !== room.id) throw new KErr('The contradiction must be reached inside this room.');
       const r = results[n.input];
       if (room.kind === 'assume') {
         // implication introduction: any equation/inequation Q proved in the room ⟹ (P ⇒ Q)
-        if (!r || !r.ok || !r.fact) throw new KErr('the conclusion leaving this room is not valid');
+        if (!r || !r.ok || !r.fact) throw new KErr('The result leaving this room is broken.');
         const q = r.fact;
-        if (q.k !== 'eq' && q.k !== 'neq') throw new KErr('an assumption room exports an equation or an inequation proved inside it');
+        if (q.k !== 'eq' && q.k !== 'neq') throw new KErr('An assume room exports an equation or inequation proved inside it.');
         for (const d of r.deps) if (d !== `a:${room.id}`) deps.add(d);
         classical = r.classical;
         return done({ k: 'cond', metas: [], premises: [assumptionOf(room)], concl: { k: q.k, l: norm(q.l), r: norm(q.r) } });
       }
-      if (!r || !r.ok || !r.fact) throw new KErr('the contradiction closing this room is not valid');
-      if (r.fact.k !== 'bot') throw new KErr('this would leave the room with its assumption still open: a room is closed only by a contradiction (⊥)');
+      if (!r || !r.ok || !r.fact) throw new KErr('The contradiction closing this room is broken.');
+      if (r.fact.k !== 'bot') throw new KErr('The assumption is still open. Only a contradiction (⊥) closes this room.');
       for (const d of r.deps) if (d !== `a:${room.id}`) deps.add(d);
       classical = r.classical || room.kind === 'classical';
       const l = norm(room.l), rr = norm(room.r);
       return done(room.kind === 'suppose' ? { k: 'neq', l, r: rr } : { k: 'eq', l, r: rr });
     }
     case 'press': {
-      if (!ctx.level.tools.press) throw new KErr('the Lagrange press is not available in this work order');
+      if (!ctx.level.tools.press) throw new KErr('The Lagrange press is not available here.');
       const inp = use(n.input, 'the group order');
-      if (inp.fact.k !== 'size') throw new KErr('the Lagrange press needs the order of the group (|G| = n)');
+      if (inp.fact.k !== 'size') throw new KErr('The Lagrange press needs the group order (|G| = n).');
       return done(pressCard(inp.fact.n, n.power === true));
     }
     case 'product': {
       // A = B , C = D ⟹ AC = BD. Multiplying by a reflexive C = C is lifting, so it shares lift's authority.
-      if (!ctx.level.tools.lift) throw new KErr('multiplying equations together is not available in this work order');
-      if (!Array.isArray(n.inputs) || n.inputs.length !== 2) throw new KErr('multiplying equations needs exactly two equations');
+      if (!ctx.level.tools.lift) throw new KErr('Multiplying equations is not available here.');
+      if (!Array.isArray(n.inputs) || n.inputs.length !== 2) throw new KErr('Multiplying needs exactly two equations.');
       const a = use(n.inputs[0], 'the first equation').fact;
       const b = use(n.inputs[1], 'the second equation').fact;
-      if (a.k !== 'eq' || b.k !== 'eq') throw new KErr('only two equations can be multiplied together');
+      if (a.k !== 'eq' || b.k !== 'eq') throw new KErr('Only equations can be multiplied.');
       return done({ k: 'eq', l: mul([a.l, b.l]), r: mul([a.r, b.r]) });
     }
     case 'generalize': {
@@ -664,7 +667,7 @@ function evalNode(
       const hyps = [...deps].filter((d) => d.startsWith('a:')).map((d) => rooms.get(d.slice(2))).filter((r): r is Room => !!r);
       return done(generalizeFact(inp.fact, vars, hyps, reserved, L));
     }
-    default: throw new KErr('unknown kind of step');
+    default: throw new KErr('Unknown kind of step.');
   }
 }
 
@@ -709,10 +712,10 @@ export function withVars(ctx: KernelCtx, g: ProofGraph | undefined | null): { ct
   const ok: AtomDecl[] = [];
   let error: string | undefined;
   for (const v of decl) {
-    if (!v || typeof v.id !== 'string' || !v.id) { error = 'a variable has no name'; continue; }
+    if (!v || typeof v.id !== 'string' || !v.id) { error = 'A variable has no name.'; continue; }
     const label = typeof v.label === 'string' && v.label ? v.label : v.id;
-    if (taken.has(v.id)) { error = `${label} cannot be a variable here: that name already denotes an element of this work order`; continue; }
-    if (labels.has(label)) { error = `two elements are both called ${label}`; continue; }
+    if (taken.has(v.id)) { error = `${label} can't be a variable here. That name is already an element.`; continue; }
+    if (labels.has(label)) { error = `Two elements are both called ${label}.`; continue; }
     taken.add(v.id); labels.add(label);
     ok.push({ ...v, label, variable: true });
   }
@@ -736,19 +739,19 @@ export function generalizeFact(f: Fact, vars: AtomDecl[], hyps: Room[], reserved
   switch (f.k) {
     case 'eq': case 'neq': case 'law': refsInOrder(f.l, seen); refsInOrder(f.r, seen); break;
     case 'cond': for (const p of [...f.premises, f.concl]) { refsInOrder(p.l, seen); refsInOrder(p.r, seen); } break;
-    case 'bot': throw new KErr('⊥ cannot be generalized');
-    case 'size': throw new KErr('|G| = n mentions no element; there is nothing to generalize');
+    case 'bot': throw new KErr('⊥ cannot be generalized.');
+    case 'size': throw new KErr('|G| = n has no element in it. There is nothing to generalize.');
   }
   const order = seen.filter((id) => varIds.has(id));
   const label = (id: string) => vars.find((v) => v.id === id)?.label ?? L[id] ?? id;
-  if (!order.length) throw new KErr(`nothing to generalize: no tower variable appears in ${factText(f, L)}`);
+  if (!order.length) throw new KErr(`No Tower appears in ${factText(f, L)}. There is nothing to generalize.`);
   // eigenvariable condition (statements of the room assumptions the fact rests on, exponents included)
   for (const room of hyps) {
     const mentioned = new Set(refsInOrder(room.r, refsInOrder(room.l, [])));
     const hit = order.find((id) => mentioned.has(id));
     if (hit) {
       const noun = room.kind === 'suppose' ? 'supposition' : 'assumption';
-      throw new KErr(`${label(hit)} appears in the ${noun} ${factText(assumptionOf(room), L)} this rests on, so it isn't arbitrary here`);
+      throw new KErr(`${label(hit)} appears in the ${noun} ${factText(assumptionOf(room), L)}, so it isn't arbitrary. Exit the room first.`);
     }
   }
   // fresh, readable binder names: distinct from the card's own binders (both sorts) and level constants
@@ -860,21 +863,21 @@ export function lemmaEligibility(fact: Fact | undefined, deps: string[], g: Proo
   { ok: true } | { ok: false; reason: string } {
   const vx = withVars(ctx, g);
   const L = labelsOf(vx.ctx.level.atoms);
-  if (!fact || (fact.k !== 'law' && fact.k !== 'cond')) return { ok: false, reason: 'only a universal statement (∀ …) can go in the Lemma Book' };
+  if (!fact || (fact.k !== 'law' && fact.k !== 'cond')) return { ok: false, reason: 'Only a ∀ statement can go in the Lemma Book.' };
   if (deps.length) {
     const why = deps.map((d) => {
       if (d.startsWith('a:')) return 'an open assumption';
       const gd = ctx.level.givens.find((x) => `g:${x.id}` === d);
       return gd ? `${gd.name}: ${factText(gd.fact, L)}` : d;
     });
-    return { ok: false, reason: `this rests on ${why.join(', ')}, so it is not a theorem about every group` };
+    return { ok: false, reason: `This rests on ${why.join(', ')}. It is not true in every group.` };
   }
   const refs = new Set<string>();
   factAtoms(fact, refs);
   const varIds = new Set(vx.vars.map((v) => v.id));
   for (const id of refs) {
-    if (varIds.has(id)) return { ok: false, reason: `${L[id] ?? id} is still free; generalize it first` };
-    return { ok: false, reason: `${L[id] ?? id} is a constant of this work order; rebuild the statement with a Tower to make it general` };
+    if (varIds.has(id)) return { ok: false, reason: `${L[id] ?? id} is still free. Generalize it first.` };
+    return { ok: false, reason: `${L[id] ?? id} is a constant of this order. Rebuild it with a Tower.` };
   }
   return { ok: true };
 }

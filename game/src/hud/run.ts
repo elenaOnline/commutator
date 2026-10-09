@@ -41,9 +41,9 @@ export function mountRun(layer: HTMLElement, store: Store, hooks: { toggleTransc
   el.append(
     h('div', { class: 'h3-run-row' }, play, step, h('span', { class: 'h3-segs h3-speed' }, ...speeds), tick, h('span', { class: 'h3-vsep' }), undo, redo),
     h('div', { class: 'h3-run-row h3-metrics' },
-      metric('machines', 'Machines', 'Machines you placed (sources and docks excluded)'),
-      metric('area', 'Area', 'Tiles occupied by your machines, belts and rooms'),
-      metric('cycles', 'Cycles', 'Ticks until every dock has received its statement')),
+      metric('machines', 'Machines', 'Machines you placed'),
+      metric('area', 'Area', 'Tiles you used'),
+      metric('cycles', 'Cycles', 'Ticks until every dock is filled')),
     h('div', { class: 'h3-run-row h3-togs' }, alt, proof, book, lab));
 
   let lastKey = '', lastRun: unknown = null, lastComp: unknown = null, lastDel = -1, lastSave: unknown = null;

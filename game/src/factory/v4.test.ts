@@ -57,7 +57,7 @@ describe('Towers and ∀ (Toolsmith)', () => {
   it('an undeclared variable says to place a Tower; duplicate Tower names jam', () => {
     const f = new Floor(cardOrder('T', { k: 'law', metas: ['x'], l: x, r: x }));
     const sp = f.add(spool(x1));
-    expect(reason(f.compile(), sp)).toBe('x₁\'s Tower was deleted — undo, or place a Tower and rename it x₁ to reconnect');
+    expect(reason(f.compile(), sp)).toBe('x₁\'s Tower was deleted. Undo, or add a Tower named x₁.');
     // the editor never re-binds a dangling id silently, so a Tower placed now is a fresh x₂; declare first
     const g = new Floor(f.level);
     g.add(tower('x1', 'x₁'), { x: 4, y: 14 });
@@ -66,7 +66,7 @@ describe('Towers and ∀ (Toolsmith)', () => {
     // a forged duplicate (the editor renumbers real ones) jams the later Tower
     const t1 = g.c.machines.find((m) => m.kind === 'tower')!;
     g.c = { ...g.c, machines: [...g.c.machines, { ...t1, id: 'tower9', at: { x: 4, y: 18 } }] };
-    expect(reason(g.compile(), 'tower9')).toMatch(/^x₁ is already declared by another Tower/);
+    expect(reason(g.compile(), 'tower9')).toBe('x₁ is taken. Rename this Tower.');
   });
 
   it('a fact about a dock-delivered equation (not generalized) is refused at a card dock', () => {
@@ -75,7 +75,7 @@ describe('Towers and ∀ (Toolsmith)', () => {
     f.add(tower('x1', 'x₁'), { x: 4, y: 14 });
     const sp = f.add(spool(x1));
     f.wire(sp, f.socket());
-    expect(reason(f.compile(), f.socket())).toMatch(/^this dock needs the universal statement ∀x\. x = x, but the belt delivers x₁ = x₁ — generalize it with a ∀ machine first/);
+    expect(reason(f.compile(), f.socket())).toBe('Needs ∀x. x = x. Run x₁ = x₁ through ∀ first.');
   });
 });
 
@@ -113,7 +113,7 @@ describe('Assume rooms', () => {
     const { f, can } = conjugate();
     const inner = f.add({ kind: 'forall' }, { x: 30, y: 6 });
     f.wire(can, inner);
-    expect(reason(f.compile(), inner)).toBe('this depends on the supposition (x₁y₁)⁵ = e, which mentions x₁, so it is not about every x₁ — export it through an Assume room\'s gate first (giving (x₁y₁)⁵ = e ⇒ …), then generalize');
+    expect(reason(f.compile(), inner)).toBe('x₁ appears in the supposition (x₁y₁)⁵ = e. Use the room\'s gate first.');
   });
 });
 
@@ -161,7 +161,7 @@ describe('Lemma Book', () => {
     const all = f.add({ kind: 'forall' });
     f.wire(f.given('h'), mu); f.wire(mu, all);
     let r = F.lemmaFrom(f.compile(), f.c, all, f.ctx);
-    expect(r).toEqual({ ok: false, reason: 'uses given h: ab = e — global lemmas need no level givens' });
+    expect(r).toEqual({ ok: false, reason: 'Uses given h: ab = e. Lemmas need no givens.' });
     // a constant: ∀ over x₁a = x₁a keeps the level constant a
     const g = new Floor(lv);
     g.add(tower('x1', 'x₁'), { x: 4, y: 14 });
@@ -169,7 +169,7 @@ describe('Lemma Book', () => {
     const all2 = g.add({ kind: 'forall' });
     g.wire(sp, all2);
     r = F.lemmaFrom(g.compile(), g.c, all2, g.ctx);
-    expect(r).toEqual({ ok: false, reason: 'still mentions the level constant a — build it with a Tower instead' });
+    expect(r).toEqual({ ok: false, reason: 'Mentions the constant a. Use a Tower instead.' });
     // a supposition: ∀ inside a suppose room over a fact resting on a = b (no tower variable in it)
     const k = new Floor(lv);
     k.add(tower('x1', 'x₁'), { x: 4, y: 30 });
@@ -178,7 +178,7 @@ describe('Lemma Book', () => {
     const all3 = k.add({ kind: 'forall' }, { x: 20, y: 8 });
     k.wire(rm.desk, m2); k.wire(m2, all3);
     r = F.lemmaFrom(k.compile(), k.c, all3, k.ctx);
-    expect(r).toEqual({ ok: false, reason: 'depends on the supposition a = b — export it through the room\'s gate first' });
+    expect(r).toEqual({ ok: false, reason: 'Rests on a = b. Use the room\'s gate first.' });
     // Lagrange keeps its |G| dependency, so ∀ cannot launder it into a global lemma
     const lv3 = cardOrder('T3', { k: 'law', metas: ['x'], l: x, r: x }, [{ id: 'z', name: '|G|', fact: { k: 'size', n: 3 } }]);
     const q = new Floor(lv3);
@@ -188,7 +188,7 @@ describe('Lemma Book', () => {
     const all4 = q.add({ kind: 'forall' });
     q.wire(s3, r3); q.wire(r3, all4);
     r = F.lemmaFrom(q.compile(), q.c, all4, q.ctx);
-    expect(r).toEqual({ ok: false, reason: 'uses given |G|: |G| = 3 — global lemmas need no level givens' });
+    expect(r).toEqual({ ok: false, reason: 'Uses given |G|: |G| = 3. Lemmas need no givens.' });
   });
 
   it('verification: a lemma may cite only earlier-saved lemmas; a changed proof is disabled', () => {

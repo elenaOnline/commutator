@@ -72,7 +72,7 @@ describe('Phase B work orders', () => {
     const last = comp.machines[al]!.out as { ref: { id: string } };
     expect(comp.check.nodes[last.ref.id]!.deps).toEqual(['g:h']);
     // not a global lemma: it rests on h
-    expect(F.lemmaFrom(comp, f.c, al, f.ctx)).toMatchObject({ ok: false, reason: expect.stringMatching(/^uses given h/) });
+    expect(F.lemmaFrom(comp, f.c, al, f.ctx)).toMatchObject({ ok: false, reason: expect.stringMatching(/^Uses given h/) });
   });
 
   it('reverse (xᵐ)ⁿ = xᵐⁿ asks for its integer knobs instead of guessing a factorization', () => {
@@ -81,7 +81,7 @@ describe('Phase B work orders', () => {
     const sp = f.add(spool(pw(P(a, b), Zmul(Zc(5), Zv('k1')))));
     const r1 = f.add(lawRw({ k: 'schema', id: 'power.multiply' }, { dir: 'rev' }));
     f.wire(sp, r1);
-    expect(reason(f.compile(), r1)).toMatch(/^the law needs an integer for m, n: set it on the machine/);
+    expect(reason(f.compile(), r1)).toBe('Set the integer m, n on the machine.');
   });
 
   it('B02 Reset Multipliers: Assume xⁿ = e, (x^n)^k by the routed assumption, ∀ binds x, n, k — a savable lemma', () => {
@@ -138,7 +138,7 @@ describe('Phase B work orders', () => {
     const re = f.add(lawRw({ k: 'lagrange' }));
     f.wire(sp, re); f.wire(re, f.socket());
     const r = reason(f.compile(), f.socket());
-    expect(r).toMatch(/^this dock needs a\^5 = e: the belt carries the word .* \(five beads\) where the goal has the power .* \(one stack\) — use Literal Power to turn the word into the stack$/);
+    expect(r).toMatch(/^Got the word .* \(five beads\), the goal has the power .* \(one stack\)\. Use Literal Power to turn the word into the stack\.$/);
   });
 
   it('a size refusal is a jam about size, not a mathematical verdict', () => {

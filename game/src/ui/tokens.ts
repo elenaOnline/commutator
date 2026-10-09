@@ -54,3 +54,13 @@ export const MOTION = {
 /** Respect reduced motion everywhere. */
 export const reducedMotion = (): boolean =>
   typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/**
+ * v4.1: Tower variables (x, y, n …) — a SOLID tinted fill, never hatching (the designer: hatching is hard to read).
+ * Element variables use the tower violet; integer (ℤ) variables a teal-violet so the two sorts differ at a glance.
+ * Text on these fills is the strong ink (AA on the fill).
+ */
+export const VAR = {
+  G: { fill: '#EAE4FB', ring: '#7B5BD6', ink: '#3E1E9E' },
+  Z: { fill: '#E1F1F4', ring: '#3A8FA3', ink: '#1E5B6B' },
+} as const;

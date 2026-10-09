@@ -73,7 +73,7 @@ export function mountTranscript(layer: HTMLElement, store: Store, opts: { top: (
         n.dataset.machines = ms.join(' ');
       });
       const t = body.querySelector('.t-empty');
-      if (t) t.textContent = 'The proof writes itself here as you build: every machine on the floor becomes a line of a textbook derivation.';
+      if (t) t.textContent = 'Each machine you build adds a line here.';
     }
     const hov = s.ui.hover?.k === 'machine' ? s.ui.hover.id : '';
     const key = `${hov}|${s.ui.lens ?? ''}`;

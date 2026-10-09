@@ -83,8 +83,8 @@ export function mountCeremony(layer: HTMLElement, store: Store, hooks: { dest: (
     const s0 = store.get();
     const tv = towerVars(s0).map((v) => tH({ k: 'atom', id: v.id }, Object.fromEntries(towerVars(s0).map((w) => [w.id, w.label]))));
     const note = h('div', { class: 'qed-note', html: cardGoal
-      ? (tv.length ? `Since <span class="math">${tv.join(', ')}</span> ${tv.length > 1 ? 'were' : 'was'} arbitrary, the law holds for every choice: it is now a theorem.` : 'It holds in every group: it is now a theorem.')
-      : 'Proven for these particular elements, from these hypotheses. To make it a law for every element, build it with Towers and a ∀ machine.' });
+      ? (tv.length ? `<span class="math">${tv.join(', ')}</span> could be anything. So it holds for all.` : 'It holds in every group.')
+      : 'Proven for these elements. Towers and ∀ make laws.' });
     // the Lemma Book, right here: a savable card on the floor is offered with a name
     const sv = savableOf(s0);
     let saveRow: HTMLElement | null = null;
@@ -105,7 +105,7 @@ export function mountCeremony(layer: HTMLElement, store: Store, hooks: { dest: (
         };
         btn.addEventListener('click', doSave);
         name.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); doSave(); } });
-        saveRow = h('div', { class: 'qed-save' }, plate, h('div', { class: 'qed-save-form' }, name, btn), h('div', { class: 'qed-save-note' }, 'Saved, it becomes a recipe in every later order.'));
+        saveRow = h('div', { class: 'qed-save' }, plate, h('div', { class: 'qed-save-form' }, name, btn), h('div', { class: 'qed-save-note' }, 'Saved, it is a recipe in every later order.'));
       }
     }
     const machines = h('div', { class: 'qed-machines' });
@@ -124,7 +124,7 @@ export function mountCeremony(layer: HTMLElement, store: Store, hooks: { dest: (
     const save = store.get().save;
     const mainLeft = LEVELS.filter((l) => !l.side && !isSolved(save, l.id)).length;
     const ending = !lv.side && mainLeft === 0
-      ? h('div', { class: 'qed-ending' }, `That completes the campaign: ${LEVELS.filter((l) => isSolved(save, l.id)).length} theorems proven, every one checked down to the axioms.`)
+      ? h('div', { class: 'qed-ending' }, `Campaign complete: ${LEVELS.filter((l) => isSolved(save, l.id)).length} theorems, all checked.`)
       : null;
     // the factory as it stood when the dock sealed (not the best ever, not after later edits)
     const m = safe(() => store.metrics(), null) ?? store.get().save.levels[levelId]?.best ?? null;
@@ -136,13 +136,13 @@ export function mountCeremony(layer: HTMLElement, store: Store, hooks: { dest: (
     const proof = h('button', { class: 'lw-key' }, 'See the proof');
     proof.addEventListener('click', () => { close(); store.setUI({ transcriptOpen: true }); });
     const stay = h('button', { class: 'lw-key' }, 'Keep refining');
-    stay.title = 'Stay on this floor and chase a smaller factory';
+    stay.title = 'Stay and build it smaller';
     stay.addEventListener('click', close);
     const follow = h('button', { class: 'lw-key' }, 'Follow it on the floor');
-    follow.title = 'Quiet everything else and annotate each machine of the delivered proof';
+    follow.title = 'Trace this proof on the floor';
     follow.addEventListener('click', () => { close(); store.setUI({ follow: lv.sockets[0]?.id ?? null, transcriptOpen: false }); });
     actions.append(nextBtn, follow, proof, stay);
-    const skip = h('div', { class: 'qed-skip' }, 'click or press Esc to skip');
+    const skip = h('div', { class: 'qed-skip' }, 'Esc skips');
     const card = h('div', { class: 'qed-card', role: 'dialog', 'aria-modal': 'true', tabindex: -1, 'aria-label': `Proven: Lemma ${lv.index}` }, seal, specific, lemma, note, receipt, machines, saveRow, ending, actions);
 
     let flown = false;

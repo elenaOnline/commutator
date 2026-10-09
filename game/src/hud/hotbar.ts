@@ -8,7 +8,7 @@ import type { MachineKind } from '../factory/types';
 import type { Tool } from '../state/factoryStore';
 import { FAMILY } from '../ui/tokens';
 import {
-  FAMILY_ORDER, IO, KIND_WORD, atomsAll, drawerKinds, esc, fH, h, hotbarKinds, labelsAll, richHTML, safe, spec, tH,
+  FAMILY_ORDER, IO, KIND_WORD, atomsAll, liveSubscripts, towerLabelSet, drawerKinds, esc, fH, h, hotbarKinds, labelsAll, richHTML, safe, spec, tH,
   type S, type Store,
 } from './util';
 import { libCard } from './library';
@@ -42,8 +42,8 @@ export function mountHotbar(layer: HTMLElement, store: Store): HotbarApi {
   layer.append(card, drawer, roomPop, bar);
 
   const tools: Entry[] = [
-    { key: 'select', tool: { k: 'select' }, name: 'Select', glyph: '↖', family: 'equation', blurb: 'pick, move and inspect machines; drag from a port to lay a belt', hotkey: 'Esc' },
-    { key: 'belt', tool: { k: 'belt' }, name: 'Belt', glyph: '═', family: 'equation', blurb: 'drag from an output port to an input port; the belt routes itself', hotkey: 'B' },
+    { key: 'select', tool: { k: 'select' }, name: 'Select', glyph: '↖', family: 'equation', blurb: 'Pick, move, inspect. Drag from a port for a belt.', hotkey: 'Esc' },
+    { key: 'belt', tool: { k: 'belt' }, name: 'Belt', glyph: '═', family: 'equation', blurb: 'Drag from an output to an input.', hotkey: 'B' },
   ];
   const machineEntry = (kind: MachineKind): Entry => {
     const sp = spec(kind);
@@ -69,7 +69,7 @@ export function mountHotbar(layer: HTMLElement, store: Store): HotbarApi {
         blurb: card ? `${sp.name} with ${p.label}` : `${sp.name} · ${p.label}`, earned: p.earned, kind: p.kind, preset: p };
     });
   };
-  const roomEntry: Entry = { key: 'room', tool: { k: 'room', kind: 'suppose' }, name: 'Room', glyph: '∃', family: 'scope', blurb: 'paint a region with an assumption: Suppose and Classical rooms export a contradiction’s verdict; an Assume room exports P ⇒ Q', hotkey: 'G' };
+  const roomEntry: Entry = { key: 'room', tool: { k: 'room', kind: 'suppose' }, name: 'Room', glyph: '∃', family: 'scope', blurb: 'A region with an assumption inside.', hotkey: 'G' };
 
   // ───────── slots ─────────
   const slotEls = new Map<string, HTMLButtonElement>();
@@ -160,9 +160,9 @@ export function mountHotbar(layer: HTMLElement, store: Store): HotbarApi {
   void cardFor;
 
   // ───────── drawer ─────────
-  const search = h('input', { class: 'h3-search', placeholder: 'Search machines — name, glyph or what it does', 'aria-label': 'Search machines', autocomplete: 'off', spellcheck: 'false' });
+  const search = h('input', { class: 'h3-search', placeholder: 'Search', 'aria-label': 'Search machines', autocomplete: 'off', spellcheck: 'false' });
   const list = h('div', { class: 'h3-drawer-list' });
-  drawer.append(h('div', { class: 'h3-drawer-head' }, h('span', { class: 'h3-label' }, 'All machines'), h('span', { class: 'h3-dim' }, 'every machine, always · grouped by family')), search, list);
+  drawer.append(h('div', { class: 'h3-drawer-head' }, h('span', { class: 'h3-label' }, 'All machines'), h('span', { class: 'h3-dim' }, 'by family')), search, list);
   const allEntries = (s: S): Entry[] => {
     const kinds = [...hotbarKinds(), ...drawerKinds()];
     return [...tools, ...kinds.map(machineEntry), ...presetEntries(s, true), roomEntry];
@@ -186,7 +186,7 @@ export function mountHotbar(layer: HTMLElement, store: Store): HotbarApi {
         list.append(row);
       }
     }
-    if (!list.childElementCount) list.append(h('p', { class: 'h3-dim h3-empty' }, 'No machine matches. Every machine is listed here; try a shorter word.'));
+    if (!list.childElementCount) list.append(h('p', { class: 'h3-dim h3-empty' }, 'No match. Try a shorter word.'));
   };
   const pick = (e: Entry) => { closePopovers(); if (e.key === 'room') openRoomPopover(); else store.setTool(e.tool); };
   search.addEventListener('input', renderDrawer);
@@ -209,17 +209,17 @@ export function mountHotbar(layer: HTMLElement, store: Store): HotbarApi {
   const inL = h('input', { class: 'h3-term', placeholder: 'l', 'aria-label': 'left side', autocomplete: 'off', spellcheck: 'false' });
   const inR = h('input', { class: 'h3-term', placeholder: 'r', 'aria-label': 'right side', autocomplete: 'off', spellcheck: 'false' });
   const rel = h('button', { class: 'h3-rel math', title: 'For an Assume room: assume = or ≠' }, '=');
-  const kSup = h('button', { class: 'h3-seg on', title: 'assume P; a contradiction (⊥) at the gate exports ¬P' }, 'Suppose');
-  const kCls = h('button', { class: 'h3-seg', title: 'assume ¬P; a contradiction at the gate exports P (classical)' }, 'Classical');
-  const kAsm = h('button', { class: 'h3-seg', title: 'assume P; any fact Q at the gate exports the theorem P ⇒ Q' }, 'Assume');
+  const kSup = h('button', { class: 'h3-seg on', title: 'A clash proves the opposite.' }, 'Suppose');
+  const kCls = h('button', { class: 'h3-seg', title: 'A clash proves P (classical).' }, 'Classical');
+  const kAsm = h('button', { class: 'h3-seg', title: 'Exports P ⇒ Q.' }, 'Assume');
   const roomMsg = h('div', { class: 'h3-roommsg' });
   const arm = h('button', { class: 'lw-key primary small' }, 'Paint the room');
   const presetRow = h('div', { class: 'h3-presets' });
   roomPop.append(
-    h('div', { class: 'h3-drawer-head' }, h('span', { class: 'h3-label', style: 'color:var(--scope)' }, 'Room'), h('span', { class: 'h3-dim' }, 'a region with an assumption desk and an exit gate')),
+    h('div', { class: 'h3-drawer-head' }, h('span', { class: 'h3-label', style: 'color:var(--scope)' }, 'Room'), h('span', { class: 'h3-dim' }, 'an assumption, a desk, a gate')),
     h('div', { class: 'h3-segs' }, kSup, kCls, kAsm),
     h('div', { class: 'h3-roomrow' }, h('span', { class: 'h3-dim' }, 'assume'), inL, rel, inR),
-    roomMsg, presetRow, h('div', { class: 'h3-roomfoot' }, arm, h('span', { class: 'h3-dim' }, 'then drag a rectangle on the floor')));
+    roomMsg, presetRow, h('div', { class: 'h3-roomfoot' }, arm, h('span', { class: 'h3-dim' }, 'then drag a rectangle')));
   const parse = (src: string): Term | null => {
     const r = safe(() => K.parseTerm(src, atomsAll(store.get())), { ok: false as const, error: '' });
     return r.ok ? r.term : null;
@@ -235,9 +235,9 @@ export function mountHotbar(layer: HTMLElement, store: Store): HotbarApi {
     if (l && r) {
       const P = `${tH(l, L)} <span class="m-rel">${assumedRel() === 'eq' ? '=' : '≠'}</span> ${tH(r, L)}`;
       roomMsg.innerHTML = roomKind === 'assume'
-        ? `any fact <i class="math">Q</i> made inside leaves the gate as <span class="math">${P} <span class="m-rel">⇒</span> <i>Q</i></span>`
-        : `⊥ through the gate exports <span class="math">${tH(l, L)} <span class="m-rel">${roomKind === 'suppose' ? '≠' : '='}</span> ${tH(r, L)}</span>${roomKind === 'classical' ? ' <span class="t-classical">classical</span>' : ''}`;
-    } else roomMsg.innerHTML = '<span class="h3-dim">type both sides, e.g. <i class="math">ab</i> and <i class="math">e</i> (Tower variables too: x₁ as x_1)</span>';
+        ? `exports <span class="math">${P} <span class="m-rel">⇒</span> <i>Q</i></span>`
+        : `a clash exports <span class="math">${tH(l, L)} <span class="m-rel">${roomKind === 'suppose' ? '≠' : '='}</span> ${tH(r, L)}</span>${roomKind === 'classical' ? ' <span class="t-classical">classical</span>' : ''}`;
+    } else roomMsg.innerHTML = '';
     arm.disabled = !(l && r);
   };
   kSup.addEventListener('click', () => { roomKind = 'suppose'; updateRoom(); });
@@ -245,6 +245,7 @@ export function mountHotbar(layer: HTMLElement, store: Store): HotbarApi {
   kAsm.addEventListener('click', () => { roomKind = 'assume'; updateRoom(); });
   rel.addEventListener('click', () => { if (roomKind === 'assume') { assumeRel = assumeRel === 'eq' ? 'neq' : 'eq'; updateRoom(); } });
   for (const i of [inL, inR]) {
+    liveSubscripts(i, () => towerLabelSet(store.get()));
     i.addEventListener('input', updateRoom);
     i.addEventListener('keydown', (ev) => { ev.stopPropagation(); if (ev.key === 'Enter') arm.click(); if (ev.key === 'Escape') closePopovers(); });
   }
@@ -271,7 +272,7 @@ export function mountHotbar(layer: HTMLElement, store: Store): HotbarApi {
       if (g.k !== 'eq' && g.k !== 'neq') continue;
       const kind = g.k === 'neq' ? 'suppose' : 'classical';
       const b = h('button', { class: `h3-preset${kind === 'classical' ? ' classical' : ''}`, html: `Suppose <span class="math">${tH(g.l, L)} <span class="m-rel">${g.k === 'neq' ? '=' : '≠'}</span> ${tH(g.r, L)}</span>` });
-      b.title = kind === 'suppose' ? 'Assume the opposite of the goal; a contradiction exports the goal' : 'Classical: assume the goal fails; a contradiction exports it';
+      b.title = kind === 'suppose' ? 'Assume the opposite. A clash proves the goal.' : 'Assume the goal fails. A clash proves it.';
       b.addEventListener('click', () => armRoom(kind, g.l, g.r));
       presetRow.append(b);
     }

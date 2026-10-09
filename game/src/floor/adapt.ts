@@ -166,6 +166,10 @@ export function tryRoute(c: Canvas, from: Endpoint, to: Endpoint, ctx: KernelCtx
 export function trySplice(c: Canvas, m: Machine, ctx: KernelCtx): { belt: string }[] {
   try { return (F as unknown as { spliceCandidates?: (c: Canvas, m: Machine, ctx: KernelCtx) => { belt: string }[] }).spliceCandidates?.(c, m, ctx) ?? []; } catch { return []; }
 }
+/** Editor route for an OPEN belt preview (from an output, or an open belt's end, to a ground cell), or why not. */
+export function tryRouteOpen(c: Canvas, from: Endpoint | { belt: string }, cell: Tile, ctx: KernelCtx): { path: Tile[] } | { reason: string; blockers: string[] } | undefined {
+  try { return F.routeOpenOrWhy(c, from, cell, ctx); } catch { return undefined; }
+}
 /** Ports the editor would link directly if this machine were placed (touching out→in). */
 export function tryAutoLinks(c: Canvas, m: Machine, ctx: KernelCtx): { from: Endpoint; to: Endpoint }[] {
   try { return F.autoLinks(c, m, ctx); } catch { return []; }

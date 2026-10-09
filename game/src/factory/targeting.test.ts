@@ -88,7 +88,7 @@ describe('structural pins', () => {
     // upstream changes: the a⁻¹a with neighbours c … b is gone; bb⁻¹ still cancels — but not silently
     f.c = { ...f.c, machines: f.c.machines.map((m) => (m.id === sp ? { ...m, config: { kind: 'spool', t: knob(P(I(a), a, b, I(b))) } } : m)) };
     comp = f.compile();
-    expect(status(comp, can)).toEqual({ k: 'jammed', reason: 'no a⁻¹a here: the incoming right side is a⁻¹abb⁻¹' });
+    expect(status(comp, can)).toEqual({ k: 'jammed', reason: 'No a⁻¹a in a⁻¹abb⁻¹. Pick the bracket again.' });
     expect(comp.machines[can]!.candidates!.length).toBe(4); // the lens still shows every bracket (both rails)
   });
 });

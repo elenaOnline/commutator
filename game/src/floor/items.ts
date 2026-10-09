@@ -4,7 +4,7 @@
 // orange seal. Positions interpolate between runtime ticks.
 import type { Term } from '../kernel/types';
 import type { ItemValue, Packet, RunState } from '../factory/types';
-import { FAMILY, FONT, INK } from '../ui/tokens';
+import { FAMILY, FONT, INK, VAR } from '../ui/tokens';
 import { P, f1, type G2, type S2 } from '../board/geom';
 import { beadPath, beadShape } from '../bench/shapes';
 import type { Labels } from '../board/mathsvg';
@@ -17,18 +17,18 @@ const R = 6.5;           // bead radius px
 const PITCH = 2 * R + 1.9;
 const LANE = 0.2;       // grid offset of each rail from the belt centre-line
 
-type Tok = { k: 'atom'; label: string; slot: number } | { k: 'inv'; label: string; slot: number } | { k: 'var'; label: string; inv: boolean } | { k: 'e' } | { k: 'crate'; inv: boolean; inner: Tok[]; exp?: string } | { k: 'more'; n: number };
+type Tok = { k: 'atom'; label: string; slot: number } | { k: 'inv'; label: string; slot: number } | { k: 'var'; label: string; inv: boolean; sort: 'G' | 'Z' } | { k: 'e' } | { k: 'crate'; inv: boolean; inner: Tok[]; exp?: string } | { k: 'more'; n: number };
 
-let VARS: Set<string> = new Set();
+let VARS: Map<string, 'G' | 'Z'> = new Map();
 function toks(t: Term, L: Labels, S: Record<string, number>): Tok[] {
   const word = t.k === 'mul' ? t.fs : [t];
   return word.map((f): Tok => {
     switch (f.k) {
-      case 'atom': return VARS.has(f.id) ? { k: 'var', label: L[f.id] ?? f.id, inv: false } : { k: 'atom', label: L[f.id] ?? f.id, slot: S[f.id] ?? 0 };
+      case 'atom': return VARS.has(f.id) ? { k: 'var', label: L[f.id] ?? f.id, inv: false, sort: VARS.get(f.id)! } : { k: 'atom', label: L[f.id] ?? f.id, slot: S[f.id] ?? 0 };
       case 'meta': return { k: 'atom', label: f.id, slot: 0 };
       case 'e': return { k: 'e' };
       case 'inv':
-        if (f.arg.k === 'atom' && VARS.has(f.arg.id)) return { k: 'var', label: L[f.arg.id] ?? f.arg.id, inv: true };
+        if (f.arg.k === 'atom' && VARS.has(f.arg.id)) return { k: 'var', label: L[f.arg.id] ?? f.arg.id, inv: true, sort: VARS.get(f.arg.id)! };
         if (f.arg.k === 'atom' || f.arg.k === 'meta') return { k: 'inv', label: f.arg.k === 'atom' ? L[f.arg.id] ?? f.arg.id : f.arg.id, slot: f.arg.k === 'atom' ? S[f.arg.id] ?? 0 : 0 };
         return { k: 'crate', inv: true, inner: toks(f.arg, L, S) };
       case 'mul': return { k: 'crate', inv: false, inner: toks(f, L, S) };
@@ -68,12 +68,14 @@ function bead(t: Tok, x: number, y: number): string {
   if (t.k === 'inv') return shape(t.slot, R - 0.8, `fill="#fff" stroke="${INK.navy}" stroke-width="1.7"`) + `${tx} fill="${INK.navy}">${esc(t.label)}</text>`;
   if (t.k === 'atom') return shape(t.slot, R, `fill="${INK.navy}"`) + `${tx} fill="#fff">${esc(t.label)}</text>`;
   if (t.k === 'var') {
-    // a striped "any" bead: an arbitrary element, named by its tower (x₁); hollow ring + ⁻¹ when inverted
+    // a variable bead: a SOLID tinted fill (violet for elements, teal for integers), never hatching.
+    // Inverted: white with a heavy ring in the same ink, plus ⁻¹ — like a hollow atom bead.
+    const V = VAR[t.sort];
     const m = /^(.*?)([₀-₉0-9]+)$/.exec(t.label);
     const base = m ? m[1]! : t.label, sub = m ? m[2]!.replace(/[₀-₉]/g, (c) => String(c.charCodeAt(0) - 0x2080)) : '';
-    return `<circle cx="${f1(x)}" cy="${f1(y)}" r="${R}" fill="url(#fl-any)" stroke="${INK.navy}" stroke-width="${t.inv ? 2 : 1.3}"${t.inv ? ' stroke-dasharray="2.2 1.4"' : ''}/>` +
-      `<text x="${f1(x - (sub ? 1.4 : 0))}" y="${f1(y + 3.6)}" text-anchor="middle" font-family="${FONT.math}" font-style="italic" font-size="11" fill="${INK.navy}" paint-order="stroke" stroke="#fff" stroke-width="2.6">${esc(base)}${sub ? `<tspan font-style="normal" font-size="7.5" baseline-shift="-28%">${sub}</tspan>` : ''}</text>` +
-      (t.inv ? `<text x="${f1(x + R - 1)}" y="${f1(y - R + 2)}" font-family="${FONT.math}" font-size="7.5" fill="${INK.navy}" paint-order="stroke" stroke="#fff" stroke-width="2">−1</text>` : '');
+    return `<circle cx="${f1(x)}" cy="${f1(y)}" r="${R}" fill="${t.inv ? '#fff' : V.fill}" stroke="${V.ring}" stroke-width="${t.inv ? 2.2 : 1.4}"/>` +
+      `<text x="${f1(x - (sub ? 1.4 : 0))}" y="${f1(y + 3.6)}" text-anchor="middle" font-family="${FONT.math}" font-style="italic" font-size="11.5" fill="${V.ink}">${esc(base)}${sub ? `<tspan font-style="normal" font-size="7.5" baseline-shift="-28%">${sub}</tspan>` : ''}</text>` +
+      (t.inv ? `<text x="${f1(x + R - 1)}" y="${f1(y - R + 2)}" font-family="${FONT.math}" font-size="7.5" fill="${V.ink}" paint-order="stroke" stroke="#fff" stroke-width="2">−1</text>` : '');
   }
   return '';
 }
@@ -124,9 +126,9 @@ export const valueKey = (v: ItemValue) => JSON.stringify(v);
  * backed-up belt: the rung and the leading bead of each rail only, so a full belt reads as a queue.
  * Returns the svg and its run length in px.
  */
-export function packetSVG(v: ItemValue, axis: Axis, L: Labels, S: Record<string, number>, compact = false, vars?: Set<string>): { svg: string; len: number } {
-  VARS = vars ?? new Set();
-  const key = axis + (compact ? 'c' : '') + [...VARS].join(',') + valueKey(v);
+export function packetSVG(v: ItemValue, axis: Axis, L: Labels, S: Record<string, number>, compact = false, vars?: Map<string, 'G' | 'Z'>): { svg: string; len: number } {
+  VARS = vars ?? new Map();
+  const key = axis + (compact ? 'c' : '') + [...VARS].map(([k, s]) => k + s).join(',') + valueKey(v);
   const hit = cache.get(key); if (hit) return hit;
   const A = AX[axis];
   const MAX = compact ? 2.7 : 6;

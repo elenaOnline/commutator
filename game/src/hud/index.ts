@@ -9,9 +9,9 @@ import './hud.css';
 import type { FactoryStore } from '../state/factoryStore';
 import type { Family } from '../kernel/types';
 import type { MachineKind } from '../factory/types';
-import { FAMILY, reducedMotion } from '../ui/tokens';
+import { FAMILY, VAR, reducedMotion } from '../ui/tokens';
 import { MATH_CSS } from '../ui/math';
-import { VERBS, floorModule, h, hotbarKinds, pointer, spec, type S } from './util';
+import { VERBS, floorModule, h, hotbarKinds, pointer, spec, towerVars, varRegistry, type S } from './util';
 import { mountHotbar } from './hotbar';
 import { mountLens } from './lens';
 import { mountOrder } from './order';
@@ -35,7 +35,8 @@ export interface AppOpts {
 export function mountApp(root: HTMLElement, store: FactoryStore, opts: AppOpts = {}): void {
   const vars = (Object.keys(FAMILY) as Family[]).map((f) => `--fam-${f}:${FAMILY[f].ink};--fam-${f}-text:${FAMILY[f].text};`).join('');
   const style = document.createElement('style');
-  style.textContent = `:root{${vars}}\n${MATH_CSS}`;
+  const varCss = `--var-g-fill:${VAR.G.fill};--var-g-ring:${VAR.G.ring};--var-g-ink:${VAR.G.ink};--var-z-fill:${VAR.Z.fill};--var-z-ring:${VAR.Z.ring};--var-z-ink:${VAR.Z.ink};`;
+  style.textContent = `:root{${vars}${varCss}}\n${MATH_CSS}`;
   document.head.append(style);
 
   root.innerHTML = '';
@@ -125,6 +126,7 @@ export function mountApp(root: HTMLElement, store: FactoryStore, opts: AppOpts =
 
   let lastToast: unknown = null, lastScreen = '';
   const render = (s: S) => {
+    varRegistry.labels = new Map(towerVars(s).map((v) => [v.label, v.sort]));
     if (s.ui.screen !== lastScreen) {
       lastScreen = s.ui.screen;
       app.dataset.screen = s.ui.screen;

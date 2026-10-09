@@ -5,7 +5,10 @@ import * as K from '../kernel';
 import { CARDS, type ConceptCard, type Figure } from '../levels/cards';
 import { catalogue, type FiniteGroup } from '../groups';
 import { beads as beadsInline } from './beads';
-import { esc, h, hues, labels, safe, type S, type Store } from './util';
+import { figEl, parseFig, parseRails, stripEl, type FigExpr } from './strip';
+import { FAMILY, reducedMotion } from '../ui/tokens';
+import type { AtomDecl, Family } from '../kernel/types';
+import { esc, h, hues, labels, safe, spec, type S, type Store } from './util';
 
 // ───────── TeX-ish maths ($…$) → HTML ─────────
 const SYM: Record<string, string> = {
@@ -89,16 +92,71 @@ function cayleySVG(G: FiniteGroup, gens: string[]): string {
   for (let k = 0; k < n; k++) { const [x, y] = pos(k); s += `<circle cx="${x}" cy="${y}" r="11" fill="${k === 0 ? '#FFB81C' : '#fff'}" stroke="#1B2340"/><text x="${x}" y="${y + 4}" text-anchor="middle" font-family="Latin Modern, serif" font-size="11" fill="#1B2340">${esc(G.labels[k]!)}</text>`; }
   return s + `</svg><div class="cf-legend">${gens.map((g, i) => `<span><i class="cf-line s${i}"></i>· ${esc(g)}</span>`).join('')}</div>`;
 }
+type TowerDecl = { id: string; label: string; sort: 'G' | 'Z' };
+/** Atoms for a figure: the level's letters plus the figure's illustrative Towers. */
+function figAtoms(s: S, towers?: TowerDecl[]): { atoms: AtomDecl[]; L: Record<string, string>; H: Record<string, number>; vars: Map<string, 'G' | 'Z'> } {
+  const ts = (towers ?? []).map((t, i) => ({ id: t.id, label: t.label, hue: (s.level.atoms.length + i) % 6, variable: true, sort: t.sort }));
+  const atoms = [...s.level.atoms, ...ts] as AtomDecl[];
+  return { atoms, L: Object.fromEntries(atoms.map((a) => [a.id, a.label])), H: Object.fromEntries(atoms.map((a) => [a.id, a.hue])), vars: new Map(ts.map((t) => [t.id, t.sort])) };
+}
+const cap = (t?: string) => (t ? h('figcaption', { html: mdHTML(t).replace(/^<p>|<\/p>$/g, '') }) : null);
+
 function figureEl(s: S, f: Figure): HTMLElement | null {
   const box = h('figure', { class: `cf-figure ${f.k}` });
+  if (f.k === 'transform' || f.k === 'nearmiss') {
+    const A = figAtoms(s, f.towers);
+    const a = parseFig(f.before, A.atoms), b = parseFig(f.after, A.atoms);
+    if (!a || !b) return null;
+    const ink = FAMILY[(f.k === 'transform' ? f.family : 'contradiction') as Family]?.ink;
+    const tf = h('span', { class: `h3-tf${f.k === 'nearmiss' ? ' struck' : ''}`, style: `--tint:${ink}` },
+      figEl(a, A.L, A.H, { range: f.k === 'transform' ? f.hit : undefined, ink, vars: A.vars }),
+      h('span', { class: 'h3-tf-arrow', 'aria-hidden': 'true' }, '→'),
+      figEl(b, A.L, A.H, { range: f.k === 'transform' ? f.made : undefined, ink, vars: A.vars }));
+    box.append(tf);
+    if (f.k === 'nearmiss') box.append(h('figcaption', { class: 'cf-no', html: `<span class="cf-x" aria-hidden="true">✗</span> ${mdHTML(f.why).replace(/^<p>|<\/p>$/g, '')}` }));
+    else { const c = cap(f.caption); if (c) box.append(c); }
+    return box;
+  }
+  if (f.k === 'chain') {
+    const A = figAtoms(s, f.towers);
+    const row = h('div', { class: `cf-chainrow${reducedMotion() ? '' : ' anim'}` });
+    let i = 0;
+    for (const st of f.steps) {
+      const r = parseFig(st.term, A.atoms);
+      if (!r) continue;
+      if (i) row.append(h('span', { class: 'h3-tf-arrow', style: `--i:${i}`, 'aria-hidden': 'true' }, '→'));
+      const ink = FAMILY[(st.family ?? 'equation') as Family]?.ink;
+      const el = figEl(r, A.L, A.H, { range: st.hit, ink, vars: A.vars });
+      el.style.setProperty('--i', String(i));
+      row.append(el);
+      i++;
+    }
+    box.append(row);
+    const c = cap(f.caption); if (c) box.append(c);
+    return box;
+  }
+  if (f.k === 'machine') {
+    const A = figAtoms(s, f.towers);
+    const inp = parseFig(f.input, A.atoms), out = parseFig(f.output, A.atoms);
+    const sp = safe(() => spec(f.kind as never), null);
+    const fam = (sp?.family ?? 'equation') as Family;
+    const tile = h('span', { class: 'cf-mtile', style: `--ink:${FAMILY[fam].ink}` }, h('span', { class: 'cf-mglyph' }, sp?.glyph ?? '?'), h('span', { class: 'cf-mname' }, sp?.name ?? f.kind), f.recipe ? h('span', { class: 'cf-mrecipe' }, f.recipe) : null);
+    const ruleR = f.rule ? parseFig(f.rule, A.atoms) : null;
+    box.append(h('div', { class: 'cf-mrow' },
+      inp ? figEl(inp, A.L, A.H, { vars: A.vars }) : h('span', {}, f.input), h('span', { class: 'h3-tf-arrow' }, '→'), tile, h('span', { class: 'h3-tf-arrow' }, '→'),
+      out ? figEl(out, A.L, A.H, { vars: A.vars }) : h('span', {}, f.output)));
+    if (f.rule) box.append(h('div', { class: 'cf-mrule' }, h('span', { class: 'cf-mrule-k' }, 'rule'), ruleR ? figEl(ruleR, A.L, A.H, { vars: A.vars }) : h('span', { html: texHTML(f.rule) })));
+    const c = cap(f.caption); if (c) box.append(c);
+    return box;
+  }
   if (f.k === 'clock') box.innerHTML = clockSVG(f.n) + `<figcaption>ℤ<sub>${f.n}</sub>: adding 1 goes round the clock</figcaption>`;
   else if (f.k === 'table') { const G = groupByName(f.group); if (!G) return null; box.innerHTML = tableHTML(G); }
   else if (f.k === 'cayley') { const G = groupByName(f.group); if (!G) return null; box.innerHTML = cayleySVG(G, f.gens) + `<figcaption>${esc(G.name)}: an arrow for each step “multiply by a generator”</figcaption>`; }
   else if (f.k === 'beads') {
-    const L = labels(s.level), H = hues(s.level);
+    const A = figAtoms(s, f.towers);
     for (const t of f.terms) {
-      const r = safe(() => K.parseTerm(t, s.level.atoms), { ok: false as const, error: '' });
-      if (r.ok) box.append(h('div', { class: 'cf-beads' }, beadsInline(r.term, L, H)));
+      const r = parseFig(t, A.atoms);
+      if (r) box.append(h('div', { class: 'cf-beads' }, figEl(r, A.L, A.H, { vars: A.vars })));
     }
     if (!box.childElementCount) return null;
   }
@@ -137,9 +195,10 @@ export function mountConcepts(layer: HTMLElement, store: Store) {
     close.addEventListener('click', () => store.closeCards());
     el.append(h('header', { class: 'cf-head' }, h('span', { class: 'h3-label' }, `${s.level.index} · ${s.level.title}`), h('span', { class: 'h3-flex' }), h('span', { class: 'cf-count' }, `${page + 1} / ${cs.length}`), close));
     el.append(h('h2', { class: 'cf-title' }, c.title));
-    const main = h('div', { class: 'cf-main' }, h('div', { class: 'cf-body', html: mdHTML(c.body) }));
-    if (c.figure) { const f = figureEl(s, c.figure); if (f) main.append(f); }
-    el.append(main);
+    // picture first: the figures, each with its caption; the (optional, short) body under them
+    const figs = (c.figures ?? (c.figure ? [c.figure] : [])).map((f) => safe(() => figureEl(s, f), null)).filter((x): x is HTMLElement => !!x);
+    if (figs.length) el.append(h('div', { class: 'cf-figs' }, ...figs));
+    if (c.body) el.append(h('div', { class: `cf-body${c.long ? ' long' : ''}`, html: mdHTML(c.body) }));
     const parts: [string, string | undefined, string][] = [['Worked example', c.example, 'ex'], ['Near miss', c.nearMiss, 'nm'], ['On the floor', c.gesture, 'ge']];
     const extra = h('div', { class: 'cf-parts' });
     for (const [label, text, cls] of parts) if (text) extra.append(h('div', { class: `cf-part ${cls}` }, h('span', { class: 'cf-part-k' }, label), h('div', { html: mdHTML(text) })));

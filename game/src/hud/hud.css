@@ -407,8 +407,6 @@
 .h3-rel.live { cursor: pointer; border: 1px dashed var(--scope); border-radius: 6px; background: #F7F4FD; padding: 0 6px; }
 button.h3-rel { border: 0; background: none; color: var(--navy); }
 /* Tower variables: striped "any" beads and letters (DESIGN v4 §1) */
-.h3-varbead > .bn-disc { background: repeating-linear-gradient(-45deg, rgba(85, 40, 194, .55) 0 2px, rgba(255, 255, 255, 0) 2px 5px); border-radius: 50%; box-shadow: inset 0 0 0 2px var(--scope); }
-.h3-varbead > .bn-disc .bn-shape { opacity: .55; }
 .h3-chip.h3-var { box-shadow: inset 0 0 0 1.5px var(--scope); }
 .lw3 .m-atom.any sub { font-size: .7em; }
 
@@ -482,3 +480,50 @@ button.h3-rel { border: 0; background: none; color: var(--navy); }
 .qed-save-form .qed-name { width: 220px; font: 15px var(--font-ui); }
 .qed-save-note { font-size: 12px; color: var(--text-dim); }
 .h3-tog.h3-landed { animation: h3-land .9s ease-out; }
+
+/* ═════════ v4.1 — variables are SOLID fills (never hatching); strips tint what a rule changes ═════════ */
+.lw3 .m-atom.any, .lw3 i.any { background: var(--var-g-fill); color: var(--var-g-ink); border-radius: 4px; padding: 0 .14em; box-shadow: inset 0 0 0 1px var(--var-g-ring); }
+.lw3 .m-atom.any.z, .lw3 i.any.z { background: var(--var-z-fill); color: var(--var-z-ink); box-shadow: inset 0 0 0 1px var(--var-z-ring); }
+.lw3 .m-atom.any sub { color: inherit; }
+.h3-varbead > .bn-disc .bn-shape path { fill: var(--var-g-fill); stroke: var(--var-g-ring); stroke-width: 6; }
+.h3-varbead > .bn-disc i { color: var(--var-g-ink); font-weight: 600; }
+.h3-varbead.z > .bn-disc .bn-shape path { fill: var(--var-z-fill); stroke: var(--var-z-ring); }
+.h3-varbead.z > .bn-disc i { color: var(--var-z-ink); }
+.h3-varbead.bn-inv > .bn-disc .bn-shape path { fill: #fff; }
+.h3-chip.h3-var { box-shadow: inset 0 0 0 1.5px var(--var-g-ring); background: var(--var-g-fill); }
+.h3-strip-term { display: inline-flex; align-items: center; gap: 5px; --bd: 20px; }
+.h3-strip-term .bn-mini { --bd: 20px; }
+.h3-strip-rel { font-size: 16px; color: var(--navy); }
+.h3-tf { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.h3-tf-arrow { font-family: var(--font-ui); color: var(--text-dim); font-size: 14px; }
+.h3-tint > .bn-disc .bn-shape path { fill: var(--tint); stroke: var(--tint); }
+.h3-tint > .bn-disc i { color: #fff; }
+.h3-tint.bn-inv > .bn-disc .bn-shape path { fill: #fff; stroke: var(--tint); stroke-width: 9; }
+.h3-tint.bn-inv > .bn-disc i { color: var(--tint); }
+.h3-tint.bn-e > .bn-disc { background: var(--tint); box-shadow: 0 0 0 2px #fff, 0 0 0 3.5px var(--tint); }
+.h3-tint > .bn-sup { color: var(--tint); }
+.h3-tf.struck > :last-child { position: relative; opacity: .55; }
+.h3-tf.struck > :last-child::after { content: ''; position: absolute; left: -4px; right: -4px; top: 50%; border-top: 2.5px solid var(--contradiction); transform: rotate(-8deg); }
+/* concept cards, picture first */
+.cf-figs { display: flex; flex-direction: column; align-items: flex-start; gap: 14px; margin: 6px 0 10px; }
+.cf-figure.transform, .cf-figure.nearmiss, .cf-figure.chain, .cf-figure.machine { align-items: flex-start; }
+.cf-figure.transform .h3-strip-term, .cf-figure.nearmiss .h3-strip-term, .cf-figure.chain .h3-strip-term, .cf-figure.machine .h3-strip-term, .cf-beads .h3-strip-term { --bd: 30px; }
+.cf-figure.transform .bn-mini, .cf-figure.nearmiss .bn-mini, .cf-figure.chain .bn-mini, .cf-figure.machine .bn-mini, .cf-beads .bn-mini { --bd: 30px; }
+.cf-figure .h3-strip-rel { font-size: 24px; }
+.cf-figure figcaption { font-size: 13px; color: var(--navy-2); max-width: none; text-align: left; margin-top: 2px; }
+.cf-figure .cf-no { color: var(--contradiction-text); }
+.cf-x { font-weight: 700; }
+.cf-chainrow { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.cf-chainrow.anim > * { animation: cf-step .5s cubic-bezier(.2,.8,.2,1) both; animation-delay: calc(var(--i, 0) * .65s); }
+.cf-chainrow.anim .h3-tint > .bn-disc { animation: cf-glow 1.2s ease-out both; animation-delay: calc(var(--i, 0) * .65s + .2s); }
+@keyframes cf-step { from { opacity: 0; transform: translateX(-6px); } }
+@keyframes cf-glow { 0% { filter: drop-shadow(0 0 0 transparent); } 40% { filter: drop-shadow(0 0 7px var(--tint)); } 100% { filter: none; } }
+.cf-mrow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.cf-mtile { display: inline-flex; flex-direction: column; align-items: center; gap: 1px; padding: 6px 12px 7px; border-radius: 10px; background: var(--ink); color: #fff; box-shadow: 0 3px 0 color-mix(in srgb, var(--ink) 65%, #000); min-width: 74px; }
+.cf-mglyph { font: italic 17px var(--font-math); }
+.cf-mname { font: 600 10px var(--font-ui); letter-spacing: .08em; text-transform: uppercase; }
+.cf-mrecipe { font: 11px var(--font-ui); opacity: .9; }
+.cf-mrule { display: flex; align-items: center; gap: 8px; margin-top: 4px; font-size: 12px; color: var(--text-dim); }
+.cf-mrule-k { font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
+.cf-body { font-size: 14px; line-height: 1.5; color: var(--navy-2); }
+.cf-body.long { font-size: 14.5px; color: var(--navy); }

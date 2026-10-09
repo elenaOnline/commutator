@@ -9,7 +9,7 @@ interface Hint { text: (s: S) => string; anchor: 'slot' | 'spool' | 'socket' | '
 
 const players = (c: Canvas, kind: MachineKind) => c.machines.filter((m) => m.kind === kind && !m.locked);
 const fedBy = (c: Canvas, toKind: MachineKind, fromKind: MachineKind) => c.belts.some((b) => {
-  const to = c.machines.find((m) => m.id === b.to.m), from = c.machines.find((m) => m.id === b.from.m);
+  const to = c.machines.find((m) => m.id === b.to?.m), from = c.machines.find((m) => m.id === b.from.m);
   return to?.kind === toKind && from?.kind === fromKind;
 });
 
@@ -17,7 +17,7 @@ const hasRecipe = (c: Canvas) => players(c, 'rewriter').some((m) => !!(m.config 
 const HINTS: Record<string, Hint[]> = {
   L01: [
     { anchor: 'slot', done: (c) => players(c, 'rewriter').length > 0,
-      text: (s) => (s.ui.tool.k === 'place' && s.ui.tool.kind === 'rewriter' ? 'Click the floor between the spool and the dock' : 'Place a <b>Rewriter</b> <kbd>2</kbd>') },
+      text: (s) => (s.ui.tool.k === 'place' && s.ui.tool.kind === 'rewriter' ? 'Click between the spool and the dock' : 'Place a <b>Rewriter</b> <kbd>2</kbd>') },
     { anchor: 'rewriter', done: hasRecipe, text: () => 'Choose its recipe: <b>cancel</b>' },
     { anchor: 'spool', done: (c) => fedBy(c, 'rewriter', 'spool'), text: () => '<b>Drag</b> from the spool’s output to the Rewriter' },
     { anchor: 'socket', done: (c) => fedBy(c, 'socket', 'rewriter'), text: () => 'Connect the Rewriter to the <b>dock</b>' },

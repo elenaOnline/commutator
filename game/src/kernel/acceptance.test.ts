@@ -95,7 +95,7 @@ describe('K28–K36 gaps, crates, rule kinds', () => {
     expect(r.nodes['1']!.fact).toEqual(eq(I(M(a, b)), I(M(a, e))));
     expect(r.nodes['1']!.deps).toEqual(['g:q']);
   });
-  it('K33 a ≠ cannot rewrite', () => expect(onR(a, rw({ k: 'node', id: 'n' }, 'fwd', at('r', 0, 1)), neq(a, e))).toMatch(/inequation cannot be used to rewrite/));
+  it('K33 a ≠ cannot rewrite', () => expect(onR(a, rw({ k: 'node', id: 'n' }, 'fwd', at('r', 0, 1)), neq(a, e))).toMatch(/is an inequation. It can't rewrite anything/));
   it('K34 ⊥ cannot rewrite', () => rejects(onR(a, rw({ k: 'node', id: 'n' }, 'fwd', at('r', 0, 1)), { k: 'bot' })));
   it('K35 a conditional cannot rewrite', () => {
     rejects(onR(M(a, a), rw({ k: 'node', id: 'H' }, 'fwd', at('r', 0, 2), { x: a }), { k: 'cond', metas: ['x'], premises: [{ k: 'neq', l: x, r: e }], concl: { k: 'eq', l: M(a, x), r: x } }));
@@ -162,7 +162,7 @@ describe('K41–K56 cancellation, witness, socks', () => {
     const r = run([S('s', M(I(a), a)), step('1', 's', rw(ax('invL'), 'fwd', at('r', 0, 2), { x: a })), apply('2', RI, ['1'], { u: I(a), v: a })], c2);
     expect(r.nodes['2']!.fact).toEqual(eq(a, I(I(a))));
     expect(r.solved).toBe(false);
-    expect(r.sockets[0]!.error).toMatch(/swap/);
+    expect(r.sockets[0]!.error).toMatch(/Swap the sides/);
   });
   it('K55 Sock Drawer at u=ab, v=c', () => ok(onR(I(M(a, b, c)), rw({ k: 'schema', id: 'socks' }, 'fwd', at('r', 0, 1), { u: M(a, b), v: c })), M(I(c), I(M(a, b)))));
   it('K56 nothing opens (ab)⁻¹ to a⁻¹b⁻¹', () => {
@@ -208,7 +208,7 @@ describe('K65–K74 scope and rooms', () => {
   it('K65 root cannot cite a room-derived equation', () => {
     const r = run([{ id: 'h', scope: 'R', k: 'assume', room: 'R' }, S('s', M(a, b)), step('1', 's', rw({ k: 'node', id: 'h' }, 'fwd', at('r', 0, 2)))], ctx9, [room('R', M(a, b), b)]);
     expect(r.nodes['1']!.ok).toBe(false);
-    expect(r.nodes['1']!.error).toMatch(/assumption that is not in force here/);
+    expect(r.nodes['1']!.error).toMatch(/rests on an assumption that doesn't hold here/);
   });
   it('K66 inner cites a root given', () => {
     const c2 = mkCtx({ givens: [{ id: 'q', name: 'q', fact: eq(b, e) }] });
@@ -241,7 +241,7 @@ describe('K65–K74 scope and rooms', () => {
   });
   it('K72 an exit needs ⊥', () => {
     const r = run([{ id: 'h', scope: 'R', k: 'assume', room: 'R' }, { id: 'x', scope: ROOT, k: 'exit', room: 'R', input: 'h' }], ctx9, [room('R', M(a, b), b)]);
-    expect(r.nodes['x']!.error).toMatch(/assumption still open/);
+    expect(r.nodes['x']!.error).toMatch(/assumption is still open/);
   });
   it('exit must land in the parent scope and read the room’s own target (K71)', () => {
     const nodes: ProofNode[] = [given('n'), { id: 'h', scope: 'R', k: 'assume', room: 'R' }, S('s', a, 'R'),
@@ -280,7 +280,7 @@ describe('K76–K90 conditional givens, sockets, generalize', () => {
   it('K79 allowed given', () => expect(proof(socket(['hL'], eq(b, c))).solved).toBe(true));
   it('K80/K83 unlisted given', () => { const r = proof(socket(['hR'], eq(b, c))); expect(r.solved).toBe(false); expect(r.sockets[0]!.error).toMatch(/hL/); });
   it('K81 wrong kind', () => expect(proof(socket(['hL'], neq(b, c))).solved).toBe(false));
-  it('K82 reversed orientation', () => { const r = proof(socket(['hL'], eq(c, b))); expect(r.solved).toBe(false); expect(r.sockets[0]!.error).toMatch(/swap/); });
+  it('K82 reversed orientation', () => { const r = proof(socket(['hL'], eq(c, b))); expect(r.solved).toBe(false); expect(r.sockets[0]!.error).toMatch(/Swap the sides/); });
   it('a socket never accepts an open assumption', () => {
     const c2 = socket(['hL'], eq(a, b));
     const r = run([{ id: 'h', scope: 'R', k: 'assume', room: 'R' }], c2, [{ id: 'R', parent: ROOT, kind: 'suppose', l: a, r: b }]);
@@ -335,7 +335,7 @@ describe('K91–K102 press, authority, cycles, staleness', () => {
     const forged = { ...c3, level: { ...c3.level, tools: { ...c3.level.tools, schemas: ['witness'] } } };
     const r = run([given('h'), apply('1', { k: 'schema', id: 'witness' }, ['g:h'], { u: a, v: b })], forged);
     expect(r.nodes['1']!.ok).toBe(false);
-    expect(r.nodes['1']!.error).toMatch(/proving/);
+    expect(r.nodes['1']!.error).toMatch(/what this order proves/);
   });
   it('K100 cycles are rejected before anything else', () => {
     const r = run([step('1', '2', { k: 'swap' }), step('2', '1', { k: 'swap' }), S('s', a)]);

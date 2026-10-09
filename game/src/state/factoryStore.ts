@@ -243,6 +243,8 @@ export class FactoryStore {
   configure(id: string, config: MachineConfig) { return this.apply(F.setConfigCtx(this.s.canvas, id, config, this.s.ctx)); }
   connect(from: Endpoint, to: Endpoint, path?: Tile[]) { return this.apply(F.connect(this.s.canvas, from, to, this.s.ctx, path)); }
   branch(belt: string, to: Endpoint) { return this.apply(F.branch(this.s.canvas, belt, to, this.s.ctx)); }
+  /** v4.1: drag from an output (or an open belt's end) to a floor cell (open belt) or to an input (completes it). */
+  extendTo(from: Parameters<typeof F.extendTo>[1], target: Parameters<typeof F.extendTo>[2]) { return this.apply(F.extendTo(this.s.canvas, from, target, this.s.ctx)); }
   /** Connect through waypoints the player dragged over. */
   connectVia(from: Endpoint, to: Endpoint, via: Tile[]) { return this.apply(F.connectVia(this.s.canvas, from, to, via, this.s.ctx)); }
   /** Branch from the exact belt cell the player dragged off. */

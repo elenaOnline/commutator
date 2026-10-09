@@ -34,6 +34,9 @@ const allIds = (c: Canvas): Set<string> => new Set([...c.machines.map((m) => m.i
 const nameOf = (m: Machine): string => SPECS[m.kind]?.name ?? m.kind;
 const sameEnd = (a: Endpoint, b: Endpoint) => a.m === b.m && a.port === b.port;
 const endKey = (e: Endpoint) => `${e.m}#${e.port}`;
+/** Key of a belt's target end: its input port, or a unique key for an open belt (v4.1). */
+const toKey = (b: Belt) => (b.to ? endKey(b.to) : `open#${b.id}`);
+const feeds = (b: Belt, e: Endpoint) => !!b.to && sameEnd(b.to, e);
 
 function rectInside(inner: Rect, outer: Rect): boolean {
   return inner.x >= outer.x && inner.y >= outer.y && inner.x + inner.w <= outer.x + outer.w && inner.y + inner.h <= outer.y + outer.h;
@@ -360,11 +363,12 @@ interface BeltScope {
  * D = the target machine's room. Legal belt tiles have scope T with D ⊆ T ⊆ S, and depth never decreases along
  * the belt: each wall is crossed once, inward. Nothing leaves a room except through its gate.
  */
-function beltScope(c: Canvas, ends: Ends, ctx: KernelCtx): BeltScope {
+function beltScope(c: Canvas, ends: { fromM: Machine; toM: Machine | null }, ctx: KernelCtx): BeltScope {
   const S = ends.fromM.config.kind === 'gate'
     ? (() => { const own = c.rooms.find((r) => r.id === (ends.fromM.config as { room: string }).room); return own ? parentRoom(c, own) : null; })()
     : roomOfMachine(c, ends.fromM, ctx);
-  const D = roomOfMachine(c, ends.toM, ctx);
+  const D = ends.toM ? roomOfMachine(c, ends.toM, ctx) : null;
+  const open = !ends.toM;
   const cache = new Map<string, { r: Room | null; d: number }>();
   const info = (t: Tile) => {
     const k = tileKey(t);
@@ -372,8 +376,9 @@ function beltScope(c: Canvas, ends: Ends, ctx: KernelCtx): BeltScope {
     if (!v) { v = { r: roomAt(c, t), d: c.rooms.filter((r) => inRect(t, r.rect)).length }; cache.set(k, v); }
     return v;
   };
-  const allow = (t: Tile) => { const T = info(t).r; return within(T, S) && within(D, T); };
-  return { ok: within(D, S), allow, step: (a, b) => allow(b) && info(b).d >= info(a).d };
+  // An open belt (no target yet) may wander anywhere inside its source's scope, still only inward.
+  const allow = (t: Tile) => { const T = info(t).r; return within(T, S) && (open || within(D, T)); };
+  return { ok: open || within(D, S), allow, step: (a, b) => allow(b) && info(b).d >= info(a).d };
 }
 
 // ───── the occupied belt layer ─────
@@ -464,7 +469,8 @@ function approaches(m: Machine, p: Port, ctx: KernelCtx): { tile: Tile; dir: Fac
 }
 
 /** Why this path is not a legal belt for (from → to) among `belts` (which must exclude the belt itself), or null. */
-function pathWhy(B: BeltCtx, belts: Belt[], from: Endpoint, to: Endpoint, path: Tile[]): Why | null {
+function pathWhy(B: BeltCtx, belts: Belt[], from: Endpoint, to: Endpoint | null, path: Tile[]): Why | null {
+  if (!to) return openPathWhy(B, belts, from, path);
   const { c, ctx, occ, fronts } = B;
   const ends = resolveEnds(c, from, to, ctx);
   if (typeof ends === 'string') return why(ends);
@@ -513,6 +519,111 @@ function pathWhy(B: BeltCtx, belts: Belt[], from: Endpoint, to: Endpoint, path: 
 
 type Routed = { path: Tile[] } | Why;
 const isWhy = (r: Routed): r is Why => 'reason' in r;
+
+// ───── open belts (v4.1): an output dragged onto the floor, ending on a ground cell ─────
+
+function resolveFrom(c: Canvas, from: Endpoint, ctx: KernelCtx): { fromM: Machine; fromP: Port } | string {
+  const fromM = c.machines.find((m) => m.id === from.m);
+  if (!fromM) return 'That machine is gone.';
+  const fromP = portsOf(fromM, ctx).find((p) => p.id === from.port);
+  if (!fromP) return `${cap(who(fromM, ctx))} has no port “${from.port}”.`;
+  if (fromP.dir !== 'out') return 'A belt is dragged out of an output.';
+  return { fromM, fromP };
+}
+
+/** Why this path is not a legal OPEN belt from `from` (its last cell may be anyone's doorstep: it points there). */
+function openPathWhy(B: BeltCtx, belts: Belt[], from: Endpoint, path: Tile[]): Why | null {
+  const { c, ctx, occ, fronts } = B;
+  const e = resolveFrom(c, from, ctx);
+  if (typeof e === 'string') return why(e);
+  if (!path.length) return why('An open belt needs at least one cell.');
+  if (!approaches(e.fromM, e.fromP, ctx).some((a) => tileEq(a.tile, path[0]!))) return why('The belt must start beside the output port.');
+  const sc = beltScope(c, { fromM: e.fromM, toM: null }, ctx);
+  const net = endKey(from);
+  const seen = new Set<string>();
+  for (let i = 0; i < path.length; i++) {
+    const t = path[i]!; const k = tileKey(t);
+    if (i > 0) {
+      const p = path[i - 1]!;
+      if (Math.abs(p.x - t.x) + Math.abs(p.y - t.y) !== 1) return why('Belts run cell to neighbouring cell.');
+      if (!sc.step(p, t)) return why('A belt crosses each room wall once, inward.');
+    }
+    if (!sc.allow(t)) return why('That belt would leave its room — only the Exit Gate carries a result out.');
+    if (seen.has(k)) return why('A belt cannot cross itself.');
+    seen.add(k);
+    const owner = occ.get(k);
+    if (owner !== undefined) { const m = c.machines.find((x) => x.id === owner)!; return why(`${cap(who(m, ctx))} is in the way.`, [owner]); }
+    const f = fronts.get(k);
+    if (f && !isEnd(f.m, f.p, from) && i < path.length - 1) return why(`That would block ${portName(f.m, f.p, ctx)} — its doorstep stays free.`, [f.m.id]);
+  }
+  const layer = new Layer(belts);
+  const network = belts.filter((b) => !b.broken && netOf(b) === net);
+  let k = 0;
+  for (const b of network) { let j = 0; while (j < b.path.length && j < path.length && tileEq(b.path[j]!, path[j]!)) j++; k = Math.max(k, j); }
+  for (let i = k; i < path.length; i++) if (layer.own(path[i]!, net)) return why('A branch may share only the start of its trunk.');
+  const modes = cellModes(path);
+  for (let i = 0; i < path.length; i++) {
+    const hitBelts = layer.clash(path[i]!, net, modes[i]!);
+    if (hitBelts.length) return why(`${cap(beltName(c, belts.find((x) => x.id === hitBelts[0])!, ctx))} is in the way — belts may only cross straight over each other.`, hitBelts);
+  }
+  return null;
+}
+
+/**
+ * Route an OPEN belt from an output to a ground cell (v4.1): same rules as any belt — off footprints and other
+ * doorsteps (the end cell itself may face a port), crossings only straight, inside the source's scope.
+ * It may leave the output's existing tree (`leaveAt` forces a cell, e.g. extending an open belt's end).
+ */
+function routeOpen(B: BeltCtx, belts: Belt[], from: Endpoint, cell: Tile, leaveAt?: Tile): Routed {
+  const { c, ctx, occ, fronts } = B;
+  const e = resolveFrom(c, from, ctx);
+  if (typeof e === 'string') return why(e);
+  const live = belts.filter((b) => !b.broken);
+  const net = endKey(from);
+  const network = live.filter((b) => netOf(b) === net);
+  const layer = new Layer(live);
+  const sc = beltScope(c, { fromM: e.fromM, toM: null }, ctx);
+  const ck = tileKey(cell);
+  const owner = occ.get(ck);
+  if (owner !== undefined) { const m = c.machines.find((x) => x.id === owner)!; return why(`${cap(who(m, ctx))} is in the way.`, [owner]); }
+  if (!sc.allow(cell)) return why('That cell is outside the room — only the Exit Gate carries a result out.', [roomOfMachine(c, e.fromM, ctx)?.id ?? e.fromM.id]);
+  const os = layer.others(cell, net);
+  if (os.length) return why(`${cap(beltName(c, live.find((b) => b.id === os[0]!.belts[0])!, ctx))} already runs over that cell.`, os.flatMap((o) => o.belts));
+  const isOtherDoorstep = (k: string) => { const f = fronts.get(k); return !!f && !isEnd(f.m, f.p, from); };
+  let seeds: Seed[] = [];
+  const seen = new Set<string>();
+  for (const b of network) b.path.forEach((t, i) => {
+    const k = tileKey(t); if (seen.has(k)) return; seen.add(k);
+    if (layer.others(t, net).length || isOtherDoorstep(k) || !sc.allow(t)) return;
+    seeds.push({ tile: t, dir: i === 0 ? dirOf(e.fromP.tile, t) : dirOf(b.path[i - 1]!, t), prefix: b.path.slice(0, i) });
+  });
+  for (const a of approaches(e.fromM, e.fromP, ctx)) {
+    const k = tileKey(a.tile);
+    if (seen.has(k) || occ.has(k) || isOtherDoorstep(k) || layer.others(a.tile, net).length || !sc.allow(a.tile)) continue;
+    seeds.push({ tile: a.tile, dir: a.dir, prefix: [], cost: a.cost });
+  }
+  if (leaveAt) seeds = seeds.filter((sd) => tileEq(sd.tile, leaveAt));
+  if (!seeds.length) return why(`no route: ${portName(e.fromM, e.fromP, ctx)} is boxed in.`, [e.fromM.id]);
+  const bounds = boundsOf(c, ctx, [cell, e.fromP.tile]);
+  const enter = (a: Tile, t: Tile, d: Face): number | null => {
+    const k = tileKey(t);
+    if (!sc.step(a, t) || occ.has(k) || layer.own(t, net)) return null;
+    if (isOtherDoorstep(k) && k !== ck) return null;
+    const o2 = layer.others(t, net);
+    if (o2.length) return k !== ck && o2.length === 1 && o2[0]!.mode !== 'X' && o2[0]!.mode !== axisOf(d) ? CROSS : null;
+    return 0;
+  };
+  const straight = (t: Tile) => { const o2 = layer.others(t, net); return o2.length === 1 && o2[0]!.mode !== 'X'; };
+  const r = astar(seeds, new Map([[ck, { dir: null, cost: 0 }]]), bounds, enter, straight);
+  return r ? { path: r.path } : why('no route to that cell — belts, machines or a wall are in the way.');
+}
+
+/** Route any belt (closed or open) against `belts`; an open belt keeps its end cell. */
+function relay(B: BeltCtx, belts: Belt[], b: Belt): Routed {
+  if (b.to) return routeWhy(B, belts, b.from, b.to);
+  const end = b.path.at(-1);
+  return end ? routeOpen(B, belts, b.from, end) : why('An open belt needs at least one cell.');
+}
 
 /**
  * Route a belt for (from → to) against existing belts. Touching ports link directly (path []). The belt may
@@ -579,7 +690,7 @@ function routeWhy(B: BeltCtx, belts: Belt[], from: Endpoint, to: Endpoint, via: 
   for (const m of [fromM, toM]) for (const t of footprint(m, ctx)) for (const d of FACES) hug.add(tileKey(addTile(t, FACE_DELTA[d])));
   for (const a of [...dep, ...arr]) hug.delete(tileKey(a.tile));
   // The cell beyond each free input's doorstep is its approach: unrelated belts avoid it if they can.
-  const usedEnds = new Set(live.flatMap((b) => [endKey(b.from), endKey(b.to)]));
+  const usedEnds = new Set(live.flatMap((b) => [endKey(b.from), ...(b.to ? [endKey(b.to)] : [])]));
   const approach = new Set<string>();
   for (const [, f] of fronts) {
     if (f.p.dir !== 'in' || isEnd(f.m, f.p, to) || usedEnds.has(endKey({ m: f.m.id, port: f.p.id }))) continue;
@@ -721,20 +832,25 @@ function settle(c: Canvas, ctx: KernelCtx, suspects: Set<string>): { canvas: Can
   const out = new Map<string, Belt>();
   const breakIt = (b: Belt, reason: string) => out.set(b.id, { ...b, broken: reason });
   for (const b of order) {
-    const ends = resolveEnds(c, b.from, b.to, ctx);
-    if (typeof ends === 'string') { breakIt(b, ends); continue; }
-    if (ends.fromP.dir !== 'out' || ends.toP.dir !== 'in') { breakIt(b, 'This belt no longer runs from an output to an input.'); continue; }
-    if (fed.has(endKey(b.to))) { breakIt(b, `Another belt already feeds ${portName(ends.toM, ends.toP, ctx)}.`); continue; }
+    if (b.to) {
+      const ends = resolveEnds(c, b.from, b.to, ctx);
+      if (typeof ends === 'string') { breakIt(b, ends); continue; }
+      if (ends.fromP.dir !== 'out' || ends.toP.dir !== 'in') { breakIt(b, 'This belt no longer runs from an output to an input.'); continue; }
+      if (fed.has(endKey(b.to))) { breakIt(b, `Another belt already feeds ${portName(ends.toM, ends.toP, ctx)}.`); continue; }
+    } else {
+      const e = resolveFrom(c, b.from, ctx);
+      if (typeof e === 'string') { breakIt(b, e); continue; }
+    }
     let path: Tile[] | null = null;
     if (!b.broken && !pathWhy(B, kept, b.from, b.to, b.path)) path = b.path;
     else {
-      const r = routeWhy(B, kept, b.from, b.to);
+      const r = relay(B, kept, b);
       if (isWhy(r)) { breakIt(b, `re-route me — ${r.reason}`); continue; }
       path = r.path;
     }
     const { broken: _gone, ...rest } = b; void _gone;
     const nb: Belt = { ...rest, path };
-    kept.push(nb); fed.add(endKey(b.to)); out.set(b.id, nb);
+    kept.push(nb); fed.add(toKey(b)); out.set(b.id, nb);
   }
   const belts = c.belts.map((b) => out.get(b.id)!);
   const broken = belts.filter((b) => b.broken && !c.belts.find((x) => x.id === b.id)!.broken);
@@ -760,17 +876,32 @@ function okNote(canvas: Canvas, ids: string[], broken: Belt[]): Edit {
 }
 
 /**
- * Direct links a machine would make where it stands: each of its ports that touches an opposite, compatible,
- * unfed port of another machine (output front = input cell and vice versa). For the placement ghost and place().
+ * Links a machine would make where it stands, for the placement ghost and place():
+ *  • direct links: each of its ports touching an opposite, compatible, unfed port of another machine;
+ *  • open-belt completions (v4.1, `belt` set): an open belt whose end cell is the doorstep of one of its
+ *    compatible, unfed inputs is completed into that input.
  */
-export function autoLinks(c: Canvas, m: Machine, ctx: KernelCtx): { from: Endpoint; to: Endpoint }[] {
-  const out: { from: Endpoint; to: Endpoint }[] = [];
+export function autoLinks(c: Canvas, m: Machine, ctx: KernelCtx): { from: Endpoint; to: Endpoint; belt?: string }[] {
+  const out: { from: Endpoint; to: Endpoint; belt?: string }[] = [];
   const cell = new Map<string, { m: Machine; p: Port }[]>();
   for (const o of c.machines) if (o.id !== m.id) for (const p of portsOf(o, ctx)) {
     const k = tileKey(p.tile); cell.set(k, [...(cell.get(k) ?? []), { m: o, p }]);
   }
   // A broken feed does not count: the direct link replaces it. An output may fan out freely.
-  const fed = new Set(c.belts.filter((b) => !b.broken).map((b) => endKey(b.to)));
+  const fed = new Set(c.belts.filter((b) => !b.broken && b.to).map((b) => endKey(b.to!)));
+  const opens = c.belts.filter((b) => !b.broken && !b.to && b.path.length && b.from.m !== m.id);
+  for (const p of portsOf(m, ctx)) {
+    if (p.dir !== 'in' || fed.has(endKey({ m: m.id, port: p.id }))) continue;
+    const door = tileKey(frontOf(p));
+    for (const b of opens) {
+      if (tileKey(b.path.at(-1)!) !== door) continue;
+      const e = resolveFrom(c, b.from, ctx);
+      if (typeof e === 'string' || !e.fromP.accepts.some((k) => p.accepts.includes(k))) continue;
+      out.push({ from: b.from, to: { m: m.id, port: p.id }, belt: b.id });
+      fed.add(endKey({ m: m.id, port: p.id }));
+      break;
+    }
+  }
   for (const p of portsOf(m, ctx)) for (const q of cell.get(tileKey(frontOf(p))) ?? []) {
     if (!tileEq(frontOf(q.p), p.tile) || p.dir === q.p.dir) continue;
     const [o, i] = p.dir === 'out' ? [{ m: m.id, port: p.id }, { m: q.m.id, port: q.p.id }] : [{ m: q.m.id, port: q.p.id }, { m: m.id, port: p.id }];
@@ -798,7 +929,7 @@ export function spliceCandidates(c: Canvas, m: Machine, ctx: KernelCtx): Splice[
   const fq = tileKey(frontOf(q)), fo = tileKey(frontOf(out));
   const res: Splice[] = [];
   for (const b of c.belts) {
-    if (b.broken || b.from.m === m.id || b.to.m === m.id) continue;
+    if (b.broken || !b.to || b.from.m === m.id || b.to.m === m.id) continue; // open belts don't splice
     const e = resolveEnds(c, b.from, b.to, ctx);
     if (typeof e === 'string') continue;
     // The line includes its end ports' cells, so a short belt (1–2 cells, or a direct link's gap) that the
@@ -808,12 +939,12 @@ export function spliceCandidates(c: Canvas, m: Machine, ctx: KernelCtx): Splice[
     if (i < 0 || j < 0 || j - i < 2) continue;
     if (!keys.slice(i + 1, j).every((k) => fp.has(k))) continue;
     if (!e.fromP.accepts.some((k) => q.accepts.includes(k)) || !out.accepts.some((k) => e.toP.accepts.includes(k))) continue;
-    res.push({ belt: b.id, from: b.from, to: b.to, into: { m: m.id, port: 'q' }, outOf: { m: m.id, port: 'out' } });
+    res.push({ belt: b.id, from: b.from, to: b.to!, into: { m: m.id, port: 'q' }, outOf: { m: m.id, port: 'out' } });
   }
   return res;
 }
 
-const attached = (c: Canvas, ids: Set<string>) => new Set(c.belts.filter((b) => ids.has(b.from.m) || ids.has(b.to.m)).map((b) => b.id));
+const attached = (c: Canvas, ids: Set<string>) => new Set(c.belts.filter((b) => ids.has(b.from.m) || (!!b.to && ids.has(b.to.m))).map((b) => b.id));
 
 // ───────────────────────────── initial canvas ─────────────────────────────
 
@@ -885,9 +1016,13 @@ function placeUnsafe(c: Canvas, kind: MachineKind, at: Tile, rot: Rot, ctx: Kern
   // Flush against a compatible port: link directly (path []), replacing a broken feed if there is one.
   const links = autoLinks(s.canvas, m, ctx);
   const taken = allIds(s.canvas);
-  const direct: Belt[] = links.map((l) => ({ id: freshId(taken, 'b'), from: l.from, to: l.to, path: [] }));
-  const belts = s.canvas.belts.filter((b) => !(b.broken && direct.some((d) => sameEnd(d.to, b.to))));
-  return okNote({ ...s.canvas, belts: [...belts, ...direct] }, [id, ...direct.map((b) => b.id)], s.broken.filter((b) => belts.includes(b)));
+  const completes = new Map(links.filter((l) => l.belt).map((l) => [l.belt!, l.to]));
+  const direct: Belt[] = links.filter((l) => !l.belt).map((l) => ({ id: freshId(taken, 'b'), from: l.from, to: l.to, path: [] }));
+  const closing = [...direct.map((d) => d.to!), ...completes.values()];
+  const belts = s.canvas.belts
+    .filter((b) => !(b.broken && closing.some((t) => feeds(b, t))))
+    .map((b) => (completes.has(b.id) ? { ...b, to: completes.get(b.id)! } : b));
+  return okNote({ ...s.canvas, belts: [...belts, ...direct] }, [id, ...direct.map((b) => b.id), ...completes.keys()], s.broken.filter((b) => belts.some((x) => x.id === b.id)));
 }
 
 /**
@@ -934,7 +1069,8 @@ export function moveMachines(c: Canvas, ids: string[], delta: Tile, ctx: KernelC
     const rr = roomReason(m, cells, rooms, ctx);
     if (rr) return no(rr, [m.id, ...roomBlockers(m, cells, rooms)]);
   }
-  const internal = new Set(c.belts.filter((b) => moving.has(b.from.m) && moving.has(b.to.m)).map((b) => b.id));
+  // Belts between moved machines move with them; an open belt travels with its source.
+  const internal = new Set(c.belts.filter((b) => moving.has(b.from.m) && (!b.to || moving.has(b.to.m))).map((b) => b.id));
   const belts = c.belts.map((b) => (internal.has(b.id) ? { ...b, path: b.path.map((t) => addTile(t, delta)) } : b));
   const suspects = attached(c, moving);
   for (const id of internal) suspects.delete(id);
@@ -982,7 +1118,7 @@ export function remove(c: Canvas, ids: string[]): Edit {
     if (m.locked) { refused = `The ${nameOf(m)} is part of this order and stays.`; continue; }
     gone.add(m.id);
   }
-  const belts = c.belts.filter((b) => !want.has(b.id) && !gone.has(b.from.m) && !gone.has(b.to.m));
+  const belts = c.belts.filter((b) => !want.has(b.id) && !gone.has(b.from.m) && !(b.to && gone.has(b.to.m)));
   const removedSomething = gone.size > 0 || rooms.size > 0 || belts.length !== c.belts.length;
   if (!removedSomething) return no(refused ?? 'Nothing to remove.', refused ? ids.filter((id) => c.machines.some((m) => m.id === id)) : undefined);
   const next = { ...c, machines: c.machines.filter((m) => !gone.has(m.id)), belts, rooms: c.rooms.filter((r) => !rooms.has(r.id)) };
@@ -1088,7 +1224,7 @@ function uniqueTowers(c: Canvas, ms: Machine[], ctx: KernelCtx): Machine[] {
     let { label, varId } = m.config;
     const sort = m.config.sort;
     const base = sortBase(label, sort);
-    if (base !== splitLabel(label).base) label = `${base}${subscript(Math.max(1, splitLabel(label).n))}`;
+    if (base !== splitLabel(label).base) { const n0 = splitLabel(label).n; label = n0 > 1 ? `${base}${subscript(n0)}` : base; }
     const cfg = m.config;
     const done = () => { labels.add(label); ids.add(varId); return label === cfg.label && varId === cfg.varId ? m : { ...m, config: { ...cfg, label, varId } }; };
     // Explicit remap: an existing Tower renamed to an orphaned label takes over that variable.
@@ -1101,7 +1237,7 @@ function uniqueTowers(c: Canvas, ms: Machine[], ctx: KernelCtx): Machine[] {
     if (labelBad || idBad) {
       const seq = labelBad && SORT_SEQ[sort].includes(base) ? SORT_SEQ[sort] : [base];
       search: for (let n = 1; n < 10_000; n++) for (const b of seq) {
-        const l = `${b}${subscript(n)}`, i = `${b}${n}`;
+        const l = n === 1 ? b : `${b}${subscript(n)}`, i = n === 1 ? b : `${b}${n}`; // plain letter first, then b₂ …
         if (labelBad && taken(l)) continue;
         if (!keepId && (idBad || labelBad)) { if (ids.has(i)) continue; varId = i; }
         if (labelBad) label = l;
@@ -1183,7 +1319,7 @@ export function routeOrWhy(c: Canvas, from: Endpoint, to: Endpoint, ctx: KernelC
   rememberCtx(ctx);
   const f = orient(c, from, to, ctx);
   if (typeof f === 'string') return why(f);
-  const r = routeWhy(beltCtx(c, ctx), c.belts.filter((b) => !sameEnd(b.to, f.to)), f.from, f.to, via ?? []);
+  const r = routeWhy(beltCtx(c, ctx), c.belts.filter((b) => !feeds(b, f.to)), f.from, f.to, via ?? []);
   return isWhy(r) ? withLeak(c, f.from, f.to, ctx, r) : r;
 }
 
@@ -1220,7 +1356,7 @@ export function connect(c: Canvas, from: Endpoint, to: Endpoint, ctx: KernelCtx,
 
 /** Shared by connect / branchAt: replace the old feed, route (with one round of rip-up), retry broken belts. */
 function addBelt(c: Canvas, from: Endpoint, to: Endpoint, ctx: KernelCtx, o: { path?: Tile[]; leaveAt?: Tile }): Edit {
-  const feeding = c.belts.filter((b) => sameEnd(b.to, to));
+  const feeding = c.belts.filter((b) => feeds(b, to));
   const replaced = feeding.filter((b) => !b.broken && !sameEnd(b.from, from));
   if (feeding.some((b) => !b.broken && sameEnd(b.from, from))) return no('That belt is already there.', feeding.map((b) => b.id));
   const base: Canvas = { ...c, belts: c.belts.filter((b) => !feeding.includes(b)) };
@@ -1251,7 +1387,7 @@ function addBelt(c: Canvas, from: Endpoint, to: Endpoint, ctx: KernelCtx, o: { p
     if (isWhy(r2)) return null;
     belts = [...belts, { id, from: { ...from }, to: { ...to }, path: r2.path }];
     for (const b of base.belts.filter((x) => lift.has(x.id))) {
-      const rr = routeWhy(B, belts, b.from, b.to);
+      const rr = relay(B, belts, b);
       if (isWhy(rr)) return null;
       belts = [...belts, { ...b, path: rr.path }];
     }
@@ -1261,10 +1397,73 @@ function addBelt(c: Canvas, from: Endpoint, to: Endpoint, ctx: KernelCtx, o: { p
   };
   const live = (x: string) => base.belts.some((b) => b.id === x && !b.broken);
   const blockers = new Set(r.blockers.filter(live));
-  const own = new Set(base.belts.filter((b) => !b.broken && [from.m, to.m].some((m) => b.from.m === m || b.to.m === m)).map((b) => b.id));
+  const own = new Set(base.belts.filter((b) => !b.broken && [from.m, to.m].some((m) => b.from.m === m || b.to?.m === m)).map((b) => b.id));
   const ripped = tryRip(blockers) ?? tryRip(new Set([...blockers, ...own]));
   if (ripped) return finish(ripped);
   return noWhy(withLeak(base, from, to, ctx, r));
+}
+
+/** Drag preview for an open belt: the path from an output (or an open belt's end) to a ground cell, or why not. */
+export function routeOpenOrWhy(c: Canvas, from: Endpoint | { belt: string }, cell: Tile, ctx: KernelCtx): { path: Tile[] } | Why {
+  const B = beltCtx(c, ctx);
+  if (!('belt' in from)) return routeOpen(B, c.belts, from, cell);
+  const b = c.belts.find((x) => x.id === from.belt);
+  if (!b || b.to) return why('That is not an open belt.');
+  const last = b.broken ? undefined : b.path.at(-1);
+  const r = last ? routeOpen(B, c.belts, b.from, cell, last) : why('');
+  if (!isWhy(r)) return r;
+  const others = c.belts.filter((x) => x.id !== b.id);
+  return routeOpen(beltCtx({ ...c, belts: others }, ctx), others, b.from, cell);
+}
+
+/**
+ * v4.1 open belts. Drag from an output (or from an open belt's end) to:
+ *   • a ground cell → an OPEN belt ending there (created, or the open belt extended to it), routed;
+ *   • an input port → the belt is completed into it (an existing feed is replaced, with a note).
+ * Open belts are ordinary belts otherwise (crossings, rip-up, broken handling); items wait at their end.
+ */
+export function extendTo(c: Canvas, from: Endpoint | { belt: string; end?: boolean }, target: Tile | Endpoint, ctx: KernelCtx): Edit {
+  rememberCtx(ctx);
+  const isEnd = (x: unknown): x is Endpoint => !!x && typeof x === 'object' && 'm' in x && 'port' in x;
+  const B = beltCtx(c, ctx);
+  if (!('belt' in from)) {
+    if (isEnd(target)) return connect(c, from, target, ctx);
+    const e = resolveFrom(c, from, ctx);
+    if (typeof e === 'string') return no(e);
+    const r = routeOpen(B, c.belts, from, target);
+    if (isWhy(r)) return noWhy(r);
+    const id = freshId(allIds(c), 'b');
+    return retryBroken({ ...c, belts: [...c.belts, { id, from: { ...from }, to: null, path: r.path }] }, ctx, [id]);
+  }
+  const b = c.belts.find((x) => x.id === from.belt);
+  if (!b) return no('That belt is gone.');
+  if (b.to) return no('That belt already ends at a machine — drag from its source to branch it.', [b.id]);
+  const last = b.broken ? undefined : b.path.at(-1);
+  const others = c.belts.filter((x) => x.id !== b.id);
+  if (isEnd(target)) {
+    const f = orient(c, b.from, target, ctx);
+    if (typeof f === 'string') return no(f);
+    const feeding = others.filter((x) => feeds(x, f.to));
+    const base: Canvas = { ...c, belts: others.filter((x) => !feeding.includes(x)) };
+    const Bb = beltCtx(base, ctx);
+    const r = last ? routeWhy(Bb, [...base.belts, b], f.from, f.to, [], last) : why('');
+    if (!isWhy(r)) {
+      const next = { ...base, belts: [...base.belts, { id: b.id, from: b.from, to: { ...f.to }, path: r.path }] };
+      const e = retryBroken(next, ctx, [b.id]);
+      const live = feeding.filter((x) => !x.broken);
+      if (!e.ok || !live.length) return e;
+      const names = live.map((x) => who(c.machines.find((m) => m.id === x.from.m)!, ctx)).join(' and ');
+      return { ...e, note: [`Replaced the feed from ${names}.`, e.note].filter(Boolean).join(' ') };
+    }
+    // Could not continue from the open end: lay the whole belt afresh from the output.
+    return addBelt({ ...c, belts: others }, f.from, f.to, ctx, {});
+  }
+  if (last && tileEq(last, target)) return ok(c, [b.id]);
+  const r = last ? routeOpen(B, c.belts, b.from, target, last) : why('');
+  const r2 = isWhy(r) ? routeOpen(beltCtx({ ...c, belts: others }, ctx), others, b.from, target) : r;
+  if (isWhy(r2)) return noWhy(isWhy(r) && r.reason ? r : r2);
+  const { broken: _b, ...rest } = b; void _b;
+  return retryBroken({ ...c, belts: [...others, { ...rest, path: r2.path }] }, ctx, [b.id]);
 }
 
 /** Connect via waypoints (the cursor's anchors). */
@@ -1462,7 +1661,7 @@ export function copySelection(c: Canvas, ids: string[]): Blueprint {
   const want = new Set(ids);
   const machines = c.machines.filter((m) => want.has(m.id) && !m.locked && !SYSTEM.includes(m.kind));
   const inSel = new Set(machines.map((m) => m.id));
-  const belts = c.belts.filter((b) => inSel.has(b.from.m) && inSel.has(b.to.m));
+  const belts = c.belts.filter((b) => inSel.has(b.from.m) && (!b.to || inSel.has(b.to.m)));
   const origin = machines.length
     ? { x: Math.min(...machines.map((m) => m.at.x)), y: Math.min(...machines.map((m) => m.at.y)) }
     : { x: 0, y: 0 };
@@ -1498,9 +1697,9 @@ function pasteUnsafe(c: Canvas, bp: Blueprint, at: Tile, ctx: KernelCtx): Edit {
   if (w) return noWhy(w);
   const nb: Belt[] = [];
   for (const b of bp.belts) {
-    const f = idMap.get(b.from.m), t = idMap.get(b.to.m);
-    if (!f || !t) continue;
-    nb.push({ id: freshId(taken, 'b'), from: { m: f, port: b.from.port }, to: { m: t, port: b.to.port }, path: b.path.map((p) => addTile(p, delta)) });
+    const f = idMap.get(b.from.m), t = b.to ? idMap.get(b.to.m) : null;
+    if (!f || t === undefined) continue;
+    nb.push({ id: freshId(taken, 'b'), from: { m: f, port: b.from.port }, to: b.to && t ? { m: t, port: b.to.port } : null, path: b.path.map((p) => addTile(p, delta)) });
   }
   const cells = new Set(ms.flatMap((m) => footprint(m, ctx).map(tileKey)));
   const under = new Set(c.belts.filter((b) => b.path.some((t) => cells.has(tileKey(t)))).map((b) => b.id));

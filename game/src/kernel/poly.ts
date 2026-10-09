@@ -27,7 +27,7 @@ let opsBudget: number = POLY_LIMITS.operations;
 export function resetPolyBudget() { opsBudget = POLY_LIMITS.operations; }
 function spend(n: number) {
   opsBudget -= n;
-  if (opsBudget < 0) throw new ResourceLimit(`more than ${POLY_LIMITS.operations} exponent operations in one certificate`);
+  if (opsBudget < 0) throw new ResourceLimit(`too much exponent arithmetic (over ${POLY_LIMITS.operations} steps).`);
 }
 
 // ───────────── internal representation ─────────────
@@ -51,7 +51,7 @@ const degreeOf = (m: Mono) => m.reduce((n, x) => n + x.degree, 0);
 
 const MAXC = 1n << BigInt(POLY_LIMITS.coefficientBits);
 function checkCoeff(c: bigint) {
-  if (c >= MAXC || -c >= MAXC) throw new ResourceLimit(`an exponent coefficient exceeds ${POLY_LIMITS.coefficientBits} bits`);
+  if (c >= MAXC || -c >= MAXC) throw new ResourceLimit(`an exponent number is over ${POLY_LIMITS.coefficientBits} bits.`);
 }
 
 /** Canonicalize a list of terms: merge equal monomials, drop zeros, sort; enforce limits. */
@@ -67,9 +67,9 @@ function canon(ts: PTerm[]): PTerm[] {
   const out = [...acc.values()].filter((t) => t.c !== 0n);
   for (const t of out) {
     checkCoeff(t.c);
-    if (degreeOf(t.m) > POLY_LIMITS.totalDegree) throw new ResourceLimit(`an exponent has total degree above ${POLY_LIMITS.totalDegree}`);
+    if (degreeOf(t.m) > POLY_LIMITS.totalDegree) throw new ResourceLimit(`an exponent has degree over ${POLY_LIMITS.totalDegree}.`);
   }
-  if (out.length > POLY_LIMITS.monomials) throw new ResourceLimit(`an exponent has more than ${POLY_LIMITS.monomials} terms`);
+  if (out.length > POLY_LIMITS.monomials) throw new ResourceLimit(`an exponent has over ${POLY_LIMITS.monomials} terms.`);
   out.sort((a, b) => cmpMono(a.m, b.m));
   return out;
 }
@@ -91,26 +91,26 @@ const DEC = /^[+-]?\d+$/;
 
 /** Validate raw exponent data and convert to internal form (BigInt). Throws KErr on malformed data. */
 function decode(p: unknown): PTerm[] {
-  if (!Array.isArray(p)) throw new KErr('an exponent must be an integer polynomial');
-  if (p.length > POLY_LIMITS.monomials * 4) throw new ResourceLimit(`an exponent has more than ${POLY_LIMITS.monomials} terms`);
+  if (!Array.isArray(p)) throw new KErr('An exponent must be an integer polynomial.');
+  if (p.length > POLY_LIMITS.monomials * 4) throw new ResourceLimit(`an exponent has over ${POLY_LIMITS.monomials} terms.`);
   const out: PTerm[] = [];
   for (const e of p) {
-    if (!e || typeof e !== 'object') throw new KErr('malformed exponent term');
+    if (!e || typeof e !== 'object') throw new KErr('This exponent is malformed.');
     const { coefficient, monomial } = e as { coefficient: unknown; monomial: unknown };
-    if (typeof coefficient !== 'string') throw new KErr('exponent coefficients must be exact decimal strings (a JSON number may have been rounded)');
-    if (!DEC.test(coefficient)) throw new KErr(`“${coefficient}” is not an integer`);
-    if (coefficient.replace(/^[+-]/, '').length > Math.ceil(POLY_LIMITS.coefficientBits / 3) + 2) throw new ResourceLimit(`an exponent coefficient exceeds ${POLY_LIMITS.coefficientBits} bits`);
+    if (typeof coefficient !== 'string') throw new KErr('Exponent numbers must be exact decimal strings. A JSON number may have been rounded.');
+    if (!DEC.test(coefficient)) throw new KErr(`“${coefficient}” is not an integer.`);
+    if (coefficient.replace(/^[+-]/, '').length > Math.ceil(POLY_LIMITS.coefficientBits / 3) + 2) throw new ResourceLimit(`an exponent number is over ${POLY_LIMITS.coefficientBits} bits.`);
     const c = BigInt(coefficient);
     checkCoeff(c);
-    if (!Array.isArray(monomial)) throw new KErr('malformed exponent monomial');
+    if (!Array.isArray(monomial)) throw new KErr('This exponent is malformed.');
     const m: Mono = [];
     for (const x of monomial) {
-      if (!x || typeof x !== 'object') throw new KErr('malformed exponent monomial');
+      if (!x || typeof x !== 'object') throw new KErr('This exponent is malformed.');
       const { ref, degree } = x as { ref: unknown; degree: unknown };
-      if (typeof degree !== 'number' || !Number.isSafeInteger(degree) || degree < 1) throw new KErr('an exponent degree must be a positive whole number');
-      if (degree > POLY_LIMITS.totalDegree) throw new ResourceLimit(`an exponent has total degree above ${POLY_LIMITS.totalDegree}`);
+      if (typeof degree !== 'number' || !Number.isSafeInteger(degree) || degree < 1) throw new KErr('An exponent degree must be a whole number above 0.');
+      if (degree > POLY_LIMITS.totalDegree) throw new ResourceLimit(`an exponent has degree over ${POLY_LIMITS.totalDegree}.`);
       const r = ref as { k?: unknown; id?: unknown } | null;
-      if (!r || (r.k !== 'zvar' && r.k !== 'zmeta') || typeof r.id !== 'string' || !r.id) throw new KErr('malformed exponent variable');
+      if (!r || (r.k !== 'zvar' && r.k !== 'zmeta') || typeof r.id !== 'string' || !r.id) throw new KErr('This exponent variable is malformed.');
       m.push({ ref: { k: r.k, id: r.id }, degree });
     }
     out.push({ c, m: mulMono(m, []) });
@@ -157,20 +157,20 @@ export function polySub(a: Poly, b: Poly): Poly { return polyAdd(a, polyNeg(b));
 export function polyMul(a: Poly, b: Poly): Poly {
   const A = decode(a), B = decode(b);
   spend(A.length * B.length);
-  if (A.length * B.length > POLY_LIMITS.monomials * 64) throw new ResourceLimit(`an exponent product has more than ${POLY_LIMITS.monomials} terms`);
+  if (A.length * B.length > POLY_LIMITS.monomials * 64) throw new ResourceLimit(`an exponent product has over ${POLY_LIMITS.monomials} terms.`);
   const out: PTerm[] = [];
   for (const x of A) for (const y of B) {
     const c = x.c * y.c;
     checkCoeff(c);
     const m = mulMono(x.m, y.m);
-    if (degreeOf(m) > POLY_LIMITS.totalDegree) throw new ResourceLimit(`an exponent has total degree above ${POLY_LIMITS.totalDegree}`);
+    if (degreeOf(m) > POLY_LIMITS.totalDegree) throw new ResourceLimit(`an exponent has degree over ${POLY_LIMITS.totalDegree}.`);
     out.push({ c, m });
   }
   return encode(canon(out));
 }
 /** p^k for a literal natural k (p^0 = 1, also for p = 0, by convention of the exponent language). */
 export function polyPowNat(p: Poly, k: number): Poly {
-  if (!Number.isSafeInteger(k) || k < 0) throw new KErr('an exponent power must be a natural number');
+  if (!Number.isSafeInteger(k) || k < 0) throw new KErr('An exponent power must be a whole number, 0 or more.');
   let r = polyConst(1);
   let base = p;
   let e = k;

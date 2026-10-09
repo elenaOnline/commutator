@@ -10,11 +10,14 @@ const it = (s: string) => `<tspan font-style="italic">${esc(s)}</tspan>`;
 const up = (s: string) => `<tspan font-style="normal">${esc(s)}</tspan>`;
 const sup = (s: string) => `<tspan font-style="normal" font-size="68%" baseline-shift="38%">${esc(s)}</tspan>`;
 const rel = (s: string) => up(` ${s} `);
+/** Tower variables print in their sort's ink (VAR tokens); set per floor render. */
+let VAR_INK: Map<string, string> = new Map();
+export const setVarInks = (m: Map<string, string>) => { VAR_INK = m; };
 /** An italic letter with a REAL subscript (tower variables: x₁ → x<sub>1</sub>). */
-const sub = (s: string) => {
+const sub = (s: string, ink?: string) => {
   const m = /^(.*?)([₀-₉]+)$/.exec(s);
-  if (!m) return it(s);
-  return it(m[1]!) + `<tspan font-style="normal" font-size="68%" baseline-shift="-24%">${[...m[2]!].map((c) => String(c.charCodeAt(0) - 0x2080)).join('')}</tspan>`;
+  const body = !m ? it(s) : it(m[1]!) + `<tspan font-style="normal" font-size="68%" baseline-shift="-24%">${[...m[2]!].map((c) => String(c.charCodeAt(0) - 0x2080)).join('')}</tspan>`;
+  return ink ? `<tspan fill="${ink}">${body}</tspan>` : body;
 };
 
 const same = (a: Term, b: Term) => JSON.stringify(a) === JSON.stringify(b);
@@ -48,7 +51,7 @@ export function termSVG(t: Term, L: Labels): string {
   }).join('');
   const one = (x: Term): string => {
     switch (x.k) {
-      case 'atom': return sub(L[x.id] ?? x.id);
+      case 'atom': return sub(L[x.id] ?? x.id, VAR_INK.get(x.id));
       case 'meta': return it(x.id);
       case 'e': return it('e');
       case 'inv': return simple(x.arg) ? one(x.arg) + sup('−1') : up('(') + termSVG(x.arg, L) + up(')') + sup('−1');

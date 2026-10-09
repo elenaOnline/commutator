@@ -36,10 +36,11 @@ describe('catalogue (v4)', () => {
     expect([...HOTBAR, ...DRAWER].sort()).toEqual(ALL.filter((k) => SPECS[k].placeable).sort());
     for (const k of ['given', 'socket', 'desk', 'gate'] as const) expect(SPECS[k].placeable).toBe(false);
   });
-  it('defaultConfig: verbs start without a recipe; presets and schemas are honoured; towers are x₁', () => {
+  it('defaultConfig: verbs start without a recipe; presets and schemas are honoured; towers are plain x', () => {
     for (const k of ALL) expect(defaultConfig(k, ctx).kind).toBe(k);
     for (const k of ['rewriter', 'operator', 'joiner', 'theorem'] as const) expect(defaultConfig(k, ctx)).toMatchObject({ recipe: null });
-    expect(defaultConfig('tower', ctx)).toEqual({ kind: 'tower', varId: 'x1', label: 'x₁', sort: 'G' });
+    expect(defaultConfig('tower', ctx)).toEqual({ kind: 'tower', varId: 'x', label: 'x', sort: 'G' });
+    expect(defaultConfig('tower', ctx, { sort: 'Z' })).toEqual({ kind: 'tower', varId: 'n', label: 'n', sort: 'Z' });
     expect(defaultConfig('theorem', ctx, { schema: 'cancel', mirror: true })).toMatchObject({ recipe: { k: 'library', ref: { k: 'schema', id: 'cancel', mirror: true } } });
     expect(defaultConfig('carddock', ctx, { schema: 'socks', mirror: true })).toEqual({ kind: 'carddock', ref: { k: 'schema', id: 'socks' } });
     expect(defaultConfig('operator', ctx, { recipe: { k: 'swap' } })).toEqual({ kind: 'operator', recipe: { k: 'swap' } });

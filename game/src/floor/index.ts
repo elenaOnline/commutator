@@ -11,18 +11,18 @@ import { TICKS_PER_SECOND } from '../factory';
 import * as F from '../factory';
 import { queued } from '../factory/runtime';
 import type * as FF from '../factory';
-import { FONT, INK, reducedMotion } from '../ui/tokens';
+import { FONT, INK, VAR, reducedMotion } from '../ui/tokens';
 import { MATH_CSS } from '../ui/math';
 import { P, f1, type G2, type S2 } from '../board/geom';
-import { factHTML, factSVG, factWidth, termHTML, termSVG, type Labels } from './math';
+import { factHTML, factSVG, factWidth, setVarInks, termHTML, termSVG, type Labels } from './math';
 import { REGISTRY, MIRROR_NAMES } from '../levels/levels';
 import {
-  defaultConfig, faceVec, fallbackRoute, footprint, portTileOut, portsOf, spec, trySplice, tryAutoLinks, tryBranchAt, tryCopy, tryMove, tryPlace, tryRouteOrWhy,
+  defaultConfig, faceVec, fallbackRoute, footprint, portTileOut, portsOf, spec, trySplice, tryAutoLinks, tryRouteOpen, tryBranchAt, tryCopy, tryMove, tryPlace, tryRouteOrWhy,
 } from './adapt';
 import { lookOf, termAtoms } from './look';
 import { buildGeo, centre, portEdge, portEnd, tkey, type BGeo, type Geo, type MGeo, type PortGeo } from './geo';
 import {
-  beltBody, beltSVG, bridgeSVG, heightOf, labelsOf, liveStatusOf, machineLabelSVG, machineName, machineSVG, pipSVG, portSVG, roomHandles, roomSVG,
+  beltBody, beltSVG, bridgeSVG, heightOf, labelsOf, openEndSVG, liveStatusOf, machineLabelSVG, machineName, machineSVG, pipSVG, portSVG, roomHandles, roomSVG,
   socketLabelSVG, socketTarget, type Ctx,
 } from './scene';
 import { packetGrid, packetSVG, prevAt, type Axis } from './items';
@@ -66,7 +66,7 @@ type Gesture =
   | { k: 'pan'; x: number; y: number; cam: { x: number; y: number; zoom: number } }
   | { k: 'box'; x0: number; y0: number; x1: number; y1: number; add: boolean }
   | { k: 'move'; ids: string[]; start: Tile; delta: Tile; ok: boolean | null; reason?: string }
-  | { k: 'belt'; why?: { reason: string; blockers: string[] }; from: Endpoint; branchOf?: string; branchI?: number; via: Tile[]; kind: ItemKind; fam: import('../kernel/types').Family; startG: G2; click: boolean; snap: Snap | null; path: Tile[] | null; real: boolean; noRoute: boolean; key: string }
+  | { k: 'belt'; why?: { reason: string; blockers: string[] }; from: Endpoint; branchOf?: string; branchI?: number; extendOf?: string; via: Tile[]; kind: ItemKind; fam: import('../kernel/types').Family; startG: G2; click: boolean; snap: Snap | null; path: Tile[] | null; real: boolean; noRoute: boolean; key: string }
   | { k: 'room'; start: Tile; cur: Tile }
   | { k: 'resize'; id: string; h: string; rect0: Rect; rect: Rect };
 
@@ -76,6 +76,7 @@ type Target =
   | { k: 'belt'; id: string }
   | { k: 'rh'; id: string; h: string }
   | { k: 'room'; id: string }
+  | { k: 'bend'; id: string }   // the end cap of an open belt (drag to continue it)
   | { k: 'floor' };
 
 const SVGNS = 'http://www.w3.org/2000/svg';
@@ -117,11 +118,14 @@ class Floor {
   private pipette: { kind: Machine['kind']; config: Machine['config'] } | null = null;
   /** Footprint of the machine just placed: the ghost stays quiet over it until the pointer leaves. */
   private justPlaced: Set<string> | null = null;
+  /** Armed by Q (pipette): placement stays armed for repeated stamping until Esc / right-click / Q on floor. */
+  private qArmed = false;
   private hiddenPk = new Set<number>();
   private kf = 1;
   private nameBoxes: { x0: number; y0: number; x1: number; y1: number }[] | null = null;
   private boxZoom = 1;
   private varIds = new Set<string>();
+  private varSorts = new Map<string, 'G' | 'Z'>();
   private prevPorts: Map<string, Set<string>> | null = null;
   private reshaped = new Set<string>();
   private pulsedAt = new Map<string, number>();
@@ -209,7 +213,9 @@ class Floor {
     if (s.ui.camera !== prev.ui.camera && !this.pendingCam) this.applyCamera();
     if (s.ui.selection !== prev.ui.selection || s.ui.hover !== prev.ui.hover || s.ui.lens !== prev.ui.lens || edited) this.applyMarks();
     if (s.ui.tool !== prev.ui.tool || s.ui.rot !== prev.ui.rot || edited) {
-      if (s.ui.tool !== prev.ui.tool && (s.ui.tool.k !== 'place' || (this.pipette && s.ui.tool.kind !== this.pipette.kind))) this.pipette = null;
+      if (s.ui.tool !== prev.ui.tool && (s.ui.tool.k !== 'place' || (this.pipette && s.ui.tool.kind !== this.pipette.kind))) { this.pipette = null; this.qArmed = false; }
+      // a tool armed by anything but Q (hotbar, preset) is not a stamping pipette
+      if (s.ui.tool !== prev.ui.tool && s.ui.tool.k === 'place' && !(this.pipette && s.ui.tool.kind === this.pipette.kind)) this.qArmed = false;
       this.ghostKey = ''; this.updateGhost(); this.renderHandles(); this.root.dataset.tool = s.ui.tool.k;
     }
     if (s.ui.alt !== prev.ui.alt || (s.ui.alt && edited)) this.renderAlt();
@@ -232,6 +238,8 @@ class Floor {
     // tower variables read as x₁ everywhere
     for (const [id, v] of geo.vars) this.labels[id] = v.label;
     this.varIds = new Set(geo.vars.keys());
+    this.varSorts = new Map([...geo.vars].map(([id, v]) => [id, v.sort]));
+    setVarInks(new Map([...geo.vars].map(([id, v]) => [id, VAR[v.sort].ink])));
     // rooms (an assume room's gate tells us its actual export once it has one)
     const qOf = (roomId: string) => {
       const gate = s.canvas.machines.find((m) => m.config.kind === 'gate' && m.config.room === roomId);
@@ -475,7 +483,7 @@ class Floor {
     if (bg?.direct) return null; // a coupling has no cells to ride: counted in the producer's stack
     if (p.at.i < 0) return null; // still leaving its port: part of the producer's output, not yet on the belt
     const n = bg?.b.path.length ?? 0;
-    const compact = occ.has(`${p.at.belt}|${p.at.i + 1}`) || (!!bg && p.at.i === n - 1 && occ.has(`P|${bg.b.to.m}|${bg.b.to.port}`));
+    const compact = occ.has(`${p.at.belt}|${p.at.i + 1}`) || (!!bg && p.at.i === n - 1 && !!bg.b.to && occ.has(`P|${bg.b.to.m}|${bg.b.to.port}`));
     return { ...base, compact };
   }
 
@@ -510,10 +518,10 @@ class Floor {
       if (!rec) {
         const el = document.createElementNS(SVGNS, 'g');
         el.setAttribute('class', 'fl-pk');
-        el.innerHTML = packetSVG(p.value, axis, this.labels, this.slots, cur.compact, this.varIds).svg;
+        el.innerHTML = packetSVG(p.value, axis, this.labels, this.slots, cur.compact, this.varSorts).svg;
         this.L.packets!.appendChild(el);
         rec = { el, key }; this.pkEls.set(p.id, rec);
-      } else if (rec.key !== key) { rec.el.innerHTML = packetSVG(p.value, axis, this.labels, this.slots, cur.compact, this.varIds).svg; rec.key = key; }
+      } else if (rec.key !== key) { rec.el.innerHTML = packetSVG(p.value, axis, this.labels, this.slots, cur.compact, this.varSorts).svg; rec.key = key; }
       const sp = P(gx, gy);
       rec.el.setAttribute('transform', `translate(${f1(sp[0])},${f1(sp[1])})`);
     }
@@ -604,7 +612,7 @@ class Floor {
       const b = this.geo?.bs.get(id)?.b;
       el.classList.toggle('is-sel', sel.has(id));
       el.classList.toggle('is-hover', ui.hover?.k === 'belt' && ui.hover.id === id);
-      el.classList.toggle('is-lit', !!b && !!hovM && (b.from.m === hovM || b.to.m === hovM));
+      el.classList.toggle('is-lit', !!b && !!hovM && (b.from.m === hovM || b.to?.m === hovM));
     }
     this.L.rooms!.querySelectorAll('[data-r]').forEach((e) => e.classList.toggle('is-sel', sel.has((e as HTMLElement).dataset.r!)));
     this.L.pips!.querySelectorAll('[data-pip]').forEach((e) => e.classList.toggle('is-hover', hovM === (e as HTMLElement).dataset.pip));
@@ -846,10 +854,15 @@ class Floor {
     for (const t of tiles) under += `<path d="${groundRect(t.x, t.y, t.x + 1, t.y + 1, 0.05, 0.12)}" fill="${ok ? OK : 'url(#fl-bad)'}" opacity="${ok ? 0.22 : 1}" stroke="${ok ? OK : JAM}" stroke-width="1" stroke-opacity=".7"/>`;
     // new belts the editor would add (auto-connect)
     let belts = '';
+    let completes = 0;
     if (verdict && verdict.ok) {
-      const before = new Set(this.s.canvas.belts.map((b) => b.id));
+      const before = new Map(this.s.canvas.belts.map((b) => [b.id, b]));
       const newId = verdict.ids?.[0];
-      for (const b of verdict.canvas.belts) if (!before.has(b.id)) belts += this.ghostBeltSVG(b, verdict.canvas.machines, newId ? { [newId]: g } : {});
+      for (const b of verdict.canvas.belts) {
+        const was = before.get(b.id);
+        if (!was) belts += this.ghostBeltSVG(b, verdict.canvas.machines, newId ? { [newId]: g } : {});
+        else if (!was.to && b.to) { completes++; belts += this.ghostBeltSVG(b, verdict.canvas.machines, newId ? { [newId]: g } : {}); }
+      }
     }
     // per-port arrows: solid if a compatible partner faces it across one free tile, red if the neighbour is a machine body
     let arrows = '';
@@ -877,8 +890,8 @@ class Floor {
     let cuts = 0, splices = 0;
     const newId = verdict?.ok ? verdict.ids?.[0] : undefined;
     const spliced = (b: Belt) => !!verdict?.ok && !!newId &&
-      verdict.canvas.belts.some((x) => x.from.m === b.from.m && x.from.port === b.from.port && x.to.m === newId && !x.broken) &&
-      verdict.canvas.belts.some((x) => x.from.m === newId && x.to.m === b.to.m && x.to.port === b.to.port && !x.broken);
+      verdict.canvas.belts.some((x) => x.from.m === b.from.m && x.from.port === b.from.port && x.to?.m === newId && !x.broken) &&
+      verdict.canvas.belts.some((x) => x.from.m === newId && !!b.to && x.to?.m === b.to.m && x.to?.port === b.to.port && !x.broken);
     if (verdict?.ok) for (const b of this.s.canvas.belts) {
       const nb = verdict.canvas.belts.find((x) => x.id === b.id);
       if (!nb && spliced(b)) { splices++; continue; }
@@ -888,13 +901,14 @@ class Floor {
     const cands = trySplice(this.s.canvas, m, this.s.ctx);
     for (const c of cands) { const bg = this.geo.bs.get(c.belt); if (bg) under += `<path d="${polyLine(bg.line)}" fill="none" stroke="${INK.navy}" stroke-width="9" stroke-opacity=".16" stroke-linecap="round" stroke-linejoin="round"/>`; }
     const note = verdict?.ok ? (verdict as { note?: string }).note : undefined;
-    const reason = verdict && !verdict.ok ? verdict.reason : !verdict && overlap ? 'Something is already here' : cuts ? `Cuts ${cuts} belt${cuts > 1 ? 's' : ''} — they stay, dashed, until re-routed` : '';
+    const reason = verdict && !verdict.ok ? verdict.reason : !verdict && overlap ? 'Occupied.' : cuts ? `Cuts ${cuts} belt${cuts > 1 ? 's' : ''}. They stay, dashed.` : '';
     if (cands.length > 1 && !reason) splices = -cands.length;
     if (note && /^Spliced/.test(note) && !reason) splices = Math.max(splices, 1);
     const top = P((g.x0 + g.x1) / 2, (g.y0 + g.y1) / 2, 0.6);
     const tag = reason && !this.toastUp() ? this.tagSVG(top[0], top[1] - 14, reason, JAM)
+      : completes && !this.toastUp() ? this.tagSVG(top[0], top[1] - 14, completes === 1 ? 'Completes the open belt' : `Completes ${completes} open belts`, INK.navy)
       : splices && !this.toastUp() ? this.tagSVG(top[0], top[1] - 14,
-        splices < 0 ? `Touches ${-splices} belts — place beside exactly one to splice` : note && /^Spliced/.test(note) ? note : 'Splices into the belt', INK.navy) : '';
+        splices < 0 ? `Touches ${-splices} belts. Splicing needs one.` : note && /^Spliced/.test(note) ? note : 'Splices into the belt', INK.navy) : '';
     this.L.under!.innerHTML = under;
     const ports = g.ports.map((p) => { const svg = portSVG({ m: '__ghost', port: p, edge: portEdge(p), out: [p.tile.x + 0.5, p.tile.y + 0.5], taken: true, kind: p.accepts[0] ?? 'eq' }, g); return svg.slice(0, svg.indexOf('<circle class="fl-hit"')) + '</g>'; }).join('');
     this.L.ghost!.innerHTML = `<g class="fl-ghostm${ok ? '' : ' is-bad'}">${belts}${ports}${machineSVG(g, this.cx)}${arrows}</g><g class="fl-preview"></g>${tag}`;
@@ -922,7 +936,7 @@ class Floor {
       const m = machines.find((x) => x.id === e.m);
       return m ? portsOf(m, this.s.ctx).find((p) => p.id === e.port) : undefined;
     };
-    const fp = portOf(b.from), tp = portOf(b.to);
+    const fp = portOf(b.from), tp = b.to ? portOf(b.to) : undefined;
     let line: G2[] = [];
     if (!b.path.length && fp) { const [dx, dy] = faceVec(fp.face); const e = portEdge(fp); line = [[e[0] - dx * 0.22, e[1] - dy * 0.22], [e[0] + dx * 0.22, e[1] + dy * 0.22]]; }
     else {
@@ -996,6 +1010,7 @@ class Floor {
   /** Tile the belt leaves from: the output's front cell, or the trunk cell a branch was dragged off. */
   private beltStart(g: Extract<Gesture, { k: 'belt' }>): Tile | null {
     if (g.branchOf !== undefined && g.branchI !== undefined) return this.geo?.bs.get(g.branchOf)?.b.path[g.branchI] ?? null;
+    if (g.extendOf !== undefined) { const p = this.geo?.bs.get(g.extendOf)?.b.path; return p?.[p.length - 1] ?? null; }
     const fp = this.geo?.ms.get(g.from.m)?.ports.find((p) => p.id === g.from.port);
     return fp ? portTileOut(fp) : null;
   }
@@ -1026,7 +1041,9 @@ class Floor {
       key = `s|${snap.m}|${snap.port}|${viaKey}`;
       if (key === g.key && !force) return this.renderBeltPreview();
       const end = portTileOut(snap.pg.port);
-      if (g.branchOf === undefined) {
+      if (g.extendOf !== undefined) {
+        path = this.chain(start, g.via, end);
+      } else if (g.branchOf === undefined) {
         const r = tryRouteOrWhy(this.s.canvas, g.from, { m: snap.m, port: snap.port }, this.s.ctx, g.via);
         if (r === undefined) path = this.chain(start, g.via, end);
         else if ('path' in r) { path = r.path; real = true; }
@@ -1042,7 +1059,13 @@ class Floor {
       const t = this.pointerTile();
       key = `t|${t.x},${t.y}|${viaKey}`;
       if (key === g.key && !force) return this.renderBeltPreview();
-      path = this.beltBlocked(t) && !(t.x === start.x && t.y === start.y) ? null : this.chain(start, g.via, t);
+      const ro = g.branchOf === undefined && !g.via.length ? tryRouteOpen(this.s.canvas, g.extendOf !== undefined ? { belt: g.extendOf } : g.from, t, this.s.ctx) : undefined;
+      if (ro && 'path' in ro) {
+        // an extension's route starts after the open end; show it from the end cell
+        path = g.extendOf !== undefined ? [start, ...ro.path.filter((c) => !(c.x === start.x && c.y === start.y))] : ro.path;
+        real = true;
+      } else if (ro) { path = null; why = ro; }
+      else path = this.beltBlocked(t) && !(t.x === start.x && t.y === start.y) ? null : this.chain(start, g.via, t);
     }
     this.g = { ...g, snap, path, real, noRoute, key, why };
     this.markPreviewBlockers(why?.blockers ?? []);
@@ -1079,7 +1102,7 @@ class Floor {
       o += `<circle class="fl-glow" cx="${f1(c[0])}" cy="${f1(c[1])}" r="11" fill="${OK}" fill-opacity=".18" stroke="${OK}" stroke-width="1.6"/>`;
     }
     const line: G2[] = [];
-    if (fromPort && (g.branchOf === undefined || g.real)) line.push(...portEnd(fromPort, g.path?.[0], true));
+    if (fromPort && g.extendOf === undefined && (g.branchOf === undefined || g.real)) line.push(...portEnd(fromPort, g.path?.[0], true));
     for (const t of g.path ?? []) line.push(centre(t));
     if (g.snap && g.path) line.push(...portEnd(g.snap.pg.port, g.path[g.path.length - 1], false));
     for (const t of g.via) { const c = P(t.x + 0.5, t.y + 0.5); o += `<g class="fl-anchor"><circle cx="${f1(c[0])}" cy="${f1(c[1])}" r="5.5" fill="#fff" stroke="${INK.navy}" stroke-width="1.6"/><circle cx="${f1(c[0])}" cy="${f1(c[1])}" r="2" fill="${INK.navy}"/></g>`; }
@@ -1089,20 +1112,23 @@ class Floor {
       const a = lt ? P(lt.x + 0.5, lt.y + 0.5) : fromPort && g.branchOf === undefined ? P(...portEdge(fromPort)) : P(...g.startG);
       const b = g.snap ? P(...g.snap.pg.edge) : toWorld(this.cam(), this.view, this.pointer.x, this.pointer.y);
       o += `<line x1="${f1(a[0])}" y1="${f1(a[1])}" x2="${f1(b[0])}" y2="${f1(b[1])}" stroke="${JAM}" stroke-width="2" stroke-dasharray="5 5"/>`;
-      if (g.snap && !this.toastUp()) o += this.tagSVG(b[0], b[1] - 24, g.why?.reason ?? 'No free route to this port', JAM);
+      if ((g.snap || g.why) && !this.toastUp()) o += this.tagSVG(b[0], b[1] - 24, g.why?.reason || 'No free route.', JAM);
     } else if (line.length >= 2) {
       o += `<g class="fl-ghostb">${beltBody({ kind: g.kind, fam: g.fam, line }, { ghost: true })}</g>`;
-      if (!g.snap) {
-        const e = P(...line[line.length - 1]!);
-        o += `<circle cx="${f1(e[0])}" cy="${f1(e[1])}" r="6" fill="#fff" stroke="${INK.navy3}" stroke-width="1.4" stroke-dasharray="2 2"/>`;
+      if (!g.snap && line.length >= 2) {
+        // released here it stays an OPEN belt: preview its end cap
+        const z = line[line.length - 1]!, a = line[line.length - 2]!;
+        const dx = z[0] - a[0], dy = z[1] - a[1], l = Math.hypot(dx, dy) || 1;
+        const ext: G2[] = [...line, [z[0] + dx / l * 0.34, z[1] + dy / l * 0.34]];
+        o += openEndSVG({ line: ext, b: { id: '__preview' } as Belt });
       }
     }
     if (g.snap) {
       const c = P(g.snap.pg.edge[0], g.snap.pg.edge[1]);
       const col = g.snap.compat ? INK.navy : JAM;
       o += `<circle class="fl-snapring" cx="${f1(c[0])}" cy="${f1(c[1])}" r="9" fill="#fff" stroke="${col}" stroke-width="2.4"/><circle cx="${f1(c[0])}" cy="${f1(c[1])}" r="3.4" fill="${col}"/>`;
-      if (!g.snap.compat) o += this.tagSVG(c[0], c[1] - 26, `This port takes ${kindWord(g.snap.pg.port.accepts)} — this belt carries ${kindWord([g.kind])}`, JAM);
-      else if (g.snap.pg.taken) o += this.tagSVG(c[0], c[1] - 26, 'This input already has a belt', JAM);
+      if (!g.snap.compat) o += this.tagSVG(c[0], c[1] - 26, `Takes ${kindWord(g.snap.pg.port.accepts)}, not ${kindWord([g.kind])}.`, JAM);
+      else if (g.snap.pg.taken) o += this.tagSVG(c[0], c[1] - 26, 'Already fed.', JAM);
     }
     // source marker (the port, or the branch point on the trunk)
     const st = g.branchOf !== undefined ? this.beltStart(g) : null;
@@ -1217,9 +1243,11 @@ class Floor {
       const g = geo.ms.get(t.id); if (!g) return '';
       if (g.m.config.kind === 'tower') {
         const users = [...geo.ms.keys()].filter((id) => id !== g.m.id && this.machineVars(id).has((g.m.config as { varId: string }).varId)).length;
+        void users;
         const isZ = g.m.config.sort === 'Z';
-        return `<div class="fl-tip-h">Tower <span class="fl-tip-k">declares ${isZ ? 'an integer' : 'a variable'}</span></div><div class="fl-tip-math math">Let ${subHTML(`<i>${esc(g.m.config.label.replace(/[₀-₉]+$/, ''))}</i>${g.m.config.label.replace(/^[^₀-₉]+/, '')}`)} ∈ ${isZ ? 'ℤ' : '<i>G</i>'}</div>` +
-          `<div class="fl-tip-why">${isZ ? 'An arbitrary integer exponent' : 'An arbitrary element'}: its name is unique on this floor. ${users ? `${users} machine${users === 1 ? '' : 's'} use it — lit now.` : 'No machine uses it yet.'}</div><div class="fl-tip-foot">Facts about it can be generalized by a ∀ machine</div>`;
+        const nm = subHTML(`<i>${esc(g.m.config.label.replace(/[₀-₉]+$/, ''))}</i>${g.m.config.label.replace(/^[^₀-₉]+/, '')}`);
+        return `<div class="fl-tip-h">Tower</div><div class="fl-tip-math math">Let ${nm} ∈ ${isZ ? 'ℤ' : '<i>G</i>'}</div>` +
+          `<div class="fl-tip-why"><b>${nm} can be ${isZ ? 'any integer' : 'anything'}.</b> Prove it for ${nm}, and ∀ makes it true for all.</div>`;
       }
       const name = machineName(g, this.cx);
       if (g.m.kind === 'socket') {
@@ -1228,7 +1256,7 @@ class Floor {
         const so = comp?.sockets[sid];
         const done = run?.delivered[sid] !== undefined;
         const arriving = comp?.machines[g.m.id]?.inputs.q;
-        return `<div class="fl-tip-h">Receiving dock${done ? ' · delivered' : ''}</div>` +
+        return `<div class="fl-tip-h">Dock${done ? ' <span class="fl-tip-st is-working">delivered</span>' : ''}</div>` +
           (target ? `<div class="fl-tip-row"><span class="fl-tip-k">wants</span><span class="math">${factHTML(target, this.labels)}</span></div>` : '') +
           (arriving ? `<div class="fl-tip-row"><span class="fl-tip-k">arriving</span><span class="math">${this.valueHTML(arriving)}</span></div>` : '') +
           (so && !so.ok && so.reason ? `<div class="fl-tip-why is-jam">${esc(so.reason)}</div>` : '');
@@ -1237,40 +1265,44 @@ class Floor {
       const live = liveStatusOf(g.m.id, run, comp);
       const out = comp?.machines[g.m.id]?.out;
       const phrase = live === 'working' ? 'Working' : live === 'blocked' ? 'Output full' : live === 'jammed' ? 'Jammed' : live === 'starved' ? 'Waiting' : st?.k === 'ok' ? 'Ready' : '';
-      const reason = st && st.k !== 'ok' ? st.reason : live === 'blocked' ? 'Output belt full — connect or clear its output.' : '';
-      const fam = g.spec.blurb ? `<div class="fl-tip-blurb">${esc(g.spec.blurb)}</div>` : '';
-      return `<div class="fl-tip-h">${esc(name)}${phrase ? ` <span class="fl-tip-st is-${live ?? 'ok'}">${phrase}</span>` : ''}</div>${fam}` +
+      // say only what the player can act on: jams, and waits that aren't just an empty port (the port shows that)
+      const quietWait = (r: string) => /^(not connected|waiting)/i.test(r);
+      const reason = st?.k === 'jammed' ? st.reason : st?.k === 'starved' && !quietWait(st.reason) ? st.reason : live === 'blocked' ? 'Connect its output.' : '';
+      return `<div class="fl-tip-h">${esc(name)}${phrase ? ` <span class="fl-tip-st is-${live ?? 'ok'}">${phrase}</span>` : ''}</div>` +
         (reason ? `<div class="fl-tip-why${st?.k === 'jammed' ? ' is-jam' : ''}">${esc(reason)}</div>` : '') +
         (out ? `<div class="fl-tip-row"><span class="fl-tip-k">makes</span><span class="math">${this.valueHTML(out)}</span></div>` : '') +
-        (g.m.kind === 'gate' ? `<div class="fl-tip-foot">Drag to slide it along the room’s wall</div>`
-          : g.m.kind === 'desk' ? `<div class="fl-tip-foot">Drag to slide it inside the room</div>`
-          : g.m.locked ? `<div class="fl-tip-foot">Part of the order — can't be removed</div>` : '');
+        (g.m.kind === 'gate' ? `<div class="fl-tip-foot">Drag to slide along the wall.</div>`
+          : g.m.kind === 'desk' ? `<div class="fl-tip-foot">Drag to move inside the room.</div>`
+          : g.m.locked ? `<div class="fl-tip-foot">Part of the order.</div>` : '');
     }
     if (t.k === 'belt') {
       const bg = geo.bs.get(t.id); if (!bg) return '';
       const v = comp?.machines[bg.b.from.m]?.out;
-      if (bg.broken) return `<div class="fl-tip-h">Broken belt <span class="fl-tip-st is-jammed">no route</span></div><div class="fl-tip-why is-jam">${esc(bg.broken)}</div><div class="fl-tip-foot">Drag from its source again, or move what blocks it</div>`;
+      if (bg.broken) return `<div class="fl-tip-h">Broken belt</div><div class="fl-tip-why is-jam">${esc(bg.broken)}</div><div class="fl-tip-foot">Re-drag it, or move the blocker.</div>`;
       const err = comp?.beltErrors[t.id];
       const src = geo.ms.get(bg.b.from.m);
-      return `<div class="fl-tip-h">${kindWord([bg.kind], true)} belt <span class="fl-tip-k">from ${esc(src ? machineName(src, this.cx) : '?')}</span></div>` +
-        (v ? `<div class="fl-tip-math math">${this.valueHTML(v)}</div>` : `<div class="fl-tip-why">No certified item yet.</div>`) +
-        (err ? `<div class="fl-tip-why is-jam">${esc(err)}</div>` : '') + `<div class="fl-tip-foot">Drag off it to branch a copy</div>`;
+      void src;
+      return `<div class="fl-tip-h">${bg.open ? 'Open belt' : `${kindWord([bg.kind], true)} belt`}</div>` +
+        (v ? `<div class="fl-tip-math math">${this.valueHTML(v)}</div>` : '') +
+        (err ? `<div class="fl-tip-why is-jam">${esc(err)}</div>` : '') + `<div class="fl-tip-foot">${bg.open ? 'Drag its end to an input.' : 'Drag off it to branch.'}</div>`;
     }
     if (t.k === 'port') {
       const pg = geo.ports.find((p) => p.m === t.m && p.port.id === t.port); if (!pg) return '';
       const cur = comp?.machines[t.m]?.inputs[t.port];
       if (pg.port.dir === 'out') {
         const out = comp?.machines[t.m]?.out;
-        return `<div class="fl-tip-h">Output <span class="fl-tip-k">${kindWord([pg.kind])}</span></div>` + (out ? `<div class="fl-tip-math math">${this.valueHTML(out)}</div>` : '') + `<div class="fl-tip-foot">Drag to a port to lay a belt</div>`;
+        return `<div class="fl-tip-h">Output</div>` + (out ? `<div class="fl-tip-math math">${this.valueHTML(out)}</div>` : '') + `<div class="fl-tip-foot">Drag to lay a belt.</div>`;
       }
       const role = pg.port.role === 'rule' ? 'Rule slot' : pg.port.role === 'param' ? `Parameter ${esc(pg.port.label)}` : pg.port.role === 'premise' ? `Premise ${esc(pg.port.label)}` : 'Input';
-      return `<div class="fl-tip-h">${role} <span class="fl-tip-k">takes ${kindWord(pg.port.accepts)}</span></div>` + (cur ? `<div class="fl-tip-math math">${this.valueHTML(cur)}</div>` : `<div class="fl-tip-why">${pg.taken ? 'Waiting for an item.' : 'Not connected.'}</div>`);
+      return `<div class="fl-tip-h">${role} <span class="fl-tip-k">takes ${kindWord(pg.port.accepts)}</span></div>` + (cur ? `<div class="fl-tip-math math">${this.valueHTML(cur)}</div>` : '');
     }
     if (t.k === 'room') {
       const r = this.s.canvas.rooms.find((x) => x.id === t.id); if (!r) return '';
-      const a = r.kind === 'suppose' ? `${termHTML(r.l, this.labels)} = ${termHTML(r.r, this.labels)}` : `${termHTML(r.l, this.labels)} ≠ ${termHTML(r.r, this.labels)}`;
-      const x = r.kind === 'suppose' ? `${termHTML(r.l, this.labels)} ≠ ${termHTML(r.r, this.labels)}` : `${termHTML(r.l, this.labels)} = ${termHTML(r.r, this.labels)}`;
-      return `<div class="fl-tip-h">Room</div><div class="fl-tip-row"><span class="fl-tip-k">assumes</span><span class="math">${a}</span></div><div class="fl-tip-row"><span class="fl-tip-k">exports</span><span class="math">${x}</span></div><div class="fl-tip-foot">Facts leave only through the gate</div>`;
+      const L0 = subHTML(termHTML(r.l, this.labels)), R0 = subHTML(termHTML(r.r, this.labels));
+      const eqs = `${L0} = ${R0}`, neqs = `${L0} ≠ ${R0}`;
+      const a = r.kind === 'assume' ? (r.rel === 'neq' ? neqs : eqs) : r.kind === 'suppose' ? eqs : neqs;
+      const x = r.kind === 'assume' ? `${a} ⇒ <i>Q</i>` : r.kind === 'suppose' ? neqs : eqs;
+      return `<div class="fl-tip-h">${r.kind === 'assume' ? 'Assume room' : 'Room'}</div><div class="fl-tip-row"><span class="fl-tip-k">assumes</span><span class="math">${a}</span></div><div class="fl-tip-row"><span class="fl-tip-k">exports</span><span class="math">${x}</span></div><div class="fl-tip-foot">Facts leave only by the gate.</div>`;
     }
     return '';
   }
@@ -1279,7 +1311,7 @@ class Floor {
 
   private targetOf(e: Event): Target {
     const base = this.domTarget(e);
-    if (base.k === 'rh' || !this.geo || !('clientX' in e)) return base;
+    if (base.k === 'rh' || base.k === 'bend' || !this.geo || !('clientX' in e)) return base;
     const me = e as MouseEvent;
     // the machine actually under the pointer (port hit circles sit above machines, so look beneath them)
     let under: string | null = null;
@@ -1311,9 +1343,10 @@ class Floor {
   }
 
   private domTarget(e: Event): Target {
-    const el = (e.target as Element | null)?.closest?.('[data-p],[data-rh],[data-m],[data-b],[data-rhead],[data-r]') as HTMLElement | null;
+    const el = (e.target as Element | null)?.closest?.('[data-bend],[data-p],[data-rh],[data-m],[data-b],[data-rhead],[data-r]') as HTMLElement | null;
     if (!el) return { k: 'floor' };
     const d = el.dataset;
+    if (d.bend) return { k: 'bend', id: d.bend };
     if (d.p) { const [m, port] = d.p.split('|'); if (m === '__ghost') return { k: 'floor' }; return { k: 'port', m: m!, port: port! }; }
     if (d.rh) { const [id, h] = d.rh.split('|'); return { k: 'rh', id: id!, h: h! }; }
     if (d.m) return d.m === '__ghost' ? { k: 'floor' } : { k: 'machine', id: d.m };
@@ -1434,7 +1467,7 @@ class Floor {
         if (delta.x !== g.delta.x || delta.y !== g.delta.y) {
           const v = delta.x || delta.y ? tryMove(this.s.canvas, g.ids, delta, this.s.ctx) : null;
           let reason = v && !v.ok ? v.reason : undefined;
-          if (v?.ok) { const cut = this.s.canvas.belts.filter((b) => !b.broken && (!v.canvas.belts.find((x) => x.id === b.id) || v.canvas.belts.find((x) => x.id === b.id)?.broken)).length; if (cut) reason = `Cuts ${cut} belt${cut > 1 ? 's' : ''} — they stay, dashed, until re-routed`; }
+          if (v?.ok) { const cut = this.s.canvas.belts.filter((b) => !b.broken && (!v.canvas.belts.find((x) => x.id === b.id) || v.canvas.belts.find((x) => x.id === b.id)?.broken)).length; if (cut) reason = `Cuts ${cut} belt${cut > 1 ? 's' : ''}. They stay, dashed.`; }
           this.g = { ...g, delta, ok: v ? (v.ok && !reason ? true : v.ok ? null : false) : null, reason };
           this.updateGhost();
         }
@@ -1463,6 +1496,10 @@ class Floor {
     PERF.drag = { t, tool: tool.k };
     this.hideTip();
     if (t.k === 'port' && this.isOutPort(t)) { this.startBelt({ m: t.m, port: t.port }, undefined, false); this.updateBeltGesture(); this.updateGhost(); return; }
+    if (t.k === 'bend') {
+      const bg = this.geo?.bs.get(t.id);
+      if (bg) { this.startBelt(bg.b.from, undefined, false); if (this.g.k === 'belt') this.g = { ...this.g, extendOf: t.id }; this.updateBeltGesture(true); this.updateGhost(); return; }
+    }
     if (tool.k === 'place' || tool.k === 'erase') {
       // drag on floor with a placing tool pans (the hand)
       this.startPan(e, { x: g.x, y: g.y });
@@ -1553,7 +1590,7 @@ class Floor {
         const rect = rectOf(g.start, g.cur);
         const tool = this.s.ui.tool;
         const spec = this.roomSpec();
-        if (!spec) { this.say('Choose what the room assumes first (Room popover)'); return; }
+        if (!spec) { this.say("Pick the room's assumption first."); return; }
         this.timed('room', e, () => this.store.paintRoom(rect, tool.k === 'room' ? tool.kind : 'suppose', spec.l, spec.r, spec.rel));
         return;
       }
@@ -1569,9 +1606,10 @@ class Floor {
 
   private finishBelt(e: PointerEvent) {
     const g = this.g; if (g.k !== 'belt') return;
-    if (!g.snap) {
-      // released / clicked on empty floor: keep drawing click-by-click, dropping a waypoint there (DSP / shapez 2 anchors)
-      if (!g.click) { this.g = { ...g, click: true }; }
+    const ops = this.openOps();
+    if (!g.snap && !ops.supported) {
+      // the editor has no open belts yet: keep drawing click-by-click, dropping a waypoint there
+      if (!g.click) this.g = { ...g, click: true };
       if (!this.anchor()) this.updateBeltGesture(true);
       this.updateGhost();
       return;
@@ -1579,7 +1617,22 @@ class Floor {
     this.g = { k: 'none' };
     this.root.classList.remove('is-belting');
     this.clearPreview();
-    const to = { m: g.snap.m, port: g.snap.port };
+    const to = g.snap ? { m: g.snap.m, port: g.snap.port } : null;
+    // an extension of an open belt: its cells + the new leg (the editor validates the whole path)
+    if (g.extendOf !== undefined) {
+      const ob = this.s.canvas.belts.find((b) => b.id === g.extendOf);
+      if (!ob || !g.path) return;
+      const leg = g.path.slice(1);
+      this.timed(to ? 'connect' : 'open', e, () => ops.extend(ob, to, [...ob.path, ...leg], leg));
+      return;
+    }
+    if (!to) {
+      // released on bare floor: lay an OPEN belt ending there (items wait at its end)
+      if (!g.path || g.path.length < 1 || g.branchOf !== undefined) return;
+      const path = g.path;
+      this.timed('open', e, () => ops.lay(g.from, path));
+      return;
+    }
     if (g.branchOf !== undefined) {
       const bid = g.branchOf, bi = g.branchI;
       this.timed('branch', e, () => (bi !== undefined ? this.store.branchAt(bid, bi, to) : this.store.branch(bid, to)));
@@ -1587,6 +1640,23 @@ class Floor {
       const via = g.via;
       this.timed('connect', e, () => this.store.connectVia(g.from, to, via));
     } else this.timed('connect', e, () => this.store.connect(g.from, to, g.real && g.path ? g.path : undefined));
+  }
+
+  /**
+   * Open-belt edits. The editor/store op is preferred when present (names: openBelt / layBelt; extendBelt /
+   * continueBelt); otherwise an open belt is laid with connect(from, null, path), and an extension re-lays
+   * the whole belt (remove + connect/open).
+   */
+  private openOps() {
+    const st = this.store as unknown as { extendTo?: (from: Endpoint | { belt: string; end?: boolean }, target: Tile | Endpoint) => unknown };
+    const ok = typeof st.extendTo === 'function';
+    const at = () => this.pointerTile();
+    return {
+      /** True once the store can lay an open belt (editor extendTo). */
+      supported: ok,
+      lay: (from: Endpoint, path: Tile[]) => (ok ? st.extendTo!(from, path[path.length - 1] ?? at()) : undefined),
+      extend: (b: Belt, to: Endpoint | null, path: Tile[], leg: Tile[]) => { void path; return ok ? st.extendTo!({ belt: b.id, end: true }, to ?? leg[leg.length - 1] ?? at()) : undefined; },
+    };
   }
 
   private click(t: Target, e: PointerEvent, p: { x: number; y: number }) {
@@ -1600,8 +1670,9 @@ class Floor {
       const r = this.timed('place', e, () => this.store.place(m.kind, m.at, { rot: m.rot, config: m.config })) as FF.Edit | undefined;
       if (r?.ok) {
         this.justPlaced = new Set(footprint(m, this.s.ctx).map(tkey));
-        // First Light: after the first placement, hand the pointer back so the next drag draws a belt
-        if (first && this.s.level.id === 'L01') this.store.setTool({ k: 'select' });
+        // the cursor clears after every placement — unless the machine was picked with Q (repeat stamping)
+        void first;
+        if (!this.qArmed) this.store.setTool({ k: 'select' });
       }
       this.ghostKey = ''; this.updateGhost();
       return;
@@ -1697,7 +1768,7 @@ class Floor {
       const ids = ui.selection.filter((x) => this.geo?.ms.has(x) || this.geo?.bs.has(x));
       if (!ids.length) return;
       const bp = tryCopy(this.s.canvas, ids);
-      if (bp) { this.clipboard = bp; this.say(`Copied ${bp.machines.length} machine${bp.machines.length === 1 ? '' : 's'} — Ctrl-V pastes at the pointer`); e.preventDefault(); }
+      if (bp) { this.clipboard = bp; this.say(`Copied ${bp.machines.length}. Ctrl-V pastes.`); e.preventDefault(); }
       return;
     }
     if (mod && k === 'v') {
@@ -1719,9 +1790,10 @@ class Floor {
       const m = id ? this.geo?.ms.get(id)?.m : undefined;
       if (m && spec(m.kind).placeable) {
         // Q over a machine: pipette (kind + its whole configuration, recipe included)
+        this.pipette = { kind: m.kind, config: m.config };
         this.store.setTool({ k: 'place', kind: m.kind, config: m.config });
         this.store.setRot(m.rot);
-        this.pipette = { kind: m.kind, config: m.config };
+        this.qArmed = true;
       } else if (!m) {
         // Q over empty floor clears the cursor (Factorio)
         this.pipette = null; this.g = { k: 'none' }; this.clearPreview();

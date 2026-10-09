@@ -39,7 +39,7 @@ describe('variables', () => {
     expect(K.check(dup, ctx).ok).toBe(false);
     // a name used by a given is a constant, never a fresh variable
     const c2 = mkCtx({ givens: [{ id: 'h', name: 'h', fact: { k: 'eq', l: K.atom('z'), r: e } }] });
-    expect(K.withVars(c2, { nodes: [], rooms: [], vars: [{ id: 'z', label: 'z', hue: 0 }] }).error).toMatch(/already denotes/);
+    expect(K.withVars(c2, { nodes: [], rooms: [], vars: [{ id: 'z', label: 'z', hue: 0 }] }).error).toMatch(/That name is already an element/);
   });
   it('prints x₁ and TeX x_{1}; parses x₁, x1 and x_1', () => {
     const atoms = [...mkCtx().level.atoms, { id: 'v:x₁', label: 'x₁', hue: 5, variable: true }];
@@ -112,7 +112,7 @@ describe('generalize (∀-introduction)', () => {
     const s = p.start('ab');
     const r = p.tryNode({ scope: ROOT, k: 'generalize', input: s });
     expect(r.ok).toBe(false);
-    expect(r.error).toMatch(/nothing to generalize: no tower variable appears in ab = ab/);
+    expect(r.error).toMatch(/No Tower appears in ab = ab\. There is nothing to generalize\./);
     expect(() => K.generalizeFact({ k: 'bot' }, [])).toThrow();
   });
 });
@@ -127,7 +127,7 @@ describe('eigenvariable condition', () => {
     expect(p.text(q)).toBe('x₁ = e');
     const bad = p.tryNode({ scope: room, k: 'generalize', input: q });
     expect(bad.ok).toBe(false);
-    expect(bad.error).toBe("x₁ appears in the assumption x₁ = e this rests on, so it isn't arbitrary here");
+    expect(bad.error).toBe("x₁ appears in the assumption x₁ = e, so it isn't arbitrary. Exit the room first.");
     // the same in a suppose room reads 'supposition'
     const p2 = new Player(mkCtx());
     p2.declareVar('x₁');
@@ -264,7 +264,7 @@ describe('card sockets', () => {
     const q2 = p.step(q, { k: 'rewrite', rule: { k: 'axiom', id: 'unitR' }, dir: 'fwd', at: { side: 'r', path: [], range: [0, 2] }, subst: { x: K.atom('v:x₁') } });
     p.generalize(q2);
     expect(p.res.solved).toBe(false);
-    expect(p.res.sockets[0]!.error).toMatch(/relies on given h/);
+    expect(p.res.sockets[0]!.error).toMatch(/rests on given h/);
     const ok = new Player({ ...c, level: { ...c.level, sockets: [{ id: 's', target: law(['u'], M(U, a), U), allowedGivens: ['h'] }] } });
     ok.graph = p.graph; ok.res = K.check(p.graph, ok.ctx);
     expect(ok.res.solved).toBe(true);

@@ -159,8 +159,8 @@ describe('E21–E35 typed matching, bounded inference, total substitutions', () 
   });
   it('E32 undeclared integer variable', () => rej(w.rw(e, 'power.identity', 'rev', { n: int(K.polyZvar('z:q')) }), /not an integer variable/));
   it('E33 residual / cyclic meta values', () => {
-    rej(w.rw(e, 'power.identity', 'rev', { n: int(ZM('N')) }), /another variable/);
-    rej(w.rw(e, 'power.identity', 'rev', { n: int(K.polyAdd(ZM('n'), lit(1))) }), /another variable/);
+    rej(w.rw(e, 'power.identity', 'rev', { n: int(ZM('N')) }), /Use only numbers and ℤ Towers/);
+    rej(w.rw(e, 'power.identity', 'rev', { n: int(K.polyAdd(ZM('n'), lit(1))) }), /Use only numbers and ℤ Towers/);
   });
   it('E34 a rigid Tower is never captured by a binder of the same name', () => {
     const P = M(pw(X, ZM('M')), pw(X, ZM('n')));
@@ -226,7 +226,7 @@ describe('E41–E50 generalization, eigenvariables, alpha-equivalence', () => {
     const { room, assume } = w.p.openRoom('assume', 'a^n₁', 'e');
     const r = w.p.tryNode({ scope: room, k: 'generalize', input: assume });
     expect(r.ok).toBe(false);
-    expect(r.error).toMatch(/n₁ appears in the assumption a\^n₁ = e this rests on/);
+    expect(r.error).toMatch(/n₁ appears in the assumption a\^n₁ = e, so it isn't arbitrary/);
   });
   it('E43 B02 Reset Multipliers: exit first, then ∀ binds x, n, k', () => {
     const target: Card = { k: 'cond', metas: ['x', 'n', 'k'], premises: [{ k: 'eq', l: pw(K.meta('x'), ZM('n')), r: e }], concl: { k: 'eq', l: pw(K.meta('x'), K.polyMul(ZM('n'), ZM('k'))), r: e } };
@@ -315,8 +315,8 @@ describe('E51–E55 exact arithmetic and resource limits', () => {
   it('E54 literal family bounds', () => {
     const w = world();
     rej(w.rw(w.T('a^(10001)'), 'power.literal:10001', 'fwd', { x: a }), /RESOURCE_LIMIT/);
-    rej(w.rw(w.T('a^0'), 'power.literal:0', 'fwd', { x: a }), /positive whole number/);
-    rej(w.rw(w.T('a^-3'), 'power.literal:-3', 'fwd', { x: a }), /positive whole number/);
+    rej(w.rw(w.T('a^0'), 'power.literal:0', 'fwd', { x: a }), /whole number above 0/);
+    rej(w.rw(w.T('a^-3'), 'power.literal:-3', 'fwd', { x: a }), /whole number above 0/);
   });
   it('E55 the literal card is regenerated; a forged registry entry grants nothing', () => {
     const w = world();
@@ -405,7 +405,7 @@ describe('E64–E70 induction is deferred', () => {
     for (const k of ['inductUp', 'inductZ', 'range']) {
       const r = K.check({ ...w.p.graph, nodes: [{ id: 'i', scope: ROOT, k } as never] }, w.p.ctx);
       expect(r.ok).toBe(false);
-      expect(r.nodes['i']!.error).toMatch(/unknown kind of step/);
+      expect(r.nodes['i']!.error).toMatch(/Unknown kind of step/);
     }
   });
 });
@@ -422,7 +422,7 @@ describe('offers expose needed sorts and infer the rest from the redex', () => {
     expect(f.ok && f.offer.preview && K.termEq((f.offer.preview as { r: Term }).r, w.T('(e^(2))^(1)'))).toBe(true);
     const bad = K.fillOffer(o, { m: int(lit(-3)) }, w.p.graph, w.p.res, s, w.p.ctx);
     expect(bad.ok).toBe(false);
-    if (!bad.ok) expect(bad.error).toMatch(/choose an integer for n/);
+    if (!bad.ok) expect(bad.error).toMatch(/Choose an integer for n/);
     const g = w.p.offers(s, { side: 'r', path: [], gap: 1 }).find((x) => x.needs.length && x.needSorts?.n === 'Z');
     expect(g?.label).toMatch(/insert e\^n/);
   });
@@ -463,7 +463,7 @@ describe('v4 r2: card sockets up to symmetry; stacks versus words in messages', 
     const s = w.p.start('a^(5)');
     const r = w.p.tryNode({ scope: ROOT, k: 'step', input: s, op: { k: 'rewrite', rule: { k: 'node', id: 'g:h' }, dir: 'fwd', at: { side: 'r', path: [], range: [0, 1] }, subst: {} } });
     expect(r.ok).toBe(false);
-    expect(r.error).toBe('the selected part is the power a^5 (one stack), but a⁵ = e needs the word a⁵ (five beads) here — use Literal Power to turn the stack into the word');
+    expect(r.error).toBe('The selection is the power a^5 (one stack), but a⁵ = e needs the word a⁵ (five beads). Use Literal Power to turn the stack into the word.');
   });
   it('and a word where a stack was needed', () => {
     const w = world(ALL, { givens: [{ id: 'h', name: 'h', fact: { k: 'eq', l: K.power(a, lit(5)), r: e } }] });
@@ -478,7 +478,7 @@ describe('v4 r2: card sockets up to symmetry; stacks versus words in messages', 
     const q = w.p.step(s, { k: 'rewrite', rule: { k: 'node', id: 'P' }, dir: 'fwd', at: { side: 'r', path: [], range: [0, 1] }, subst: { x: a } });
     w.p.step(q, { k: 'swap' });
     expect(w.p.res.solved).toBe(false);
-    expect(w.p.res.sockets[0]!.error).toMatch(/the power a\^5 \(one stack\) where the goal has the word a⁵ \(five beads\) — use Literal Power to turn the stack into the word/);
+    expect(w.p.res.sockets[0]!.error).toMatch(/This proves the power a\^5 \(one stack\), but the goal has the word a⁵ \(five beads\)\. Use Literal Power to turn the stack into the word\./);
     void X;
   });
 });

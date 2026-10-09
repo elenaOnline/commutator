@@ -95,9 +95,9 @@ function connectNaive(c: Canvas, from: Endpoint, to: Endpoint, ctx: { level: Lev
 function fakeCompile(c: Canvas, outs: Record<string, ItemValue>): Compiled {
   const machines: Record<string, MachineResult> = {};
   for (const m of c.machines) {
-    const fed = c.belts.filter((b) => b.to.m === m.id);
+    const fed = c.belts.filter((b) => b.to?.m === m.id);
     const inputs: Record<string, ItemValue | undefined> = {};
-    for (const b of fed) inputs[b.to.port] = outs[b.from.m];
+    for (const b of fed) if (b.to) inputs[b.to.port] = outs[b.from.m];
     const out = outs[m.id];
     const unset = (m.config.kind === 'rewriter' || m.config.kind === 'operator' || m.config.kind === 'joiner' || m.config.kind === 'theorem') && !m.config.recipe;
     const status = unset ? { k: 'starved' as const, reason: 'choose a recipe in the lens' }
@@ -129,7 +129,8 @@ function stepRun(s: RunState, c: Canvas, comp: Compiled): RunState {
     if (p.at.k !== 'belt') continue;
     const b = c.belts.find((x) => x.id === (p.at as { belt: string }).belt); if (!b) continue;
     if (p.at.i < b.path.length - 1) { packets.push({ ...p, at: { k: 'belt', belt: b.id, i: p.at.i + 1 } }); continue; }
-    const to = c.machines.find((m) => m.id === b.to.m);
+    if (!b.to) { packets.push(p); continue; } // an open belt: items wait at its end
+    const to = b.to ? c.machines.find((m) => m.id === b.to!.m) : undefined;
     if (to?.config.kind === 'socket') delivered[to.config.socketId] ??= t;
     else if (to && comp.machines[to.id]?.out && !jobs[to.id]) jobs[to.id] = { finish: t + 2 };
   }
@@ -181,9 +182,30 @@ export class FixtureStore implements FloorStore {
   }
   move(ids: string[], d: Tile) { const c = { ...this.s.canvas, machines: this.s.canvas.machines.map((m) => (ids.includes(m.id) ? { ...m, at: { x: m.at.x + d.x, y: m.at.y + d.y } } : m)) }; this.commit(c); return { ok: true as const, canvas: c }; }
   rotate(id: string) { const c = { ...this.s.canvas, machines: this.s.canvas.machines.map((m) => (m.id === id ? { ...m, rot: ((m.rot + 1) % 4) as Rot } : m)) }; this.commit(c); return { ok: true as const, canvas: c }; }
-  remove(ids: string[]) { const c = { ...this.s.canvas, machines: this.s.canvas.machines.filter((m) => !ids.includes(m.id) || m.locked), belts: this.s.canvas.belts.filter((b) => !ids.includes(b.id) && !ids.includes(b.from.m) && !ids.includes(b.to.m)) }; this.commit(c); return { ok: true as const, canvas: c }; }
+  remove(ids: string[]) { const c = { ...this.s.canvas, machines: this.s.canvas.machines.filter((m) => !ids.includes(m.id) || m.locked), belts: this.s.canvas.belts.filter((b) => !ids.includes(b.id) && !ids.includes(b.from.m) && !(b.to && ids.includes(b.to.m))) }; this.commit(c); return { ok: true as const, canvas: c }; }
   connect(from: Endpoint, to: Endpoint) { const c = connectNaive(this.s.canvas, from, to, this.s.ctx as never); if (!c) return this.refuse('No clear route (fixture)'); this.commit(c); return { ok: true as const, canvas: c }; }
   connectVia(from: Endpoint, to: Endpoint) { return this.connect(from, to); }
+  /** v4.1 fixture: extendTo(from | {belt}, ground cell | input) — the editor's open-belt op, naively. */
+  extendTo(from: Endpoint | { belt: string; end?: boolean }, target: Tile | Endpoint) {
+    const c0 = this.s.canvas;
+    const isEnd = (x: unknown): x is Endpoint => !!x && typeof x === 'object' && 'm' in (x as object);
+    if (!('belt' in from)) {
+      if (isEnd(target)) return this.connect(from, target);
+      const fm = c0.machines.find((m) => m.id === from.m); const fp = fm && portsOf(fm, this.s.ctx as never).find((p) => p.id === from.port);
+      if (!fp) return this.refuse('No such output');
+      const path = fallbackRoute(() => false, portTileOut(fp), target as Tile);
+      if (!path) return this.refuse('No clear route');
+      const c = { ...c0, belts: [...c0.belts, { id: `b${c0.belts.length + 1}`, from, to: null, path }] };
+      this.commit(c); return { ok: true as const, canvas: c };
+    }
+    const b = c0.belts.find((x) => x.id === from.belt); if (!b || b.to) return this.refuse('That is not an open belt.');
+    const last = b.path[b.path.length - 1]!;
+    let cell = target as Tile, to: Endpoint | null = null;
+    if (isEnd(target)) { const tm = c0.machines.find((m) => m.id === target.m); const tp = tm && portsOf(tm, this.s.ctx as never).find((p) => p.id === target.port); if (!tp) return this.refuse('No such input'); cell = portTileOut(tp); to = target; }
+    const leg = fallbackRoute(() => false, last, cell); if (!leg) return this.refuse('No clear route');
+    const c = { ...c0, belts: c0.belts.map((x) => (x.id === b.id ? { ...x, to, path: [...x.path, ...leg.slice(1)] } : x)) };
+    this.commit(c); return { ok: true as const, canvas: c };
+  }
   branch(belt: string, to: Endpoint) { const b = this.s.canvas.belts.find((x) => x.id === belt); return b ? this.connect(b.from, to) : this.refuse('gone'); }
   branchAt(belt: string, i: number, to: Endpoint) { void i; return this.branch(belt, to); }
   paintRoom(rect: Rect, kind: Room['kind'], l: Term, r: Term) { const c = { ...this.s.canvas, rooms: [...this.s.canvas.rooms, { id: `r${this.s.canvas.rooms.length + 1}`, kind, l, r, rect }] }; this.commit(c); return { ok: true as const, canvas: c }; }

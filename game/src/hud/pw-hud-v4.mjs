@@ -100,13 +100,14 @@ try {
     await page.waitForTimeout(250);
     check((await st()).lens === tw, `[${W}] the Tower lens opens`);
     const tl = await lensText();
-    check(/not necessarily distinct/.test(tl), `[${W}] Tower copy: independently arbitrary, not necessarily distinct`);
+    check(/can be anything/.test(tl) && /may stand for the same element/.test(tl), `[${W}] Tower copy: x can be anything; two Towers may coincide`);
     await shot('S01-tower');
     await page.keyboard.press('Escape'); await page.keyboard.press('Escape');
     const sp = await placeAt('1', sk.at.x - 9, sk.at.y);
     await page.keyboard.press('Escape');
     await page.mouse.click((await mc(sp)).x, (await mc(sp)).y); await page.waitForTimeout(200);
-    await page.locator('.h3-lens .h3-term').first().fill('x_1'); await page.keyboard.press('Enter'); await page.waitForTimeout(200);
+    const xl = (await st()).machines.find((m) => m.id === tw)?.cfg.label ?? 'x';
+    await page.locator('.h3-lens .h3-term').first().fill(xl); await page.keyboard.press('Enter'); await page.waitForTimeout(200);
     await page.keyboard.press('Escape');
     const fa = await placeAt('7', sk.at.x - 5, sk.at.y);
     await page.keyboard.press('Escape'); await page.keyboard.press('Escape');

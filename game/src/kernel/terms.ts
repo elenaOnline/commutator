@@ -15,7 +15,7 @@ export const E: Term = { k: 'e' };
 export const meta = (id: MetaId): Term => ({ k: 'meta', id });
 export function inv(t: Term): Term { return { k: 'inv', arg: norm(t) }; }
 export function mul(fs: Term[]): Term {
-  if (!fs.length) throw new KErr('an empty product is not an element');
+  if (!fs.length) throw new KErr('An empty product is not an element.');
   return norm({ k: 'mul', fs });
 }
 /** v4 Phase B: the power node base^exp (normalized; never expanded). */
@@ -26,7 +26,7 @@ export function intVal(p: Poly): Term { return { k: 'int', val: polyNorm(p) }; }
 export function repeatWord(t: Term, n: number): Term { return pow(t, n); }
 /** n copies of t, normalized (n >= 1). A WORD, not a power node (legacy certificates use words). */
 export function pow(t: Term, n: number): Term {
-  if (!Number.isInteger(n) || n < 1) throw new KErr('a power must be a positive whole number');
+  if (!Number.isInteger(n) || n < 1) throw new KErr('A power needs a whole number above 0.');
   return mul(Array.from({ length: n }, () => t));
 }
 
@@ -44,12 +44,12 @@ export function norm(t: Term): Term {
       return a === t.arg ? t : { k: 'inv', arg: a };
     }
     case 'pow': {
-      if (!t.base || typeof t.base !== 'object') throw new KErr('a power needs a base');
+      if (!t.base || typeof t.base !== 'object') throw new KErr('A power needs a base.');
       return { k: 'pow', base: norm(t.base), exp: polyNorm(t.exp) };
     }
     case 'int': return { k: 'int', val: polyNorm(t.val) };
     case 'mul': {
-      if (!Array.isArray(t.fs) || !t.fs.length) throw new KErr('an empty product is not an element');
+      if (!Array.isArray(t.fs) || !t.fs.length) throw new KErr('An empty product is not an element.');
       const out: Term[] = [];
       let changed = false;
       for (const f of t.fs) {
@@ -60,7 +60,7 @@ export function norm(t: Term): Term {
       if (out.length === 1) return out[0]!;
       return changed ? { k: 'mul', fs: out } : t;
     }
-    default: throw new KErr('malformed term');
+    default: throw new KErr('This term is malformed.');
   }
 }
 
@@ -184,8 +184,8 @@ function zsubst(p: Poly, s: Subst, partial: boolean): Poly {
   return polySubst(p, (r: ZRef) => {
     if (r.k !== 'zmeta') return null;
     const v = s[r.id];
-    if (!v) { if (partial) return null; throw new KErr(`no value was chosen for ${r.id}`); }
-    if (v.k !== 'int') throw new KErr(`${r.id} is an integer variable; it cannot stand for a group element`);
+    if (!v) { if (partial) return null; throw new KErr(`Choose a value for ${r.id}.`); }
+    if (v.k !== 'int') throw new KErr(`${r.id} is an integer. It can't stand for a group element.`);
     return v.val;
   });
 }
@@ -212,8 +212,8 @@ export function instantiate(t: Term, s: Subst): Term {
     switch (u.k) {
       case 'meta': {
         const v = s[u.id];
-        if (!v) throw new KErr(`no value was chosen for ${u.id}`);
-        if (v.k === 'int') throw new KErr(`${u.id} stands for a group element, not an integer`);
+        if (!v) throw new KErr(`Choose a value for ${u.id}.`);
+        if (v.k === 'int') throw new KErr(`${u.id} stands for a group element. Give it a term, not an integer.`);
         return v;
       }
       case 'inv': return { k: 'inv', arg: go(u.arg) };
@@ -506,7 +506,7 @@ export function spliceRail(rail: Term, wordPath: number[], s: number, e: number,
     if (t.k === 'mul') { const fs = t.fs.slice(); fs[i] = go(t.fs[i]!, k + 1); return norm({ k: 'mul', fs }); }
     if (t.k === 'inv') return { k: 'inv', arg: go(t.arg, k + 1) };
     if (t.k === 'pow') return { k: 'pow', base: go(t.base, k + 1), exp: t.exp };
-    throw new KErr('that position does not exist');
+    throw new KErr('That position no longer exists.');
   };
   return go(rail, 0);
 }

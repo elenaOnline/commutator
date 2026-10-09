@@ -11,16 +11,31 @@ import { fH as fH0, tH as tH0 } from '../shell/util';
 
 export { tU, richHTML, schemaNames, schemaLemmaNo, nameHTML, labels } from '../shell/util';
 
-/** Latin Modern has no subscript glyphs: x₁ → x<sub>1</sub>. A subscripted letter is a Tower variable: striped "any". */
+/** The floor's Tower labels and their sorts (set by the app on every render): typeset maths marks them. */
+export const varRegistry = { labels: new Map<string, 'G' | 'Z'>() };
+const SUBS = '₀₁₂₃₄₅₆₇₈₉';
+const digitsOf = (sub: string) => [...sub].map((c) => String(c.charCodeAt(0) - 0x2080)).join('');
+const varTag = (label: string, sort: 'G' | 'Z' | undefined, tag: 'i' = 'i') => {
+  const m = /^(.*?)([₀₁₂₃₄₅₆₇₈₉]*)$/.exec(label)!;
+  return `<${tag} class="m-atom any ${sort === 'Z' ? 'z' : 'g'}" title="${sort === 'Z' ? 'an integer variable: it can be any integer' : 'a variable: it can be any element'}">${m[1]}${m[2] ? `<sub class="m-sub">${digitsOf(m[2])}</sub>` : ''}</${tag}>`;
+};
+/**
+ * Latin Modern has no subscript glyphs: x₁ → x<sub>1</sub>. Tower variables (subscripted letters, or any label
+ * in the registry such as a bare x) get a SOLID tinted chip by sort — never hatching (design review, 2026-10-09).
+ */
 export function fixVars(html: string): string {
-  const digits = (sub: string) => [...sub].map((c) => String(c.charCodeAt(0) - 0x2080)).join('');
+  const reg = varRegistry.labels;
   return html
-    .replace(/<i class="m-atom">([^<]*?)([₀₁₂₃₄₅₆₇₈₉]+)<\/i>/g, (_m, base: string, sub: string) =>
-      `<i class="m-atom any" title="a Tower variable: an arbitrary element">${base}<sub class="m-sub">${digits(sub)}</sub></i>`)
+    .replace(/<i class="m-atom">([^<]*)<\/i>/g, (m0, label: string) => (reg.has(label) || /[₀₁₂₃₄₅₆₇₈₉]$/.test(label) ? varTag(label, reg.get(label)) : m0))
     // names inside exponents (ℤ Towers: (ab)^{5k₁}) and anywhere else in text, never inside a tag
-    .replace(/(^|>)([^<]*)/g, (_m, gt: string, text: string) =>
-      gt + text.replace(/([A-Za-z])([₀₁₂₃₄₅₆₇₈₉]+)/g, (_x, a: string, sub: string) => `<i class="any">${a}</i><sub class="m-sub">${digits(sub)}</sub>`));
+    .replace(/(^|>)([^<]*)/g, (_m, gt: string, text: string) => gt + text.replace(/([A-Za-z])([₀₁₂₃₄₅₆₇₈₉]+)/g, (x, a: string, sub: string) => varTag(a + sub, reg.get(a + sub))))
+    // bare one-letter integer variables inside exponents: (ab)^{5k}
+    .replace(/<sup class="m-sup">([^<]*)<\/sup>/g, (m0, body: string) => {
+      const zs = [...reg].filter(([l, so]) => so === 'Z' && /^[A-Za-z]$/.test(l)).map(([l]) => l);
+      return zs.length ? `<sup class="m-sup">${body.replace(new RegExp(`[${zs.join('')}]`, 'g'), (c) => varTag(c, 'Z'))}</sup>` : m0;
+    });
 }
+void SUBS;
 export const tH = (...a: Parameters<typeof tH0>): string => fixVars(tH0(...a));
 export const fH = (...a: Parameters<typeof fH0>): string => fixVars(fH0(...a));
 export { LEVELS, LEVEL_BY_ID, REGISTRY, MIRROR_NAMES };
@@ -83,26 +98,27 @@ export const FAMILY_ORDER: Family[] = ['equation', 'inverse', 'identity', 'given
 
 /** v4 catalogue as the HUD needs it (the editor's SPECS win when they cover the kind). */
 const FALLBACK: Partial<Record<MachineKind, MachineSpec>> = {
-  spool: { kind: 'spool', name: 'Spool', family: 'equation', glyph: 't=t', blurb: 'reflexivity: from a term t, emit t = t', hotkey: '1', placeable: true },
-  rewriter: { kind: 'rewriter', name: 'Rewriter', family: 'given', glyph: 'L→R', blurb: 'rewrite at a bracket (or gap) of one equation, by a recipe: cancel, pop e, insert, or any law', hotkey: '2', placeable: true },
-  operator: { kind: 'operator', name: 'Operator', family: 'structure', glyph: 't·', blurb: 'act on the whole equation: multiply a side, invert both sides, or swap', hotkey: '3', placeable: true },
-  joiner: { kind: 'joiner', name: 'Joiner', family: 'equation', glyph: '⋈', blurb: 'combine two facts: chain, product, or clash', hotkey: '4', placeable: true },
-  theorem: { kind: 'theorem', name: 'Theorem', family: 'lemma', glyph: '⇒', blurb: 'premises ⇒ conclusion, by a conditional theorem', hotkey: '5', placeable: true },
-  tower: { kind: 'tower', name: 'Tower', family: 'scope', glyph: 'x₁', blurb: 'Let x₁ ∈ G: declare an arbitrary element, broadcast to the whole floor', hotkey: '6', placeable: true },
-  forall: { kind: 'forall', name: '∀', family: 'lemma', glyph: '∀', blurb: 'generalize: a fact about Tower variables becomes a law for every choice', hotkey: '7', placeable: true },
-  carddock: { kind: 'carddock', name: 'Card Dock', family: 'lemma', glyph: '∀=', blurb: 'put a library card on a belt', placeable: true },
-  hopper: { kind: 'hopper', name: 'Hopper', family: 'structure', glyph: 't', blurb: 'emit a fixed term t (syntax only, no claim)', placeable: true },
-  given: { kind: 'given', name: 'Given Inlet', family: 'given', glyph: 'h', blurb: 'a hypothesis of this order, supplied as stated', placeable: false },
-  socket: { kind: 'socket', name: 'Receiving Dock', family: 'equation', glyph: '∎', blurb: 'accepts the order’s target statement', placeable: false },
-  desk: { kind: 'desk', name: 'Assumption Desk', family: 'scope', glyph: '⊢', blurb: 'inside a room: emit the room’s assumption', placeable: false },
-  gate: { kind: 'gate', name: 'Exit Gate', family: 'scope', glyph: '⊣', blurb: 'what leaves the room: a negation, or P ⇒ Q from an Assume room', placeable: false },
+  spool: { kind: 'spool', name: 'Spool', family: 'equation', glyph: 't=t', blurb: 'Makes t = t from any term.', hotkey: '1', placeable: true },
+  rewriter: { kind: 'rewriter', name: 'Rewriter', family: 'given', glyph: 'L→R', blurb: 'Changes one spot of an equation, by a recipe.', hotkey: '2', placeable: true },
+  operator: { kind: 'operator', name: 'Operator', family: 'structure', glyph: 't·', blurb: 'Changes the whole equation.', hotkey: '3', placeable: true },
+  joiner: { kind: 'joiner', name: 'Joiner', family: 'equation', glyph: '⋈', blurb: 'Combines two facts.', hotkey: '4', placeable: true },
+  theorem: { kind: 'theorem', name: 'Theorem', family: 'lemma', glyph: '⇒', blurb: 'Uses a theorem: premises in, conclusion out.', hotkey: '5', placeable: true },
+  tower: { kind: 'tower', name: 'Tower', family: 'scope', glyph: 'x₁', blurb: 'x can be anything. Prove it for x, and ∀ makes it true for all.', hotkey: '6', placeable: true },
+  forall: { kind: 'forall', name: '∀', family: 'lemma', glyph: '∀', blurb: 'Makes a fact about x true for all x.', hotkey: '7', placeable: true },
+  carddock: { kind: 'carddock', name: 'Card Dock', family: 'lemma', glyph: '∀=', blurb: 'Puts a theorem on a belt.', placeable: true },
+  hopper: { kind: 'hopper', name: 'Hopper', family: 'structure', glyph: 't', blurb: 'Emits a term. No claim.', placeable: true },
+  given: { kind: 'given', name: 'Given Inlet', family: 'given', glyph: 'h', blurb: 'A hypothesis of this order.', placeable: false },
+  socket: { kind: 'socket', name: 'Receiving Dock', family: 'equation', glyph: '∎', blurb: 'Deliver the goal here.', placeable: false },
+  desk: { kind: 'desk', name: 'Assumption Desk', family: 'scope', glyph: '⊢', blurb: 'Emits the room’s assumption.', placeable: false },
+  gate: { kind: 'gate', name: 'Exit Gate', family: 'scope', glyph: '⊣', blurb: 'What leaves the room.', placeable: false },
 };
 /** v4 hotbar (DESIGN v4 §1): Spool 1 · Rewriter 2 · Operator 3 · Joiner 4 · Theorem 5 · Tower 6 · ∀ 7. */
 export const HOTBAR_V4: MachineKind[] = ['spool', 'rewriter', 'operator', 'joiner', 'theorem', 'tower', 'forall'];
 export const HOTKEY_V4: Record<string, string> = { spool: '1', rewriter: '2', operator: '3', joiner: '4', theorem: '5', tower: '6', forall: '7' };
 export function spec(kind: MachineKind): MachineSpec {
   const ed = (F.SPECS as Partial<Record<string, MachineSpec>> | undefined)?.[kind];
-  const s = ed ?? FALLBACK[kind];
+  const fb = FALLBACK[kind];
+  const s = ed ? { ...ed, blurb: fb?.blurb ?? ed.blurb } : fb; // the HUD's short copy (COPY.md) wins
   const out = s ?? { kind, name: kind[0]!.toUpperCase() + kind.slice(1), family: 'equation', glyph: '?', blurb: '', placeable: true };
   return HOTKEY_V4[kind] ? { ...out, hotkey: HOTKEY_V4[kind] } : out;
 }
@@ -157,6 +173,8 @@ export function atomsAll(s: S): import('../kernel/types').AtomDecl[] {
 }
 export const labelsAll = (s: S): Record<string, string> => Object.fromEntries(atomsAll(s).map((a) => [a.id, a.label]));
 export const huesAll = (s: S): Record<string, number> => Object.fromEntries(atomsAll(s).map((a) => [a.id, a.hue]));
+/** Tower variable id → sort. */
+export const varSortsOf = (s: S): Map<string, 'G' | 'Z'> => new Map(atomsAll(s).filter((a) => (a as { variable?: boolean }).variable).map((a) => [a.id, (a as { sort?: 'G' | 'Z' }).sort === 'Z' ? 'Z' : 'G'] as [string, 'G' | 'Z']));
 export const varIdsOf = (s: S): Set<string> => new Set(atomsAll(s).filter((a) => (a as { variable?: boolean }).variable).map((a) => a.id));
 /** Does a term mention an atom id? */
 export function mentions(t: Term, id: string): boolean {
@@ -273,3 +291,27 @@ export function statementOf(level: LevelManifest, opts: { any?: boolean } = {}):
   const tex = `For all $${mvT}$, ${cards.map((c) => clause(c, false)).join(', and ')}.`;
   return { html, tex, plainHTML: level.sockets.map((sk) => `<span class="math">${fH(sk.target, L)}</span>`).join('<span class="qed-and">and</span>') };
 }
+
+// ───────── typed fields: x1 / x_1 → x₁ as you type (only when that names a Tower; bare x stays x) ─────────
+const SUBDIG = '₀₁₂₃₄₅₆₇₈₉';
+/** Attach live subscripting to an input. `labels()` = the Tower labels it may refer to; `any` subscripts every letter+digits. */
+export function liveSubscripts(input: HTMLInputElement, labels: () => Set<string>, any = false) {
+  input.addEventListener('input', () => {
+    const v = input.value, caret = input.selectionStart ?? v.length;
+    const known = labels();
+    let removed = 0, before = 0;
+    const out = v.replace(/([A-Za-z])_?(\d+)/g, (m, a: string, d: string, off: number) => {
+      const lab = a + [...d].map((c) => SUBDIG[+c]).join('');
+      if (!any && !known.has(lab)) return m;
+      const drop = m.length - lab.length;
+      if (off + m.length <= caret) before += drop;
+      removed += drop;
+      return lab;
+    });
+    let out2 = out, before2 = before;
+    out2 = out2.replace(/\^-1/g, (m: string, off: number) => { if (off + m.length <= caret - before) before2 += m.length - 2; return '⁻¹'; });
+    if (out2 !== v) { input.value = out2; const c = caret - before2; input.setSelectionRange(c, c); input.dispatchEvent(new Event('input')); }
+    void removed;
+  });
+}
+export const towerLabelSet = (s: S): Set<string> => new Set(towerVars(s).map((v) => v.label));

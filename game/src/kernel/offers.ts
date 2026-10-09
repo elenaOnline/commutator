@@ -664,7 +664,7 @@ export function offersAt(g: ProofGraph, res: CheckResult, nodeId: NodeId, sel: A
 export function fillOffer(o: Offer, values: Subst, g: ProofGraph, res: CheckResult, nodeId: NodeId, ctx0: KernelCtx):
   { ok: true; offer: Offer } | { ok: false; error: string } {
   const env = envOf(g, res, nodeId, ctx0);
-  if (!env) return { ok: false, error: 'there is no equation here to work on' };
+  if (!env) return { ok: false, error: 'There is no equation here to work on.' };
   const ctx = env.ctx;
   try {
     const vals: Subst = {};
@@ -689,7 +689,7 @@ export function fillOffer(o: Offer, values: Subst, g: ProofGraph, res: CheckResu
         }
       }
     }
-    for (const m of o.needs) if (!vals[m]) throw new KErr(o.needSorts?.[m] === 'Z' ? `choose an integer for ${m}` : `choose an element for ${m}`);
+    for (const m of o.needs) if (!vals[m]) throw new KErr(o.needSorts?.[m] === 'Z' ? `Choose an integer for ${m}.` : `Choose an element for ${m}.`);
     const suffix = o.needs.length ? `|${substKey(vals)}` : '';
     const kind = o.kind;
     if (kind.k === 'steps') {
@@ -701,7 +701,7 @@ export function fillOffer(o: Offer, values: Subst, g: ProofGraph, res: CheckResu
         }
         if (op.k === 'lift' && op.term.k === 'meta') {
           const v = vals[op.term.id];
-          if (!v) throw new KErr('choose an element to multiply by');
+          if (!v) throw new KErr('Choose an element to multiply by.');
           return { ...op, term: v };
         }
         return op;
@@ -728,7 +728,7 @@ export function fillOffer(o: Offer, values: Subst, g: ProofGraph, res: CheckResu
       const facts = kind.inputs.map((id) => {
         if (id === nodeId) return kind.preSwap ? { k: env.fact.k, l: env.fact.r, r: env.fact.l } : env.fact;
         const f = res.nodes[id];
-        if (!f?.ok || !f.fact) throw new KErr('a premise is no longer available');
+        if (!f?.ok || !f.fact) throw new KErr('A premise is gone. Pick it again.');
         return f.fact;
       });
       const preview = applyCore(card, facts, s, ctx);
@@ -740,7 +740,7 @@ export function fillOffer(o: Offer, values: Subst, g: ProofGraph, res: CheckResu
     }
     return { ok: true, offer: o };
   } catch (e) {
-    return { ok: false, error: e instanceof KErr ? e.message : `that does not work (${(e as Error)?.message ?? 'unknown'})` };
+    return { ok: false, error: e instanceof KErr ? e.message : `That doesn't work (${(e as Error)?.message ?? 'unknown'}).` };
   }
 }
 

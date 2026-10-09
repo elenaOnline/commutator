@@ -95,7 +95,7 @@ export function mountLab(el: HTMLElement, store: Store, toast: (m: string) => vo
 
   const parseClaim = (src: string): { ok: true; p: Pallet } | { ok: false; error: string } => {
     const m = /^(.*?)(≠|!=|=\/=|=)(.*)$/.exec(src);
-    if (!m) return { ok: false, error: 'Write a claim as two terms joined by = or ≠, e.g. ab = ba.' };
+    if (!m) return { ok: false, error: 'Write it like ab = ba.' };
     const atoms = store.get().level.atoms;
     const l = safe(() => K.parseTerm(m[1]!.trim(), atoms), { ok: false as const, error: 'term entry is not ready yet' });
     if (!l.ok) return { ok: false, error: `Left side: ${l.error}` };
@@ -127,7 +127,7 @@ export function mountLab(el: HTMLElement, store: Store, toast: (m: string) => vo
     const atomIds = s.level.atoms.map((a) => a.id);
     const groups = eligibleGroups(facts);
     const final = safe(() => testClaim(claim, s.level.atoms, facts, s.level), null);
-    rows.innerHTML = ''; verdict.innerHTML = '<p class="lab-dim">Running the test cases…</p>';
+    rows.innerHTML = ''; verdict.innerHTML = '<p class="lab-dim">Testing…</p>';
     el.classList.remove('refuted', 'survived');
     const fast = reducedMotion();
     let i = 0, totalCases = 0;
@@ -165,10 +165,10 @@ export function mountLab(el: HTMLElement, store: Store, toast: (m: string) => vo
         verdict.innerHTML = `<p>${claimHTML} ${surviveHTML(groups, n, facts.length > 0).replace('<b class="good">Survives</b>', '<b class="good">survives</b>')} Pin it and build the proof.</p>`;
         const pin = h('button', { class: 'lw-key small' }, 'Pin as a planning target');
         pin.addEventListener('click', () => {
-          if (ctxKey(store.get(), activeScopeOf(store.get())) !== testCtx) { toast('The context changed since this test. Test again first.'); return; }
+          if (ctxKey(store.get(), activeScopeOf(store.get())) !== testCtx) { toast('Things changed. Test again.'); return; }
           hooks.pin(claim);
           toggle(false);
-          toast('Pinned on the work order as a planning target. It is not proven: only a delivery proves.');
+          toast('Pinned on the work order. Not proven yet.');
         });
         verdict.append(pin);
       }
@@ -187,7 +187,7 @@ export function mountLab(el: HTMLElement, store: Store, toast: (m: string) => vo
   const pinAndClose = (c: Pallet) => {
     hooks.pin(c);
     toggle(false);
-    toast('Pinned on the work order as a planning target. It is not proven: only a delivery proves.');
+    toast('Pinned on the work order. Not proven yet.');
   };
   const renderPredict = (s: State) => {
     const cards = s.level.predict ?? [];
@@ -199,7 +199,7 @@ export function mountLab(el: HTMLElement, store: Store, toast: (m: string) => vo
     const ran = state.snap !== null;
     predictPane.innerHTML = '';
     const { names } = assumptionsFor(s, K.ROOT);
-    predictPane.append(h('p', { class: 'lab-intro' }, h('b', {}, 'Before you prove: which of these survive?'), ` Make a guess for each, then run the test groups.${state.round > 1 ? ` Round ${state.round}.` : ''}`),
+    predictPane.append(h('p', { class: 'lab-intro' }, h('b', {}, 'Which of these survive?'), ` Guess, then test.${state.round > 1 ? ` Round ${state.round}.` : ''}`),
       h('div', { class: 'lab-under', html: names.length ? `<span class="lab-dim">Under</span> ${names.join(', ')}` : '<span class="lab-dim">Under the group axioms only.</span>' }));
     const list = h('div', { class: 'pcards' });
     cards.forEach((c, i) => {
@@ -240,7 +240,7 @@ export function mountLab(el: HTMLElement, store: Store, toast: (m: string) => vo
     });
     const runBtn = h('button', { class: 'lw-key primary small', disabled: state.running }, state.running ? 'Testing…' : ran ? 'Run this round again' : 'Run the tests');
     runBtn.addEventListener('click', () => runPredictions());
-    predictPane.append(list, h('div', { class: 'pfoot' }, runBtn, h('span', { class: 'lab-dim' }, 'No score. A survivor still needs a proof; only a proof delivers.')));
+    predictPane.append(list, h('div', { class: 'pfoot' }, runBtn, h('span', { class: 'lab-dim' }, 'Testing never proves.')));
     predictCtx = ctx;
   };
   const surviveHTML = (groups: FiniteGroup[], cases: number, givens: boolean) => givens
@@ -309,7 +309,7 @@ export function mountLab(el: HTMLElement, store: Store, toast: (m: string) => vo
     if (testCtx && testCtx !== ctx) {
       runId++;
       rows.innerHTML = '';
-      verdict.innerHTML = '<p class="lab-stale">The level or scope changed, so the last result no longer applies. Test again.</p>';
+      verdict.innerHTML = '<p class="lab-stale">Things changed. Test again.</p>';
       el.classList.remove('refuted', 'survived');
       testCtx = '';
     }

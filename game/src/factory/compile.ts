@@ -45,100 +45,104 @@ const sideWord = (s: 'l' | 'r') => (s === 'r' ? 'right' : 'left');
 
 /** Every message the compiler can show, in one place. `{…}` parts are interpolated by the caller. */
 export const JAMS = {
+  // Copy rules (design/v4/COPY.md): what is wrong, then what to do. Short sentences, plain words.
+  // An unconnected port needs no words: the empty port shows it (starved, reason '').
   // wiring / types
-  notConnected: (port: string, ks: ItemKind[]) => `not connected: the ${port} inlet needs ${nounList(ks)}`,
-  waiting: (who: string, ks: ItemKind[]) => `waiting on ${who} upstream: it cannot supply ${nounList(ks)} yet`,
-  wrongKind: (ks: ItemKind[], got: string, gotKind: ItemKind) => `this inlet needs ${nounList(ks)}; ${got} is ${NOUN[gotKind]}`,
-  ruleNeq: (f: string) => `this rule is an inequation (${f}); a rewrite needs an equation — ${f} says nothing about replacing one side by the other`,
-  ruleCond: (f: string) => `${f} is conditional: route it into an Apply machine with its premises; only the resulting equation can rewrite`,
-  ruleOther: (f: string, k: ItemKind) => `${f} is ${NOUN[k]}, not an equation or a law; it cannot rewrite`,
-  belt: (msg: string) => `the belt into this inlet is disabled: ${msg}`,
-  cycle: 'circular: this machine’s output feeds back into its own inputs',
+  notConnected: (_port: string, _ks: ItemKind[]) => '',
+  waiting: (who: string, _ks: ItemKind[]) => `Waiting on the ${who}.`,
+  wrongKind: (ks: ItemKind[], got: string, gotKind: ItemKind) => `${got} is ${NOUN[gotKind]}. This needs ${nounList(ks)}.`,
+  ruleNeq: (f: string) => `${f} is an inequation. A rule needs an equation.`,
+  ruleCond: (f: string) => `${f} has a premise. Use a Theorem first.`,
+  ruleOther: (f: string, k: ItemKind) => `${f} is ${NOUN[k]}. A rule needs an equation or a law.`,
+  belt: (_msg: string) => 'Its input belt is disabled. Hover the belt.',
+  cycle: 'This feeds itself. Break the loop.',
   // knobs
-  chooseElement: (what: string) => `choose an element for ${what}`,
+  chooseElement: (what: string) => `Choose ${what}.`,
   // targets
-  noCancel: (side: string, rail: string) => `nothing to cancel: there is no element next to its inverse in the incoming ${side} side ${rail}`,
-  noCancelAnywhere: (q: string) => `nothing to cancel: no x x⁻¹ or x⁻¹x anywhere in ${q}`,
-  pinGone: (sel: string, side: string, rail: string) => `no ${sel} here: the incoming ${side} side is ${rail}`,
-  pinAmbiguous: (sel: string, side: string) => `${sel} now occurs in several places on the ${side} side with the same neighbours; pick its bracket again`,
-  gapGone: (side: string, rail: string) => `the pinned gap is no longer there: the incoming ${side} side is ${rail}`,
-  gapAmbiguous: (side: string) => `the pinned gap now fits several places on the ${side} side; pick it again`,
-  notInverses: (sel: string) => `${sel} is not an element next to its inverse`,
-  noE: (q: string) => `there is no e beside another factor in ${q}`,
-  soleE: 'a sole e cannot be removed: an empty product is not an element',
-  notE: (sel: string) => `${sel} is not a single e`,
-  noRedex: (pat: string, q: string, name: string) => `there is no ${pat} in ${q} for ${name}`,
-  pinMismatch: (sel: string, name: string, src: string) => `the bracketed part is ${sel}, but ${name} needs ${src} here`,
-  needsMeta: (m: string) => `the law needs an element for ${m}: set it on the machine`,
-  notAVariable: (m: string) => `${m} is not a variable of this law`,
-  ruleNotE: (name: string, dir: string) => `the ${dir} side of ${name} is not e for any choice of its variables; the Expander can only grow e into a rule side equal to e`,
-  expanderMetas: (name: string, ms: string) => `${name} needs elements for ${ms}; the Expander supplies one (x) — use a Rewriter at an inserted e`,
-  // apply / stamps
-  premiseCount: (name: string, n: number, m: number) => `${name} takes ${n} premise${n === 1 ? '' : 's'}, but this machine has ${m} premise inlet${m === 1 ? '' : 's'}`,
-  premiseShape: (i: string, want: string, got: string) => `${i} must read ${want}, but it reads ${got}`,
-  noChoice: (name: string) => `${name} does not fit the incoming premises at any choice of its variables`,
-  choiceGone: (n: number, k: number) => `choice ${n + 1} no longer exists (${k} fit now); pick one again`,
-  applyNotCard: (f: string) => `${f} is not a universal statement; there is nothing to apply`,
-  // anvil
-  anvilKinds: 'a contradiction needs one equation and one inequation',
+  noCancel: (_side: string, rail: string) => `Nothing cancels in ${rail}.`,
+  noCancelAnywhere: (q: string) => `Nothing cancels in ${q}.`,
+  pinGone: (sel: string, _side: string, rail: string) => `No ${sel} in ${rail}. Pick the bracket again.`,
+  pinAmbiguous: (sel: string, _side: string) => `${sel} appears twice now. Pick the bracket again.`,
+  gapGone: (_side: string, rail: string) => `That gap is gone from ${rail}. Pick it again.`,
+  gapAmbiguous: (_side: string) => 'That gap fits twice now. Pick it again.',
+  notInverses: (sel: string) => `${sel} is not x x⁻¹. Bracket a pair.`,
+  noE: (q: string) => `No e to remove in ${q}.`,
+  soleE: 'A lone e cannot go. Leave it.',
+  notE: (sel: string) => `${sel} is not e. Bracket an e.`,
+  noRedex: (pat: string, q: string, _name: string) => `No ${pat} in ${q}.`,
+  pinMismatch: (sel: string, name: string, src: string) => `${name} needs ${src} here, not ${sel}.`,
+  needsMeta: (m: string) => `Set ${m} on the machine.`,
+  notAVariable: (m: string) => `${m} is not in this law. Clear that knob.`,
+  ruleNotE: (name: string, _dir: string) => `${name} has no e side. Use it at a bracket.`,
+  // apply / theorems
+  premiseCount: (name: string, n: number, m: number) => `${name} takes ${n} premise${n === 1 ? '' : 's'}. This has ${m}.`,
+  premiseShape: (i: string, want: string, got: string) => `${i[0]!.toUpperCase()}${i.slice(1)} must be ${want}. It is ${got}.`,
+  noChoice: (name: string) => `${name} does not fit these premises.`,
+  choiceGone: (n: number, _k: number) => `Choice ${n + 1} is gone. Pick again.`,
+  applyNotCard: (f: string) => `${f} is not a theorem. Route a card.`,
+  // clash
+  anvilKinds: 'Clash needs one = and one ≠.',
   // rooms & scope
-  straddle: (name: string) => `${name} straddles the boundary of a room; place it wholly in one scope`,
-  roomOverlap: 'this room partially overlaps another room; rooms must nest or stay apart',
-  noRoom: 'this belongs to no room on the floor',
-  leakFact: (f: string, sup: string) => `${f} still depends on the supposition ${sup} — it can only leave the room through the room’s gate`,
-  leakItem: (it: string) => `${it} cannot leave its room on a belt; only the exit gate crosses outward — build it outside the room`,
-  leakSibling: 'a belt cannot pass from one room into another; only the exit gate crosses outward',
+  straddle: (name: string) => `The ${name} straddles a wall. Move it in or out.`,
+  roomOverlap: 'Rooms overlap. Nest them or keep them apart.',
+  noRoom: 'Its room is gone.',
+  leakFact: (f: string, sup: string) => `${f} rests on ${sup}. Leave through the gate.`,
+  leakItem: (it: string) => `${it} cannot cross the wall. Build it outside.`,
+  leakSibling: 'A belt cannot leave a room. Use the gate.',
   // belts
-  beltPort: 'this belt’s end is not attached to a matching port',
-  beltDuplicate: 'this inlet already has a belt; one inlet takes one supplier',
-  beltCross: 'this belt runs along another line; belts may only cross at right angles',
-  beltBrokenIn: (why: string) => `the belt into this inlet is broken (${why}); re-route it`,
-  beltThrough: 'this belt runs through a machine',
-  beltBroken: 'this belt’s path is broken (its cells are not consecutive)',
-  beltRejoin: 'branches of one line cannot rejoin',
-  // sockets
-  socketWrong: (want: string, got: string) => `this dock needs ${want}, but the belt delivers ${got}`,
-  socketNotRoot: 'this dock takes only finished proofs from outside every room',
-  noGiven: (id: string) => `there is no given “${id}” in this work order`,
-  noSocket: (id: string) => `there is no goal “${id}” in this work order`,
-  budget: 'this expression has too many possible matches; choose a smaller construction',
+  beltPort: 'Not attached to a port.',
+  beltDuplicate: 'That inlet already has a belt.',
+  beltCross: 'Belts cross only at right angles.',
+  beltThrough: 'This belt runs through a machine.',
+  beltBroken: 'This belt is broken. Redraw it.',
+  beltRejoin: 'Branches cannot rejoin.',
+  beltBrokenIn: (_why: string) => 'Its input belt is broken. Redraw it.',
+  // docks
+  socketWrong: (want: string, got: string) => `Needs ${want}. Got ${got}.`,
+  socketNotRoot: 'Deliver from outside every room.',
+  noGiven: (id: string) => `There is no given ${id}.`,
+  noSocket: (id: string) => `There is no goal ${id}.`,
+  budget: 'Too many matches. Bracket a smaller part.',
+  gatePlace: 'This gate is not on its own wall.',
+  deskPlace: 'This desk is not in its room.',
   // v4
-  chooseRecipe: 'choose a recipe',
-  unknownRecipe: 'this recipe is not one this machine knows',
-  oldMachine: (k: string) => `a “${k}” belongs to an older factory; replace it with a v4 machine`,
-  undeclared: (x: string) => `${x}'s Tower was deleted — undo, or place a Tower and rename it ${x} to reconnect`,
-  tooLarge: 'this is too large to check here (a size limit, not a mathematical verdict)',
-  intFromBelt: (m: string) => `${m} is an integer; set it on the machine (a belt carries group elements, not integers)`,
-  needsInt: (m: string) => `the law needs an integer for ${m}: set it on the machine`,
-  towerUnnamed: 'this Tower has no name yet',
-  towerDup: (x: string, who: string) => `${x} is already declared by ${who}; every Tower needs a fresh name`,
-  noLagrange: 'Lagrange needs a group-size given |G| = n',
-  libNotRule: (f: string, k: ItemKind) => `${f} is ${NOUN[k]}; a rewrite needs an equation or a law`,
-  libNotCard: (f: string, k: ItemKind) => `${f} is ${NOUN[k]}, not a theorem with premises; a Theorem needs a law or a conditional card`,
-  forallLibrary: 'a library card is already universal; ∀ needs a fact or card made on this floor',
-  forallEigen: (sup: string, x: string) => `this depends on the supposition ${sup}, which mentions ${x}, so it is not about every ${x} — export it through an Assume room's gate first (giving ${sup} ⇒ …), then generalize`,
-  assumeGate: (f: string) => `an Assume room exports an implication P ⇒ Q for an equation or inequation Q; ${f} is not one`,
-  socketNeedsCard: (want: string, got: string) => `this dock needs the universal statement ${want}, but the belt delivers ${got} — generalize it with a ∀ machine first`,
-  socketLibrary: 'this dock needs a proof made on this floor, not a library card',
-  socketStack: (want: string, have: string, needed: string, hint: string) => `this dock needs ${want}: the belt carries ${have} where the goal has ${needed} — ${hint}`,
+  chooseRecipe: 'Choose a recipe.',
+  unknownRecipe: 'Unknown recipe. Choose another.',
+  oldMachine: (k: string) => `A ${k} is from an old version. Replace it.`,
+  undeclared: (x: string) => `${x}'s Tower was deleted. Undo, or add a Tower named ${x}.`,
+  tooLarge: 'Too large to check here. That is a size limit, not a disproof.',
+  intFromBelt: (m: string) => `${m} is an integer. Set it on the machine.`,
+  needsInt: (m: string) => `Set the integer ${m} on the machine.`,
+  towerUnnamed: 'Name this Tower.',
+  towerDup: (x: string, _who: string) => `${x} is taken. Rename this Tower.`,
+  noLagrange: 'Lagrange needs a |G| = n given.',
+  libNotRule: (f: string, k: ItemKind) => `${f} is ${NOUN[k]}. A rule needs an equation or a law.`,
+  libNotCard: (f: string, k: ItemKind) => `${f} is ${NOUN[k]}. A Theorem needs a law or an if–then card.`,
+  forallLibrary: 'Library cards are already universal. ∀ needs a fact made here.',
+  forallEigen: (sup: string, x: string) => `${x} appears in the supposition ${sup}. Use the room's gate first.`,
+  assumeGate: (f: string) => `${f} is not an equation. This gate takes = or ≠.`,
+  socketNeedsCard: (want: string, got: string) => `Needs ${want}. Run ${got} through ∀ first.`,
+  socketLibrary: 'Needs a proof made here, not a library card.',
+  socketStack: (_want: string, have: string, needed: string, hint: string) => `Got ${have}, the goal has ${needed}. ${hint[0]!.toUpperCase()}${hint.slice(1)}.`,
+  multiplyNeq: (f: string) => `${f} is an inequation. Multiply needs an equation.`,
+  gateNeedsBot: (f: string) => `This room closes on ⊥. ${f} is not ⊥.`,
+  bothSame: (k: 'eq' | 'neq') => `Both inlets carry ${k === 'eq' ? 'equations' : 'inequations'}. Clash needs one = and one ≠.`,
   // Lemma Book
-  lemmaNotCard: 'only a ∀ machine or an Assume room’s gate makes a lemma',
-  lemmaNotReady: (why: string) => `this machine has no finished card yet: ${why}`,
-  lemmaInRoom: 'this card is still inside a room; a lemma must be proved at the floor’s root',
-  lemmaGiven: (g: string) => `uses given ${g} — global lemmas need no level givens`,
-  lemmaConst: (a: string) => `still mentions the level constant ${a} — build it with a Tower instead`,
-  lemmaVar: (x: string) => `still mentions ${x} freely — generalize it with a ∀ machine`,
-  lemmaSupposition: (sup: string) => `depends on the supposition ${sup} — export it through the room's gate first`,
-  lemmaSelf: 'a lemma cannot be used in its own proof (or in a proof saved before it)',
-  lemmaChanged: 'the saved proof no longer produces this exact card',
-  gatePlace: 'this gate is not on its own room’s wall facing out; only a room’s own gate crosses its boundary',
-  deskPlace: 'this desk is not inside its own room',
+  lemmaNotCard: 'Only ∀ or an Assume gate makes a lemma.',
+  lemmaNotReady: (why: string) => why || 'Nothing comes out yet.',
+  lemmaInRoom: 'It is still inside a room. Prove it outside.',
+  lemmaGiven: (g: string) => `Uses given ${g}. Lemmas need no givens.`,
+  lemmaConst: (a: string) => `Mentions the constant ${a}. Use a Tower instead.`,
+  lemmaVar: (x: string) => `${x} is still free. Run it through ∀.`,
+  lemmaSupposition: (sup: string) => `Rests on ${sup}. Use the room's gate first.`,
+  lemmaSelf: 'A lemma cannot cite itself or a later lemma.',
+  lemmaChanged: 'The saved proof no longer gives this card.',
 } as const;
 
 /** Rewrite the kernel's "z is not an element of this work order" for an undeclared variable. */
 function undeclared(msg: string): string {
   if (msg.startsWith('RESOURCE_LIMIT')) return JAMS.tooLarge;
-  const m = /^(.+) is not (?:an element|an integer variable) of this work order$/.exec(msg);
+  const m = /^(.+) is not (?:an element|an integer variable) (?:of this work order|here)\.?$/.exec(msg);
   return m && /^[A-Za-z]+[_0-9₀-₉]+$/.test(m[1]!) ? JAMS.undeclared(varLabel(m[1]!)) : msg;
 }
 
@@ -405,10 +409,43 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
   const brokenIn = new Map<string, string>();   // `${m}|${port}` → kept-but-broken belt id
   const takenIn = new Set<string>();
   const same2 = (p: Tile, q: Tile) => p.x === q.x && p.y === q.y;
+  const openBelts: Belt[] = [];
   for (const b of belts) {
-    const fm = byId.get(b.from?.m), tm = byId.get(b.to?.m);
+    if (b.to === null) {
+      // an open belt ends on a ground cell: it feeds nothing (no jam), its packets wait at its end
+      const om = byId.get(b.from?.m);
+      const op = om ? ports.get(om.id)?.find((p) => p.id === b.from.port && p.dir === 'out') : undefined;
+      if (!om || !op || !Array.isArray(b.path) || !b.path.length || b.broken) continue;
+      const d = FACE_DELTA[op.face];
+      const p0 = b.path[0]!;
+      let bad = Math.abs(p0.x - op.tile.x) + Math.abs(p0.y - op.tile.y) !== 1 || (p0.x === op.tile.x - d.x && p0.y === op.tile.y - d.y);
+      for (let i = 1; i < b.path.length && !bad; i++) if (Math.abs(b.path[i]!.x - b.path[i - 1]!.x) + Math.abs(b.path[i]!.y - b.path[i - 1]!.y) !== 1) bad = true;
+      if (bad) { beltErrors[b.id] = JAMS.beltBroken; continue; }
+      if (b.path.some((t) => occupied.has(tileKey(t)))) { beltErrors[b.id] = JAMS.beltThrough; continue; }
+      let clash: string | null = null;
+      const mine: { k: string; use: { net: string; pred: string; straight: boolean; axis: 'h' | 'v' } }[] = [];
+      for (let i = 0; i < b.path.length && !clash; i++) {
+        const cell = b.path[i]!, prev = i === 0 ? op.tile : b.path[i - 1]!, next = b.path[i + 1];
+        const inAx = prev.x !== cell.x ? 'h' : 'v', outAx = next ? (next.x !== cell.x ? 'h' : 'v') : inAx;
+        const use = { net: om.id, pred: tileKey(prev), straight: inAx === outAx, axis: inAx as 'h' | 'v' };
+        const k = tileKey(cell);
+        for (const o of cellUse.get(k) ?? []) {
+          if (o.net === use.net && o.pred === use.pred) continue;
+          if (o.straight && use.straight && o.axis !== use.axis) continue;
+          clash = o.net === use.net ? JAMS.beltRejoin : JAMS.beltCross;
+          break;
+        }
+        mine.push({ k, use });
+      }
+      if (clash) { beltErrors[b.id] = clash; continue; }
+      for (const x of mine) { const arr = cellUse.get(x.k) ?? []; arr.push(x.use); cellUse.set(x.k, arr); }
+      openBelts.push(b);
+      continue;
+    }
+    const to = b.to;
+    const fm = byId.get(b.from?.m), tm = byId.get(to?.m);
     const fp = fm ? ports.get(fm.id)?.find((p) => p.id === b.from.port && p.dir === 'out') : undefined;
-    const tp = tm ? ports.get(tm.id)?.find((p) => p.id === b.to.port && p.dir === 'in') : undefined;
+    const tp = tm ? ports.get(tm.id)?.find((p) => p.id === to.port && p.dir === 'in') : undefined;
     if (!fm || !tm || !fp || !tp || !Array.isArray(b.path)) { beltErrors[b.id] = b.broken ?? JAMS.beltPort; continue; }
     const inKey = `${tm.id}|${tp.id}`;
     if (takenIn.has(inKey)) { beltErrors[b.id] = JAMS.beltDuplicate; continue; }
@@ -468,10 +505,11 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
   const consumers = new Map<string, string[]>();
   const indeg = new Map<string, number>(machines.map((m) => [m.id, 0]));
   for (const b of inBelt.values()) {
+    const to = b.to!;
     const arr = consumers.get(b.from.m) ?? [];
-    arr.push(b.to.m);
+    arr.push(to.m);
     consumers.set(b.from.m, arr);
-    indeg.set(b.to.m, (indeg.get(b.to.m) ?? 0) + 1);
+    indeg.set(to.m, (indeg.get(to.m) ?? 0) + 1);
   }
   const order: string[] = [];
   const done = new Set<string>();
@@ -1090,7 +1128,7 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
           const qv = getFact('q');
           if (qv.fact.k !== 'eq' && qv.fact.k !== 'neq') jam(JAMS.wrongKind(['eq', 'neq'], F(qv.fact), qv.fact.k));
           if (rc.k === 'multiply') {
-            if (qv.fact.k !== 'eq') jam(`only an equation can be multiplied on both sides; ${F(qv.fact)} is an inequation`);
+            if (qv.fact.k !== 'eq') jam(JAMS.multiplyNeq(F(qv.fact)));
             const t = param(rc.t, 't', 't');
             emit({ k: 'step', input: qv.node, op: { k: 'lift', side: rc.side, term: t } } as never, `multiply on the ${rc.side}`, 'lift');
           } else if (rc.k === 'invert') emit({ k: 'step', input: qv.node, op: { k: 'invert' } } as never, 'invert both sides', 'invert');
@@ -1108,8 +1146,7 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
             // either inlet may carry either statement: sort by kind, then clash([eq, neq])
             const [qn, nn] = a.fact.k === 'eq' && b.fact.k === 'neq' ? [a.node, b.node] : b.fact.k === 'eq' && a.fact.k === 'neq' ? [b.node, a.node] : [null, null];
             if (!qn || !nn) {
-              const both = a.fact.k === b.fact.k && (a.fact.k === 'eq' || a.fact.k === 'neq') ? `; both inlets carry ${a.fact.k === 'eq' ? 'equations' : 'inequations'}` : '';
-              jam(`${JAMS.anvilKinds}${both}`);
+              jam(a.fact.k === b.fact.k && (a.fact.k === 'eq' || a.fact.k === 'neq') ? JAMS.bothSame(a.fact.k) : JAMS.anvilKinds);
             }
             emit({ k: 'clash', inputs: [qn!, nn!] } as never, 'contradiction', 'clash');
           } else {
@@ -1165,7 +1202,7 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
           const qv = getFact(gp);
           if (room?.kind === 'assume') {
             if (qv.fact.k !== 'eq' && qv.fact.k !== 'neq') jam(JAMS.assumeGate(F(qv.fact)));
-          } else if (qv.fact.k !== 'bot') jam(`this would leave the room with its assumption still open: a room is closed only by a contradiction (⊥), not ${F(qv.fact)}`);
+          } else if (qv.fact.k !== 'bot') jam(JAMS.gateNeedsBot(F(qv.fact)));
           emit({ k: 'exit', room: cfg.room, input: qv.node } as never, room?.kind === 'assume' ? 'discharge (⇒)' : 'discharge', 'exit');
           r.duration = 1;
           break;
@@ -1315,11 +1352,14 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
 
   // ── transport plan: buffers per belt cell (B|belt|i), so crossings are independent lines ──
   for (const b of belts) {
-    if (beltErrors[b.id] || inBelt.get(`${b.to.m}|${b.to.port}`) !== b) continue;
+    const to = b.to;
+    const open = to === null && openBelts.includes(b);
+    if (!open && (beltErrors[b.id] || !to || inBelt.get(`${to.m}|${to.port}`) !== b)) continue;
     plan.active.push(b.id);
-    plan.feeds[LK.in(b.to.m, b.to.port)] = b.from.m;
+    if (to) plan.feeds[LK.in(to.m, to.port)] = b.from.m;
     (plan.routes[b.from.m] ??= []).push(b.id);
-    const keys = [LK.out(b.from.m), ...b.path.map((_t, i) => LK.belt(b.id, i)), LK.in(b.to.m, b.to.port)];
+    // an open belt's last cell has no successor: packets wait there (and count toward the in-flight cap)
+    const keys = [LK.out(b.from.m), ...b.path.map((_t, i) => LK.belt(b.id, i)), ...(to ? [LK.in(to.m, to.port)] : [])];
     for (let i = 0; i + 1 < keys.length; i++) (plan.succ[keys[i]!] ??= []).push(keys[i + 1]!);
   }
 
@@ -1357,12 +1397,12 @@ export function lemmaFrom(comp: Compiled, c: Canvas, machineId: string, ctx: Ker
   const room = m?.config.kind === 'gate' ? c.rooms.find((x) => x.id === (m.config as { room: string }).room) : undefined;
   if (!m || !(m.kind === 'forall' || (m.kind === 'gate' && room?.kind === 'assume'))) return { ok: false, reason: JAMS.lemmaNotCard };
   const r = comp.machines[machineId];
-  if (!r || r.status.k !== 'ok') return { ok: false, reason: JAMS.lemmaNotReady(r && r.status.k !== 'ok' ? r.status.reason : 'nothing comes out yet') };
-  if (r.out?.k !== 'card' || r.out.ref.k !== 'node') return { ok: false, reason: JAMS.lemmaNotReady('nothing comes out yet') };
+  if (!r || r.status.k !== 'ok') return { ok: false, reason: JAMS.lemmaNotReady(r && r.status.k !== 'ok' ? r.status.reason : '') };
+  if (r.out?.k !== 'card' || r.out.ref.k !== 'node') return { ok: false, reason: JAMS.lemmaNotReady('') };
   const nodeIdOut = r.out.ref.id;
   const node = comp.graph.nodes.find((n) => n.id === nodeIdOut);
   const nr = comp.check.nodes[nodeIdOut];
-  if (!node || !nr?.ok || !nr.fact || (nr.fact.k !== 'law' && nr.fact.k !== 'cond')) return { ok: false, reason: JAMS.lemmaNotReady(nr?.error ?? 'the kernel has not certified it') };
+  if (!node || !nr?.ok || !nr.fact || (nr.fact.k !== 'law' && nr.fact.k !== 'cond')) return { ok: false, reason: JAMS.lemmaNotReady(nr?.error ?? 'The kernel has not checked it.') };
   const L = labelsOf([...ctx.level.atoms, ...(comp.graph.vars ?? [])]);
   for (const d of [...nr.deps].sort(cmp)) {
     if (d.startsWith('g:')) {
@@ -1374,7 +1414,7 @@ export function lemmaFrom(comp: Compiled, c: Canvas, machineId: string, ctx: Ker
       const k = rm && (rm.kind === 'suppose' || (rm.kind === 'assume' && (rm.rel ?? 'eq') === 'eq')) ? 'eq' : 'neq';
       return { ok: false, reason: JAMS.lemmaSupposition(rm ? factText({ k, l: rm.l, r: rm.r }, L) : 'a room’s assumption') };
     }
-    return { ok: false, reason: JAMS.lemmaNotReady(`it rests on ${d}`) };
+    return { ok: false, reason: JAMS.lemmaNotReady(`It rests on ${d}.`) };
   }
   if (node.scope !== ROOT) return { ok: false, reason: JAMS.lemmaInRoom };
   const atoms = [...atomsOfFact(nr.fact)].sort(cmp);

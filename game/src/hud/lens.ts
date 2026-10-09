@@ -10,23 +10,18 @@ import { beads as beadsInline, rail } from './beads';
 import { FAMILY } from '../ui/tokens';
 import {
   KIND_WORD, atomsAll, atomsIn, esc, fH, h, huesAll, itemHTML, labelsAll, machineName, machineRect, nameHTML, richHTML, safe, spec, tH,
-  towerVars, varIdsOf, type S, type Store,
+  towerLabelSet, liveSubscripts, towerVars, varIdsOf, varSortsOf, type S, type Store,
 } from './util';
 import { GROUP_ORDER, libCard, libraryFor, recipeKey, type AnyRecipe, type LibEntry } from './library';
 import { armPreset, isPinned, pin, presetKey, unpin, withRecipe } from './presets';
 import { openConceptFor } from './concept';
+import { markVarBeads } from './strip';
 import { hasDistinctMirror } from '../factory/catalog';
 
 const pathKey = (p: number[]) => p.join('.');
-/** Tower variables are striped "any" beads everywhere. */
-function markVars<T extends HTMLElement>(el: T, vars: Set<string>): T {
-  if (vars.size) el.querySelectorAll<HTMLElement>('.bn-f[data-leaf], .bn-f').forEach((f) => {
-    const leaf = f.dataset.leaf ?? '';
-    const id = leaf.startsWith('a:') ? leaf.slice(2) : leaf.startsWith('i:') ? (/"id":"([^"]+)"/.exec(leaf)?.[1] ?? '') : '';
-    if (id && vars.has(id)) f.classList.add('h3-varbead');
-  });
-  return el;
-}
+/** Tower variables are solid "any" beads everywhere (violet for elements, teal for integers). */
+function markVars<T extends HTMLElement>(el: T, _vars: Set<string>): T { return markVarBeads(el, sortsNow()); }
+let sortsNow: () => Map<string, 'G' | 'Z'> = () => new Map();
 const wordOf = (t: Term): Term[] => (t.k === 'mul' ? t.fs : [t]);
 const isGapAddr = (a: Addr | GapAddr): a is GapAddr => 'gap' in a;
 const slice = (fs: Term[], s: number, e: number): Term => (e - s === 1 ? fs[s]! : { k: 'mul', fs: fs.slice(s, e) });
@@ -78,6 +73,7 @@ export function statusHeadline(s: S, id: string, res: MachineResult | undefined)
 export interface LensApi { render: (s: S) => void; position: () => void; el: HTMLElement }
 
 export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () => number; keepClear?: () => HTMLElement[] }): LensApi {
+  sortsNow = () => varSortsOf(store.get());
   const el = h('section', { class: 'h3-lens', hidden: true, 'aria-label': 'Machine inspector' });
   const notch = h('span', { class: 'h3-lens-notch', 'aria-hidden': 'true' });
   layer.append(el);
@@ -210,8 +206,8 @@ export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () 
     const targeting = m.kind === 'rewriter' && !!recipe;
     if (m.kind === 'joiner') {
       const sec = h('div', { class: 'h3-sec h3-others' });
-      for (const p of ['a', 'b']) { const v = inputs[p]; sec.append(h('div', { class: 'h3-inrow' }, h('span', { class: 'h3-portname' }, p === 'a' ? 'first' : 'second'), v ? h('span', { class: 'math h3-inval', html: itemHTML(v, L) }) : h('span', { class: 'h3-dim' }, 'nothing routed yet'))); }
-      body.append(sec);
+      for (const p of ['a', 'b']) { const v = inputs[p]; if (v) sec.append(h('div', { class: 'h3-inrow' }, h('span', { class: 'h3-portname' }, p === 'a' ? 'first' : 'second'), h('span', { class: 'math h3-inval', html: itemHTML(v, L) }))); }
+      if (sec.childElementCount) body.append(sec);
     } else if (workFact && m.kind !== 'forall') {
       const sec = h('div', { class: 'h3-sec' });
       const rk = (recipe as { k?: string } | null)?.k;
@@ -222,7 +218,7 @@ export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () 
       const cur: SpanTarget | GapTarget = gapMode ? (tcfg.gap ?? { k: 'first' }) : (tcfg.target ?? { k: 'first' });
       const applyPin = (t: SpanTarget | GapTarget) => setCfg((gapMode ? { gap: t } : { target: t }) as Partial<MachineConfig>);
       sec.append(h('div', { class: 'h3-label' }, h('span', {}, `${isThm ? 'premise' : 'in'} · ${KIND_WORD[workFact.k]}`),
-        targeting ? targetChip(cur, gapMode, res, applyPin) : isThm && res?.choices?.length ? h('span', { class: 'h3-tchip h3-dim' }, res.choices.length > 1 ? 'hover a handle to preview · click to cut there' : 'the only way this premise fits') : null), tw.el);
+        targeting ? targetChip(cur, gapMode, res, applyPin) : isThm && res?.choices?.length ? h('span', { class: 'h3-tchip h3-dim' }, res.choices.length > 1 ? 'pick a cut' : '') : null), tw.el);
       body.append(sec);
       if (targeting && res?.candidates?.length) {
         requestAnimationFrame(() => drawBrackets(tw, res, workFact, applyPin, cur));
@@ -255,8 +251,6 @@ export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () 
       }
     } else if (work && m.kind !== 'forall') {
       body.append(h('div', { class: 'h3-sec' }, h('div', { class: 'h3-label' }, `in · ${KIND_WORD[work.k === 'fact' ? work.fact.k : work.k === 'card' ? work.card.k : 'term'] ?? ''}`), itemView(work, L, H)));
-    } else if (isVerb && recipe && m.kind !== 'carddock') {
-      body.append(h('div', { class: 'h3-sec h3-empty' }, h('p', { class: 'h3-note' }, m.kind === 'theorem' ? 'Route the premise into this machine: drag from a fact’s output to its premise port.' : 'Nothing arrives yet. Drag a belt from an output port into this machine’s input.')));
     }
 
     // ── other routed inputs (rule/card ports, parameters)
@@ -264,8 +258,8 @@ export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () 
       const others = Object.entries(inputs).filter(([p]) => p !== workPort);
       if (others.length) {
         const sec = h('div', { class: 'h3-sec h3-others' });
-        for (const [p, v] of others) sec.append(h('div', { class: 'h3-inrow' }, h('span', { class: 'h3-portname' }, portLabel(p)), v ? h('span', { class: 'math h3-inval', html: itemHTML(v, L) }) : h('span', { class: 'h3-dim' }, 'nothing routed')));
-        body.append(sec);
+        for (const [p, v] of others) if (v) sec.append(h('div', { class: 'h3-inrow' }, h('span', { class: 'h3-portname' }, portLabel(p)), h('span', { class: 'math h3-inval', html: itemHTML(v, L) })));
+        if (sec.childElementCount) body.append(sec);
       }
     }
 
@@ -283,13 +277,15 @@ export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () 
       body.append(h('div', { class: 'h3-sec h3-out' }, h('div', { class: 'h3-label' }, `out · ${KIND_WORD[o.k === 'fact' ? o.fact.k : o.k === 'card' ? o.card.k : 'term'] ?? ''}`), h('div', { class: 'h3-outmath math', html: `<span class="h3-arrow">→</span> ${itemHTML(o, L)}` })));
     }
     const stat = res?.status;
-    if (stat && stat.k !== 'ok') {
+    // the picker already asks for a recipe: never say it twice
+    const asking = !!el.querySelector('.h3-picker') && stat?.k === 'starved';
+    if (stat && stat.k !== 'ok' && !asking) {
       const p = h('p', { class: `h3-reason ${stat.k}`, html: richHTML(stat.reason, s.level) });
       const q = h('button', { class: 'h3-qlink', title: 'Open the concept card that explains this' }, '?');
       q.addEventListener('click', () => openConceptFor(store, m.kind, stat.reason));
       p.append(' ', q);
       body.append(p);
-    } else if (!res) body.append(h('p', { class: 'h3-reason starved' }, 'The compiler has not reported on this machine yet.'));
+    } else if (!res) void 0;
     el.append(notch);
   };
 
@@ -303,7 +299,7 @@ export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () 
     const wrap = h('div', { class: 'h3-sec h3-picker' });
     const search = h('input', { class: 'h3-search h3-psearch', placeholder: kind === 'operator' || kind === 'joiner' ? 'Filter operations' : 'Search rules by name or statement', 'aria-label': 'Search recipes', autocomplete: 'off', spellcheck: 'false' });
     const list = h('div', { class: 'h3-plist', role: 'listbox' });
-    const top = h('div', { class: 'h3-label' }, h('span', {}, 'Recipe · choose the rule this machine uses'));
+    const top = h('div', { class: 'h3-label' }, h('span', {}, 'Choose a recipe'));
     if (canCancel) {
       const back = h('button', { class: 'h3-tag' }, 'keep current');
       back.addEventListener('click', () => { pickerOpen.delete(m.id); lastKey = ''; render(store.get()); });
@@ -319,15 +315,15 @@ export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () 
         if (!items.length) continue;
         list.append(h('div', { class: 'h3-group' }, GROUP_LABEL[g] ?? g));
         for (const e of items) {
-          const row = h('button', { class: 'h3-prow', role: 'option', 'data-key': e.key },
+          const row = h('button', { class: 'h3-prow', role: 'option', 'data-key': e.key, title: e.stmt ? h('i', { html: e.stmt }).textContent ?? '' : '' },
             h('span', { class: 'h3-prow-name', html: e.nameHTML }),
-            e.stmt ? h('span', { class: 'h3-prow-stmt math', html: e.stmt }) : null,
+            e.demo ? h('span', { class: 'h3-prow-demo' }, safe(() => e.demo!(), h('span', {}))) : e.stmt ? h('span', { class: 'h3-prow-stmt math', html: e.stmt }) : null,
             e.note ? h('span', { class: 'h3-prow-note' }, e.note) : null);
           row.addEventListener('click', () => pick(e.recipe));
           list.append(row);
         }
       }
-      if (!list.childElementCount) list.append(h('p', { class: 'h3-note' }, all.length ? 'No rule matches. Every rule this order allows is listed here; try a shorter word.' : 'Nothing in the library fits this machine yet: route a card into its card port, or earn a theorem.'));
+      if (!list.childElementCount) list.append(h('p', { class: 'h3-note' }, all.length ? 'No match. Try a shorter word.' : 'Nothing fits yet. Route a card into the card port.'));
     };
     search.addEventListener('input', draw);
     search.addEventListener('keydown', (e) => {
@@ -351,10 +347,10 @@ export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () 
     });
     const sec = h('div', { class: 'h3-sec h3-recipe' },
       h('div', { class: 'h3-label' }, h('span', {}, 'Recipe'), h('span', { class: 'h3-tchip' }, star, change)),
-      h('div', { class: 'h3-recipe-row' }, h('span', { class: 'h3-recipe-name', html: entry?.nameHTML ?? esc(recipeKey(recipe)) }), entry?.stmt ? h('span', { class: 'h3-recipe-stmt math', html: entry.stmt }) : null),
+      h('div', { class: 'h3-recipe-row' }, h('span', { class: 'h3-recipe-name', html: entry?.nameHTML ?? esc(recipeKey(recipe)) }), entry?.demo ? h('span', { class: 'h3-prow-demo' }, safe(() => entry.demo!(), h('span', {}))) : entry?.stmt ? h('span', { class: 'h3-recipe-stmt math', html: entry.stmt }) : null),
       entry?.note ? h('div', { class: 'h3-prow-note' }, entry.note) : null);
     if ((recipe as { k: string }).k === 'routed' && !safe(() => localStorage.getItem('commutator/seen-routed'), null)) {
-      sec.append(h('p', { class: 'h3-note h3-first' }, 'A fact made on this floor is a product: it reaches a machine only by belt. Route it into this machine’s rule port; its provenance and scope travel with it.'));
+      sec.append(h('p', { class: 'h3-note h3-first' }, 'Facts made here travel by belt. Route one into the rule port.'));
       safe(() => localStorage.setItem('commutator/seen-routed', '1'), undefined);
     }
     return sec;
@@ -369,13 +365,13 @@ export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () 
     if (!g) return sec;
     const two = h('div', { class: 'h3-twoways' });
     const canStart = g.fact.k === 'eq' || g.fact.k === 'neq' || g.fact.k === 'size';
-    if (canStart) two.append(h('div', { class: 'h3-way' }, h('b', {}, 'Start a belt'), h('span', {}, 'drag from this inlet’s output to make it the workpiece of a machine')));
+    if (canStart) two.append(h('div', { class: 'h3-way' }, h('b', {}, 'Start a belt'), h('span', {}, 'Drag from its output.')));
     const citeKind = g.fact.k === 'cond' ? 'theorem' : g.fact.k === 'eq' || g.fact.k === 'law' ? 'rewriter' : null;
     if (citeKind) {
       const b = h('button', { class: 'lw-key small' }, citeKind === 'theorem' ? 'Cite in a Theorem' : 'Cite in a Rewriter');
       const recipe: AnyRecipe = citeKind === 'theorem' ? { k: 'library', ref: { k: 'given', givenId } } : { k: 'law', ref: { k: 'given', givenId } };
       b.addEventListener('click', () => { store.openLens(null); armPreset(store, { key: presetKey(citeKind, recipe), kind: citeKind, recipe, label: g.name }); });
-      two.append(h('div', { class: 'h3-way' }, h('b', {}, citeKind === 'theorem' ? 'Cite it as a theorem' : 'Cite it as a rule'), h('span', {}, 'no belt needed: choose it as the recipe inside a machine (the dependency on it is kept)'), b));
+      two.append(h('div', { class: 'h3-way' }, h('b', {}, 'Or cite it'), h('span', {}, 'No belt needed. It stays a dependency.'), b));
     }
     sec.append(two);
     return sec;
@@ -398,6 +394,7 @@ export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () 
     const commit = () => { const v = unique(input.value); input.value = v; if (v !== cfg.label) setCfg({ label: v } as Partial<MachineConfig>); };
     input.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') { e.preventDefault(); commit(); input.blur(); } if (e.key === 'Escape') { input.value = cfg.label; input.blur(); } });
     input.addEventListener('blur', commit);
+    liveSubscripts(input, () => new Set(), true);
     const isZ = cfg.sort === 'Z';
     const sortG = h('button', { class: `h3-seg${!isZ ? ' on' : ''}`, 'aria-pressed': String(!isZ), title: 'an arbitrary group element' }, h('span', { class: 'math', html: '∈ <i>G</i>' }));
     const sortZ = h('button', { class: `h3-seg${isZ ? ' on' : ''}`, 'aria-pressed': String(isZ), title: 'an arbitrary integer, used in exponents' }, h('span', { class: 'math', html: '∈ ℤ' }));
@@ -410,11 +407,10 @@ export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () 
     sortG.addEventListener('click', () => setSort('G'));
     sortZ.addEventListener('click', () => setSort('Z'));
     sec.append(
-      h('div', { class: 'h3-label' }, h('span', {}, 'Declares'), h('span', { class: 'h3-tchip h3-dim' }, 'broadcast to the whole floor')),
+      h('div', { class: 'h3-label' }, h('span', {}, 'Declares'), h('span', { class: 'h3-tchip h3-dim' }, 'whole floor')),
       h('div', { class: 'h3-ctl' }, h('span', { class: 'math h3-let' }, 'Let'), input, h('span', { class: 'h3-segs' }, sortG, sortZ)),
-      h('p', { class: 'h3-note' }, isZ
-        ? 'An arbitrary integer: it may appear only in exponents, as in a^(5k₁). Whatever you prove about it holds for every integer, and a ∀ machine can say so. Different Towers name independently arbitrary values — not necessarily distinct ones.'
-        : 'An arbitrary element: no given mentions it, so whatever you prove about it holds for every element, and a ∀ machine can say so. Different Towers name independently arbitrary elements — not necessarily distinct ones.'));
+      h('p', { class: 'h3-note h3-lead', html: isZ ? '<b>n can be any integer.</b> Use it in exponents. Prove it for n, and ∀ makes it true for all.' : '<b>x can be anything.</b> Prove it for x, and ∀ makes it true for all.' }),
+      h('p', { class: 'h3-note' }, 'Two Towers may stand for the same element.'));
     // where it is used: machines whose inputs or output mention the symbol
     const users: { id: string; name: string }[] = [];
     for (const mm of s.canvas.machines) {
@@ -426,7 +422,7 @@ export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () 
       if (hit) users.push({ id: mm.id, name: machineName(mm) });
     }
     const list = h('div', { class: 'h3-uses' }, h('span', { class: 'h3-ctl-k' }, 'used by'));
-    if (!users.length) list.append(h('span', { class: 'h3-dim' }, 'no machine yet: type its name in a Spool, a knob or a room’s assumption'));
+    if (!users.length) list.append(h('span', { class: 'h3-dim' }, 'none yet'));
     for (const u of users) {
       const b = h('button', { class: 'h3-tag' }, u.name);
       b.addEventListener('pointerenter', () => store.setHover({ k: 'machine', id: u.id }));
@@ -451,8 +447,8 @@ export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () 
       const room = s.canvas.rooms.find((r) => r.id === (m.config as { room?: string }).room);
       if (room) {
         const P = `${tH(room.l, L)} <span class="m-rel">${(room.kind === 'suppose' || (room.kind === 'assume' && room.rel !== 'neq')) ? '=' : '≠'}</span> ${tH(room.r, L)}`;
-        const what = room.kind === 'assume' ? `any fact <i>Q</i> made inside leaves as <span class="math">${P} <span class="m-rel">⇒</span> <i>Q</i></span>`
-          : `⊥ arriving here leaves the room as <span class="math">${tH(room.l, L)} <span class="m-rel">${room.kind === 'suppose' ? '≠' : '='}</span> ${tH(room.r, L)}</span>${room.kind === 'classical' ? ' <span class="t-classical">classical</span>' : ''}`;
+        const what = room.kind === 'assume' ? `<i>Q</i> leaves as <span class="math">${P} <span class="m-rel">⇒</span> <i>Q</i></span>`
+          : `⊥ leaves as <span class="math">${tH(room.l, L)} <span class="m-rel">${room.kind === 'suppose' ? '≠' : '='}</span> ${tH(room.r, L)}</span>${room.kind === 'classical' ? ' <span class="t-classical">classical</span>' : ''}`;
         sec.append(h('div', { class: 'h3-label' }, `${room.kind === 'assume' ? 'Assume' : room.kind === 'suppose' ? 'Suppose' : 'Classical'} room · gate`), h('p', { class: 'h3-roominfo', html: what }));
         if (out) sec.append(h('div', { class: 'h3-outmath math', html: `<span class="h3-arrow">→</span> ${itemHTML(out, L)}` }));
       }
@@ -493,35 +489,35 @@ export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () 
     const bindsNothing = m.kind === 'forall' && work && (out && out.k === 'card' ? out.card.metas.length <= inMetas : !boundVars.length);
     if (bindsNothing) {
       why.push({ text: consts.length
-        ? `Nothing to generalize: this statement mentions only level constant${consts.length > 1 ? 's' : ''} ${consts.map((a) => L[a] ?? a).join(', ')}. ∀ does not turn a constant into an arbitrary element; build with a Tower.`
-        : 'Nothing to generalize: no Tower variable occurs here. Declare one with a Tower and build with it.', culprits: [] });
+        ? `${consts.map((a) => L[a] ?? a).join(', ')} ${consts.length > 1 ? 'are' : 'is'} fixed, not a variable. Build with a Tower.`
+        : 'No variable here. Build with a Tower.', culprits: [] });
     } else if (m.kind === 'forall' && out && out.k === 'card' && boundVars.length) {
-      sec.append(h('p', { class: 'h3-okline', html: `Generalized <span class="math">${boundVars.map((v) => tH({ k: 'atom', id: v }, L)).join(', ')}</span>: ${boundVars.length > 1 ? 'they were' : 'it was'} arbitrary, so the statement holds for every choice.` }));
+      sec.append(h('p', { class: 'h3-okline', html: `Generalized <span class="math">${boundVars.map((v) => tH({ k: 'atom', id: v }, L)).join(', ')}</span>.` }));
     }
     const stat = res?.status;
     const deps = depsOf();
     const rooms = deps.filter((d) => d.startsWith('a:'));
     if (m.kind === 'forall' && stat?.k === 'jammed' && rooms.length) {
       const r = s.canvas.rooms.find((x) => `a:${x.id}` === rooms[0]);
-      why.push({ text: `This result rests on the assumption ${r ? `${safe(() => K.termText(r.l, L), '')} ${r.rel === 'neq' || r.kind === 'classical' ? '≠' : '='} ${safe(() => K.termText(r.r, L), '')}` : 'of a room'}. Feed it through that room’s Assume gate first to obtain a conditional theorem, then generalize.`, culprits: rooms.map(culpritOf).filter(Boolean) as string[] });
+      why.push({ text: `It uses the assumption ${r ? `${safe(() => K.termText(r.l, L), '')} ${r.rel === 'neq' || r.kind === 'classical' ? '≠' : '='} ${safe(() => K.termText(r.r, L), '')}` : 'of a room'}. Pass it through the room’s gate first.`, culprits: rooms.map(culpritOf).filter(Boolean) as string[] });
     }
     // eligibility for the Lemma Book
     if (out && out.k === 'card') {
       const r = safe(() => F.lemmaFrom(s.compiled, s.canvas, m.id, s.ctx), null);
       const given = deps.filter((d) => d.startsWith('g:'));
       if (r?.ok) {
-        const name = h('input', { class: 'h3-term h3-lname', placeholder: 'name it, e.g. Double Flip', 'aria-label': 'lemma name', autocomplete: 'off', spellcheck: 'false' });
+        const name = h('input', { class: 'h3-term h3-lname', placeholder: 'Name it', 'aria-label': 'lemma name', autocomplete: 'off', spellcheck: 'false' });
         const save = h('button', { class: 'lw-key small primary' }, 'Save to Lemma Book');
         const doSave = () => { const res2 = store.saveLemma(m.id, name.value.trim() || 'Lemma'); if (res2.ok) { save.textContent = 'Saved ✓'; save.disabled = true; } };
         save.addEventListener('click', doSave);
         name.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') doSave(); if (e.key === 'Escape') { e.preventDefault(); name.blur(); store.openLens(null); } });
         const already = s.save.lemmas.some((l) => JSON.stringify(l.card) === JSON.stringify(out.card));
-        sec.append(h('div', { class: 'h3-save' }, h('span', { class: 'h3-badge-ok' }, already ? 'In the Lemma Book' : 'Ready to save'), already ? null : name, already ? null : save),
-          h('p', { class: 'h3-note' }, 'A theorem of group theory: it rests on no given and no assumption. Saved, it becomes a recipe in every later order.'));
+        sec.append(h('div', { class: 'h3-save' }, h('span', { class: 'h3-badge-ok' }, already ? 'In the Lemma Book' : 'Ready to save'), already ? null : name, already ? null : save));
+        if (!already) sec.append(h('p', { class: 'h3-note' }, 'Saved, it is a recipe in every later order.'));
       } else {
         const t = given.length
-          ? `Can’t save globally: it uses given ${given.map((g) => { const gd = s.level.givens.find((x) => `g:${x.id}` === g); return gd ? `${gd.name}: ${safe(() => K.factText(gd.fact as never, L), '')}` : g.slice(2); }).join(', ')}. Global lemmas rest on no level givens.`
-          : rooms.length ? 'Valid here, but it still depends on a room’s assumption: export it through the room’s gate first.'
+          ? `Can’t save: it uses ${given.map((g) => { const gd = s.level.givens.find((x) => `g:${x.id}` === g); return gd ? `${gd.name}: ${safe(() => K.factText(gd.fact as never, L), '')}` : g.slice(2); }).join(', ')}.`
+          : rooms.length ? 'Can’t save: it uses a room’s assumption. Pass it through the gate first.'
           : r && !r.ok ? r.reason : '';
         if (t) why.push({ text: t, culprits: [...given, ...rooms].map(culpritOf).filter(Boolean) as string[] });
       }
@@ -750,7 +746,7 @@ export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () 
   const targetChip = (cur: SpanTarget | GapTarget, gap: boolean, res: MachineResult | undefined, apply: (t: SpanTarget | GapTarget) => void) => {
     const wrap = h('span', { class: 'h3-tchip' });
     const n = res?.candidates?.length ?? 0;
-    if (cur.k === 'first') wrap.append(h('span', { class: 'h3-tag on', title: 'Default: right rail first, then left; shortest span at each start' }, 'first match'), h('span', { class: 'h3-dim' }, n ? `· ${n} ${gap ? 'gap' : 'candidate'}${n === 1 ? '' : 's'} · click ${gap ? 'a caret' : 'a bracket'} to pin` : ''));
+    if (cur.k === 'first') wrap.append(h('span', { class: 'h3-tag on', title: 'Default: right rail first, then left; shortest span at each start' }, 'first match'), h('span', { class: 'h3-dim' }, n > 1 ? `${n} places · click one` : ''));
     else {
       const reset = h('button', { class: 'h3-tag', title: 'Go back to the first match' }, 'use first match');
       reset.addEventListener('click', () => apply({ k: 'first' }));
@@ -805,10 +801,10 @@ export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () 
             const go = () => { const v = Math.trunc(Number(inp.value)); if (v >= 1 && String(v) !== rv) setCfg({ recipe: { k: 'law', ref: { k: 'schema', id: `${K.POWER_LITERAL_FAMILY}:${v}` } } }); else inp.value = rv; };
             inp.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') go(); });
             inp.addEventListener('blur', go);
-            sec.append(h('div', { class: 'h3-ctl' }, h('span', { class: 'h3-ctl-k math', html: '<i>r</i> =' }), inp, h('span', { class: 'h3-dim' }, 'a positive whole number: x^r becomes r copies of x')));
+            sec.append(h('div', { class: 'h3-ctl' }, h('span', { class: 'h3-ctl-k math', html: '<i>r</i> =' }), inp, h('span', { class: 'h3-dim' }, 'copies')));
           }
         }
-        if (r.k === 'cancel' || r.k === 'law' || r.k === 'routed') sec.append(toggle('tidy', c.tidy, 'pop any e the rewrite leaves', (tidy) => setCfg({ tidy })));
+        if (r.k === 'cancel' || r.k === 'law' || r.k === 'routed') sec.append(toggle('tidy', c.tidy, 'drop the e it leaves', (tidy) => setCfg({ tidy })));
         break;
       }
       case 'operator': {
@@ -843,7 +839,7 @@ export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () 
         const room = s.canvas.rooms.find((r) => r.id === c.room);
         if (room) {
           const eq = room.kind === 'suppose' || (room.kind === 'assume' && room.rel !== 'neq');
-          sec.append(h('div', { class: 'h3-roominfo', html: `Emits the room’s assumption <span class="math">${tH(room.l, L)} <span class="m-rel">${eq ? '=' : '≠'}</span> ${tH(room.r, L)}</span> to machines inside it. It is evidence only inside this room.` }));
+          sec.append(h('div', { class: 'h3-roominfo', html: `Emits <span class="math">${tH(room.l, L)} <span class="m-rel">${eq ? '=' : '≠'}</span> ${tH(room.r, L)}</span>. Valid only inside the room.` }));
         }
         break;
       }
@@ -888,7 +884,7 @@ export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () 
     const row = h('div', { class: 'h3-knob h3-intknob' });
     const label = h('span', { class: 'h3-knob-k math', html: `<i>${esc(name)}</i> :=` });
     const cur = p.k === 'knob' && p.term && p.term.k === 'int' ? safe(() => K.exponentText(p.term!.k === 'int' ? p.term!.val : [], L), '') : '';
-    const input = h('input', { class: 'h3-term', value: cur, placeholder: 'an integer: 5, -1, 5k₁, n₁ + 1', 'aria-label': `integer ${name}`, autocomplete: 'off', spellcheck: 'false' });
+    const input = h('input', { class: 'h3-term', value: cur, placeholder: '5, −1, 5k, n + 1', 'aria-label': `integer ${name}`, autocomplete: 'off', spellcheck: 'false' });
     const view = h('span', { class: 'h3-knob-view math' });
     const msg = h('span', { class: 'h3-knob-msg' });
     let parsed: Term | null = p.k === 'knob' ? p.term : null;
@@ -901,6 +897,7 @@ export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () 
       else { parsed = null; msg.textContent = r.error; input.classList.add('bad'); }
     };
     const commit = () => { update(); if (JSON.stringify(parsed) !== JSON.stringify(p.k === 'knob' ? p.term : null) && (parsed || !input.value.trim())) set({ k: 'knob', term: parsed }); };
+    liveSubscripts(input, () => towerLabelSet(store.get()));
     input.addEventListener('input', update);
     input.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') { e.preventDefault(); commit(); } if (e.key === 'Escape') { e.preventDefault(); input.value = cur; update(); input.blur(); } });
     input.addEventListener('blur', () => { if (input.value.trim() !== cur) commit(); });
@@ -912,7 +909,7 @@ export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () 
       b.addEventListener('click', () => { input.value += t === '·' ? '' : t === '+' ? ' + ' : t; update(); if (t !== '+' && t !== '·') commit(); });
       chips.append(b);
     }
-    if (!zs.length) chips.append(h('span', { class: 'h3-dim' }, 'a ℤ Tower (Let n₁ ∈ ℤ) makes an arbitrary integer'));
+    if (!zs.length) chips.append(h('span', { class: 'h3-dim' }, 'a ℤ Tower gives you n'));
     update();
     row.append(h('div', { class: 'h3-knob-top' }, label, input, view), msg, chips);
     if (!parsed) row.classList.add('unset');
@@ -930,7 +927,7 @@ export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () 
       return row;
     }
     const plainOf = (t: Term | null) => (t ? safe(() => K.termText(t, L), '') : '');
-    const input = h('input', { class: 'h3-term', value: plainOf(p.term), placeholder: 'type ba, a^-1 … or tap beads', 'aria-label': `value of ${name}`, autocomplete: 'off', spellcheck: 'false' });
+    const input = h('input', { class: 'h3-term', value: plainOf(p.term), placeholder: 'type or tap beads', 'aria-label': `value of ${name}`, autocomplete: 'off', spellcheck: 'false' });
     const view = h('span', { class: 'h3-knob-view' });
     const msg = h('span', { class: 'h3-knob-msg' });
     let parsed: Term | null = p.term;
@@ -948,6 +945,7 @@ export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () 
       const same = JSON.stringify(parsed) === JSON.stringify(p.term);
       if (!same && (parsed || !input.value.trim())) set({ k: 'knob', term: parsed });
     };
+    liveSubscripts(input, () => towerLabelSet(store.get()));
     input.addEventListener('input', update);
     input.addEventListener('keydown', (e) => {
       e.stopPropagation();

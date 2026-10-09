@@ -75,7 +75,7 @@ describe('tick runtime (§9)', () => {
     const r1 = f.add(routed({ tidy: false }));
     const sw = f.add(op({ k: 'swap' }));
     f.wire(sp, r1); f.wire(f.given('h'), r1, 'rule');
-    const belt = f.c.belts.find((x) => x.to.m === r1 && x.to.port === 'q')!;
+    const belt = f.c.belts.find((x) => x.to?.m === r1 && x.to?.port === 'q')!;
     const br = F.branch(f.c, belt.id, { m: sw, port: 'q' }, f.ctx);
     if (!br.ok) throw new Error(br.reason);
     f.c = br.canvas;
@@ -271,5 +271,24 @@ describe('tick runtime (§9)', () => {
       for (const p of s.packets) if (p.at.k === 'port' && p.at.port === 'out' && p.at.m !== 'hop' && !made.has(p.at.m)) made.set(p.at.m, s.tick);
     }
     expect(Object.fromEntries(made)).toEqual({ s1: 2, s2: 4 }); // direct link: 1 edge; side belt: 3 edges (2 cells), +1 tick of work each
+  });
+
+  it('an open belt (to a ground cell) feeds nothing: packets wait at its end, ≤ 2, and the source blocks', () => {
+    const ctx = { ...mkCtx({ sockets: [{ id: 's', target: eq(a, a), allowedGivens: [] }] }), registry: REGISTRY };
+    const c: F.Canvas = {
+      version: 3, levelId: 'T', rooms: [],
+      machines: [{ id: 'hop', kind: 'hopper', at: { x: 10, y: 5 }, rot: 0, config: { kind: 'hopper', t: a } }],
+      belts: [{ id: 'b1', from: { m: 'hop', port: 'out' }, to: null, path: [{ x: 11, y: 5 }, { x: 12, y: 5 }, { x: 13, y: 5 }, { x: 14, y: 5 }] }],
+    };
+    const comp = F.compile(c, ctx);
+    expect(comp.beltErrors).toEqual({});
+    expect(comp.machines.hop!.status).toEqual({ k: 'ok' });
+    let s = F.initRun(c, comp);
+    for (let i = 0; i < 40; i++) s = F.stepRun(s, c, comp);
+    const onBelt = s.packets.filter((p) => p.at.k === 'belt');
+    expect(onBelt.length).toBe(2);
+    expect(onBelt.some((p) => p.at.k === 'belt' && p.at.i === 3)).toBe(true);
+    expect(s.live.hop).toBe('blocked');
+    expect(F.queued(s).hop).toBeGreaterThan(0);
   });
 });

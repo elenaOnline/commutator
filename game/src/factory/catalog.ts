@@ -157,7 +157,7 @@ export function splitLabel(label: string): { base: string; n: number } {
   return { base: label.slice(0, i) || 'x', n: digits ? Number(digits) : 0 };
 }
 
-/** Default tower names, in order: G x₁ y₁ z₁ w₁ x₂ …; ℤ n₁ k₁ m₁ n₂ …. */
+/** Default tower names, in order: G x y z w, then x₂ y₂ z₂ w₂ x₃ …; ℤ n k m, then n₂ k₂ m₂ …. Plain letters first. */
 export const SORT_SEQ: Record<'G' | 'Z', string[]> = { G: ['x', 'y', 'z', 'w'], Z: ['n', 'k', 'm'] };
 /** The display label a variable id stands for ('x1' → 'x₁'), e.g. for the orphan jam when its Tower is gone. */
 export function varLabel(varId: string): string {
@@ -188,8 +188,8 @@ export interface DefaultOpts {
 
 /**
  * Default configuration for a newly placed machine. Verb machines start with recipe null (the lens opens on
- * placement) unless a preset is given. A Tower defaults to x₁ / varId 'x1'; place() renumbers it to be unique
- * on the floor (x₂, x₃, …).
+ * placement) unless a preset is given. A Tower defaults to x (ℤ: n); place() renames it to be unique on the
+ * floor (y, z, w, then x₂ …).
  */
 export function defaultConfig(kind: MachineKind, ctx: KernelCtx, opts?: DefaultOpts): MachineConfig {
   const schemaRef = (): LibRef | null => {
@@ -200,7 +200,7 @@ export function defaultConfig(kind: MachineKind, ctx: KernelCtx, opts?: DefaultO
   };
   switch (kind) {
     case 'spool': return { kind, t: { k: 'knob', term: null } };
-    case 'tower': return opts?.sort === 'Z' ? { kind, varId: 'n1', label: 'n₁', sort: 'Z' } : { kind, varId: 'x1', label: 'x₁', sort: 'G' };
+    case 'tower': return opts?.sort === 'Z' ? { kind, varId: 'n', label: 'n', sort: 'Z' } : { kind, varId: 'x', label: 'x', sort: 'G' };
     case 'rewriter': return {
       kind, recipe: (opts?.recipe as never) ?? null, dir: 'fwd', target: { k: 'first' }, gap: { k: 'first' }, values: {}, tidy: true,
     };

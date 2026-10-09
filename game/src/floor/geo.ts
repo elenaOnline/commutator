@@ -21,6 +21,8 @@ export interface BGeo {
   ok: boolean;
   /** Touching ports linked with no belt cells (drawn as a short coupling). */
   direct: boolean;
+  /** v4.1: an open belt (to = null) — ends on a ground cell, items wait at its end cap. */
+  open?: boolean;
   /** Set by the editor when an edit left this belt without a route: kept, drawn dashed red, carries nothing. */
   broken?: string;
 }
@@ -33,7 +35,7 @@ export interface Geo {
   ports: PortGeo[];
   crossings: Crossing[];
   /** Tower variables on this floor: var id → its tower and label (x₁). */
-  vars: Map<string, { tower: string; label: string }>;
+  vars: Map<string, { tower: string; label: string; sort: 'G' | 'Z' }>;
   occ: Map<string, string>;        // tile key → machine id
   beltOcc: Map<string, string>;    // tile key → belt id
   /** World-px bounds of everything (for fit). */
@@ -83,9 +85,11 @@ export function buildGeo(c: Canvas, comp: Compiled | null, ctx: KernelCtx): Geo 
   const taken = new Set<string>();
   const outUsed = new Set<string>();
   for (const b of c.belts) {
-    const fm = ms.get(b.from.m), tm = ms.get(b.to.m);
-    const fp = fm?.ports.find((p) => p.id === b.from.port), tp = tm?.ports.find((p) => p.id === b.to.port);
-    taken.add(`${b.to.m}|${b.to.port}`); outUsed.add(`${b.from.m}|${b.from.port}`);
+    const to = b.to;
+    const fm = ms.get(b.from.m), tm = to ? ms.get(to.m) : undefined;
+    const fp = fm?.ports.find((p) => p.id === b.from.port), tp = to ? tm?.ports.find((p) => p.id === to.port) : undefined;
+    if (to) taken.add(`${to.m}|${to.port}`);
+    outUsed.add(`${b.from.m}|${b.from.port}`);
     let line: G2[] = [];
     const direct = b.path.length === 0;
     if (direct && fp) {
@@ -96,10 +100,16 @@ export function buildGeo(c: Canvas, comp: Compiled | null, ctx: KernelCtx): Geo 
       if (fp) line.push(...portEnd(fp, first, true));
       for (const t of b.path) { line.push(centre(t)); if (!beltOcc.has(tkey(t))) beltOcc.set(tkey(t), b.id); }
       if (tp) line.push(...portEnd(tp, last, false));
+      else if (!to && line.length >= 2) {
+        // an OPEN belt: it runs a little past its last cell into an end cap where items wait
+        const a = line[line.length - 2]!, z = line[line.length - 1]!;
+        const dx = z[0] - a[0], dy = z[1] - a[1], l = Math.hypot(dx, dy) || 1;
+        line.push([z[0] + dx / l * 0.34, z[1] + dy / l * 0.34]);
+      }
     }
     const out = comp?.machines[b.from.m]?.out;
     const kind: ItemKind = out ? itemKindOf(out) : (fp?.accepts[0] ?? 'eq');
-    bs.set(b.id, { b, kind, fam: fm?.fam ?? 'equation', line, ok: !!fp && !!tp && !comp?.beltErrors[b.id], direct, broken: b.broken });
+    bs.set(b.id, { b, kind, fam: fm?.fam ?? 'equation', line, ok: !!fp && (!to || !!tp) && !comp?.beltErrors[b.id], direct: direct && !!to, broken: b.broken, open: !to });
   }
   // crossings: a tile used by belts of different networks (different source port); the later belt bridges
   const byTile = new Map<string, { id: string; root: string; dir: G2; t: Tile }[]>();
@@ -136,7 +146,7 @@ export function buildGeo(c: Canvas, comp: Compiled | null, ctx: KernelCtx): Geo 
     : { x0: -300, y0: -200, x1: 300, y1: 200 };
   // room for labels left of inlets / right of sockets
   bounds.x0 -= 150; bounds.x1 += 190; bounds.y0 -= 50; bounds.y1 += 40;
-  const vars = new Map<string, { tower: string; label: string }>();
-  for (const m of c.machines) if (m.config.kind === 'tower') vars.set(m.config.varId, { tower: m.id, label: m.config.label });
+  const vars = new Map<string, { tower: string; label: string; sort: 'G' | 'Z' }>();
+  for (const m of c.machines) if (m.config.kind === 'tower') vars.set(m.config.varId, { tower: m.id, label: m.config.label, sort: m.config.sort === 'Z' ? 'Z' : 'G' });
   return { ms, bs, ports, crossings, vars, occ, beltOcc, bounds };
 }

@@ -190,22 +190,22 @@ function parseIntExpr(c: Cursor, bare: boolean): Poly {
       c.i++;
       const v = expr();
       c.ws();
-      if (c.peek() !== ')') throw new PErr('a bracket in the exponent is not closed');
+      if (c.peek() !== ')') throw new PErr('A bracket in the exponent is not closed.');
       c.i++;
       return v;
     }
     const lit = /^\d+/.exec(s.slice(c.i));
     if (lit) {
       c.i += lit[0].length;
-      if (s[c.i] === '.' || s[c.i] === '/') throw new PErr('an exponent is a whole number: no fractions or decimals');
+      if (s[c.i] === '.' || s[c.i] === '/') throw new PErr('An exponent is a whole number. No fractions or decimals.');
       return polyConst(BigInt(lit[0]));
     }
     const n = c.nameAt();
     if (n && n.sort === 'Z' && n.id) { c.i += n.name.length; return polyZvar(n.id); }
-    if (n) throw new PErr(`${n.name} is a group element, not an integer`);
+    if (n) throw new PErr(`${n.name} is a group element, not an integer.`);
     const w = c.word();
-    if (w) throw new PErr(`there is no integer variable called “${w}” here`);
-    throw new PErr(ch === undefined ? 'the exponent is missing' : `unexpected “${ch}” in an exponent`);
+    if (w) throw new PErr(`There is no integer variable “${w}” here.`);
+    throw new PErr(ch === undefined ? 'The exponent is missing.' : `Unexpected “${ch}” in an exponent.`);
   };
   const powered = (): Poly => {
     let v = primary();
@@ -213,7 +213,7 @@ function parseIntExpr(c: Cursor, bare: boolean): Poly {
       if (!bare && s[c.i] === '^') {
         c.i++;
         const d = /^\d+/.exec(s.slice(c.i));
-        if (!d) throw new PErr('an integer power must be a natural number literal');
+        if (!d) throw new PErr('An integer power must be a whole number, 0 or more.');
         c.i += d[0].length;
         v = polyPowNat(v, Number(d[0]));
         continue;
@@ -279,7 +279,7 @@ export function parseTerm(src: string, atoms: AtomDecl[]):
   const literal = (t: Term, n: number): Term => {
     if (n === -1) return inv(t);
     if (n <= 0) return norm({ k: 'pow', base: t, exp: polyConst(n) });
-    if (n > MAX_POW) throw new PErr(`powers above ${MAX_POW} are not supported as words; write a^(${n}) for the power`);
+    if (n > MAX_POW) throw new PErr(`Words over ${MAX_POW} factors are too long. Write a^(${n}) for the power.`);
     return mul(Array.from({ length: n }, () => t));
   };
   const powerNode = (t: Term, p: Poly): Term => norm({ k: 'pow', base: t, exp: p });
@@ -291,18 +291,18 @@ export function parseTerm(src: string, atoms: AtomDecl[]):
       c.i++;
       base = parseTermInner();
       skip();
-      if (s[c.i] !== ')') throw new PErr('a bracket is not closed');
+      if (s[c.i] !== ')') throw new PErr('A bracket is not closed.');
       c.i++;
     } else {
       const hit = c.nameAt();
       if (!hit) {
         const w = c.word();
-        if (w && /^\d/.test(w)) throw new PErr(`${w} is a number, not a group element`);
-        if (w) throw new PErr(`there is no element called “${w}” here`);
-        if (s[c.i] === ')') throw new PErr('there is a closing bracket without an opening one');
-        throw new PErr(`unexpected “${s[c.i]}”`);
+        if (w && /^\d/.test(w)) throw new PErr(`${w} is a number, not a group element.`);
+        if (w) throw new PErr(`There is no element called “${w}” here.`);
+        if (s[c.i] === ')') throw new PErr('A closing bracket has no opening one.');
+        throw new PErr(`Unexpected “${s[c.i]}”.`);
       }
-      if (hit.sort === 'Z') throw new PErr(`${hit.name} is an integer, not a group element`);
+      if (hit.sort === 'Z') throw new PErr(`${hit.name} is an integer, not a group element.`);
       c.i += hit.name.length;
       base = hit.id === null ? { k: 'e' } : { k: 'atom', id: hit.id };
     }
@@ -330,7 +330,7 @@ export function parseTerm(src: string, atoms: AtomDecl[]):
           c.i++;
           const p = parseIntExpr(c, false);
           c.ws();
-          if (s[c.i] !== close) throw new PErr(brace ? 'a brace is not closed' : 'a bracket in the exponent is not closed');
+          if (s[c.i] !== close) throw new PErr(brace ? 'A brace is not closed.' : 'A bracket in the exponent is not closed.');
           c.i++;
           // TeX-ish ^{-1} and ^{n} keep the legacy literal meaning; ^(…) is always a power node
           const v = p.length === 0 ? 0n : p.length === 1 && p[0]!.monomial.length === 0 ? BigInt(p[0]!.coefficient) : null;
@@ -343,7 +343,7 @@ export function parseTerm(src: string, atoms: AtomDecl[]):
       if (s[c.i] === '⁻') {
         c.i++;
         const n = readSup();
-        if (n === null) throw new PErr('expected ¹ after ⁻');
+        if (n === null) throw new PErr('Expected ¹ after ⁻.');
         base = literal(base, -n);
         continue;
       }
@@ -360,14 +360,14 @@ export function parseTerm(src: string, atoms: AtomDecl[]):
       if (c.i >= s.length || s[c.i] === ')') break;
       fs.push(parseFactor());
     }
-    if (!fs.length) throw new PErr('the term is empty');
+    if (!fs.length) throw new PErr('The term is empty.');
     return mul(fs);
   };
 
   try {
     const t = parseTermInner();
     skip();
-    if (c.i < s.length) throw new PErr('there is a closing bracket without an opening one');
+    if (c.i < s.length) throw new PErr('A closing bracket has no opening one.');
     return { ok: true, term: norm(t) };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
@@ -383,12 +383,12 @@ export function parseInteger(src: string, atoms: AtomDecl[]):
   const c = new Cursor(src, nameTable(atoms));
   try {
     c.ws();
-    if (c.i >= src.length) throw new PErr('the integer is empty');
+    if (c.i >= src.length) throw new PErr('The integer is empty.');
     const p = parseIntExpr(c, false);
     c.ws();
     if (c.i < src.length) {
       const ch = src[c.i]!;
-      throw new PErr(ch === '/' || ch === '.' ? 'an integer has no fractions or decimals' : `unexpected “${ch}” in an integer`);
+      throw new PErr(ch === '/' || ch === '.' ? 'An integer has no fractions or decimals.' : `Unexpected “${ch}” in an integer.`);
     }
     return { ok: true, term: { k: 'int', val: polyNorm(p) } };
   } catch (e) {

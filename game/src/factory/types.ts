@@ -131,7 +131,12 @@ export interface Endpoint { m: string; port: string }
 export interface Belt {
   id: string;
   from: Endpoint;
-  to: Endpoint;
+  /**
+   * v4.1: null = an OPEN belt dragged out onto the floor and left there (path ends on a ground cell).
+   * It carries items to its end, where they wait (no jam). Placing a machine whose input port faces the
+   * end cell, or dragging from the end to an input, completes it.
+   */
+  to: Endpoint | null;
   /** Grid cells, from the cell adjacent to the output port to the cell adjacent to the input port.
    *  Empty = a direct link between touching ports (output's front cell is the input's machine cell). */
   path: Tile[];

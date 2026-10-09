@@ -64,7 +64,7 @@ export function mountOrder(layer: HTMLElement, store: Store, hooks: { armRoom: (
       const wanted = g.k === 'neq' ? lv.tools.suppose : lv.tools.classical;
       if (!wanted && !open) continue;
       const b = h('button', { class: `h3-preset${g.k === 'eq' ? ' classical' : ''}`, html: `Suppose <span class="math">${fH({ k: g.k === 'neq' ? 'eq' : 'neq', l: g.l, r: g.r }, L)}</span>` });
-      b.title = g.k === 'neq' ? 'Arm the Room tool assuming the opposite; ⊥ through its gate exports the goal' : 'Classical room: assume the goal fails; ⊥ through its gate exports it';
+      b.title = g.k === 'neq' ? 'Assume the opposite. A clash proves the goal.' : 'Assume the goal fails. A clash proves it.';
       b.addEventListener('click', () => hooks.armRoom(g.k === 'neq' ? 'suppose' : 'classical', g));
       presets.append(b);
     }
@@ -88,7 +88,7 @@ export function mountOrder(layer: HTMLElement, store: Store, hooks: { armRoom: (
       const nx = nextLevel(s.save, lv.id);
       const b = h('button', { class: 'lw-key primary small h3-next' }, nx ? 'Next work order →' : 'Theorem map →');
       b.addEventListener('click', () => (nx ? store.openLevel(nx.id) : store.openMap()));
-      const fo = h('button', { class: 'lw-key small', title: 'Follow the delivered certificate through the factory' }, 'Follow');
+      const fo = h('button', { class: 'lw-key small', title: 'Trace this proof on the floor' }, 'Follow');
       fo.addEventListener('click', () => store.setUI({ follow: s.ui.follow ? null : lv.sockets[0]?.id ?? null }));
       el.append(h('div', { class: 'h3-proven' }, h('span', { class: 'h3-label', html: '<span class="tomb"></span> Proven' }), h('span', { class: 'h3-flex' }), fo, b));
     }

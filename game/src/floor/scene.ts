@@ -4,7 +4,7 @@
 import type { Card, Fact, Pallet } from '../kernel/types';
 import type { Compiled, LiveStatus, Machine, Room, RunState } from '../factory/types';
 import type { LevelManifest } from '../kernel/types';
-import { FAMILY, FONT, INK } from '../ui/tokens';
+import { FAMILY, FONT, INK, VAR } from '../ui/tokens';
 import { P, f1, isoEllipse, roundGrid, gridRect, pts, shade, type G2 } from '../board/geom';
 import { FORALL_INK } from './look';
 import { factSVG, termSVG, type Labels } from './math';
@@ -125,7 +125,22 @@ export function beltSVG(bg: BGeo, comp: Compiled | null): string {
     return `<g class="fl-b is-direct" data-b="${esc(bg.b.id)}"><path class="fl-b-sel" d="${band(line, 0, 0.82)}" fill="${INK.navy}"/>${beltBody(bg, { bad })}` +
       `<path d="${band(line, 0, 0.58)}" fill="none" stroke="${INK.navy}" stroke-width="1.3" opacity=".55"/>${hit}</g>`;
   }
-  return `<g class="fl-b" data-b="${esc(bg.b.id)}"><path class="fl-b-sel" d="${band(line, 0, 0.82)}" fill="${INK.navy}"/>${beltBody(bg, { bad })}${hit}</g>`;
+  return `<g class="fl-b${bg.open ? ' is-open' : ''}" data-b="${esc(bg.b.id)}"><path class="fl-b-sel" d="${band(line, 0, 0.82)}" fill="${INK.navy}"/>${beltBody(bg, { bad })}${hit}${bg.open ? openEndSVG(bg) : ''}</g>`;
+}
+
+/** The end of an OPEN belt: a buffer-stop where items wait, and a handle to drag the belt on. */
+export function openEndSVG(bg: Pick<BGeo, 'line' | 'b'>): string {
+  const ln = bg.line;
+  if (ln.length < 2) return '';
+  const z = ln[ln.length - 1]!, a = ln[ln.length - 2]!;
+  const dx = z[0] - a[0], dy = z[1] - a[1], l = Math.hypot(dx, dy) || 1;
+  const u: G2 = [dx / l, dy / l], n: G2 = [-u[1], u[0]];
+  const p1 = P(z[0] + n[0] * 0.36, z[1] + n[1] * 0.36), p2 = P(z[0] - n[0] * 0.36, z[1] - n[1] * 0.36);
+  const c = P(z[0], z[1]);
+  return `<g class="fl-bend" data-bend="${esc(bg.b.id)}">` +
+    `<line x1="${f1(p1[0])}" y1="${f1(p1[1])}" x2="${f1(p2[0])}" y2="${f1(p2[1])}" stroke="${INK.navy}" stroke-width="3.2" stroke-linecap="round"/>` +
+    `<circle class="fl-bend-knob" cx="${f1(c[0])}" cy="${f1(c[1])}" r="4.2" fill="#fff" stroke="${INK.navy}" stroke-width="1.6"/>` +
+    `<circle class="fl-hit" data-bend="${esc(bg.b.id)}" cx="${f1(c[0])}" cy="${f1(c[1])}" r="14" fill="transparent"/></g>`;
 }
 
 /** A small overpass where a belt crosses another network at right angles. */
@@ -244,6 +259,8 @@ export function machineSVG(g: MGeo, cx: Ctx, varLabels?: Map<string, string>): s
 export function towerSVG(g: MGeo, varLabels?: Map<string, string>): string {
   const m = g.m;
   const label = m.config.kind === 'tower' ? m.config.label : '?';
+  const isZ = m.config.kind === 'tower' && m.config.sort === 'Z';
+  const V = VAR[isZ ? 'Z' : 'G'];
   const cx = (g.x0 + g.x1) / 2, cy = (g.y0 + g.y1) / 2;
   const pad = box(g.x0 + 0.12, g.y0 + 0.12, g.x1 - 0.12, g.y1 - 0.12, 0.1, 0.04, 0.24);
   const base = P(cx, cy, 0.1), top = P(cx, cy, 1.55);
@@ -276,8 +293,8 @@ export function towerSVG(g: MGeo, varLabels?: Map<string, string>): string {
   const px = base[0] + 11, py = base[1] - 30;
   const w = 12 + label.length * 7.4;
   o += `<g class="fl-plaque"><path d="M${f1(base[0] + 3)},${f1(py + 2)}L${f1(px)},${f1(py + 2)}" stroke="${INK.navy}" stroke-width="1" opacity=".5"/>` +
-    `<rect x="${f1(px)}" y="${f1(py - 9)}" width="${f1(w + 22)}" height="21" rx="4" fill="#fff" stroke="${FORALL_INK}" stroke-width="1.3"/>` +
-    `<text x="${f1(px + 6)}" y="${f1(py + 6)}" font-family="${FONT.math}" font-size="15" fill="${INK.navy}">${varSVG(label)}<tspan font-style="normal" font-size="12" fill="${INK.navy2}"> ∈ ${m.config.kind === 'tower' && m.config.sort === 'Z' ? 'ℤ' : 'G'}</tspan></text></g>`;
+    `<rect x="${f1(px)}" y="${f1(py - 9)}" width="${f1(w + 22)}" height="21" rx="4" fill="${V.fill}" stroke="${V.ring}" stroke-width="1.4"/>` +
+    `<text x="${f1(px + 6)}" y="${f1(py + 6)}" font-family="${FONT.math}" font-size="15" fill="${V.ink}">${varSVG(label)}<tspan font-style="normal" font-size="12" fill="${V.ink}" fill-opacity=".75"> ∈ ${isZ ? 'ℤ' : 'G'}</tspan></text></g>`;
   void varLabels;
   o += `</g>`;
   return o;

@@ -24,11 +24,11 @@ function wellFormed(c: Canvas, k: KernelCtx) {
     for (const t of footprint(m, k)) { expect(occ.has(tileKey(t))).toBe(false); occ.add(tileKey(t)); }
   }
   for (const b of c.belts) {
-    const f = c.machines.find((m) => m.id === b.from.m), t = c.machines.find((m) => m.id === b.to.m);
+    const f = c.machines.find((m) => m.id === b.from.m), t = c.machines.find((m) => m.id === b.to?.m);
     expect(f && t, b.id).toBeTruthy();
     if (b.broken) continue;
     expect(portsOf(f!, k).find((p) => p.id === b.from.port)?.dir, `${b.id} from`).toBe('out');
-    expect(portsOf(t!, k).find((p) => p.id === b.to.port)?.dir, `${b.id} to`).toBe('in');
+    expect(portsOf(t!, k).find((p) => p.id === b.to?.port)?.dir, `${b.id} to`).toBe('in');
   }
 }
 
@@ -61,7 +61,7 @@ describe('migrateCanvas: real v3 canvases → v4', () => {
     expect(rw.map((x) => x.recipe)).toEqual([{ k: 'insertE' }, { k: 'routed' }]);
     expect(rw[0]!.gap.k).toBe('pin');
     expect(rw[0]!.dir).toBe('rev');
-    expect(c.belts.some((b) => b.to.port === 'rule')).toBe(true);
+    expect(c.belts.some((b) => b.to?.port === 'rule')).toBe(true);
   });
 
   it('L03/L04/L05: multiplier → operator{multiply}, popper → rewriter{pop}', () => {
@@ -81,15 +81,15 @@ describe('migrateCanvas: real v3 canvases → v4', () => {
     ]);
     const th = cfgs(c).find((x) => x.kind === 'theorem') as Extract<MachineConfig, { kind: 'theorem' }>;
     expect(Object.keys(th.values).sort()).toEqual(['u', 'v', 'w']);
-    expect(c.belts.filter((b) => b.to.port === 'p0').length).toBe(2);
+    expect(c.belts.filter((b) => b.to?.port === 'p0').length).toBe(2);
   });
 
   it('L11: press → carddock{lagrange} feeding where the press output went', () => {
     const c = migrateCanvas(V3_FIXTURES.L11press, ctxOf('L11'))!;
     const dock = c.machines.find((m) => m.kind === 'carddock')!;
     expect(dock.config).toEqual({ kind: 'carddock', ref: { k: 'lagrange' } });
-    expect(c.belts.some((b) => b.from.m === dock.id && b.to.port === 'rule')).toBe(true);
-    expect(c.belts.some((b) => b.to.m === dock.id)).toBe(false); // the |G| belt into the press is gone
+    expect(c.belts.some((b) => b.from.m === dock.id && b.to?.port === 'rule')).toBe(true);
+    expect(c.belts.some((b) => b.to?.m === dock.id)).toBe(false); // the |G| belt into the press is gone
   });
 
   it('term joiner / inverter → hoppers with the computed term; the x port of a pair expander kept', () => {
@@ -100,8 +100,8 @@ describe('migrateCanvas: real v3 canvases → v4', () => {
     expect(hoppers).toContainEqual({ k: 'inv', arg: { k: 'mul', fs: [A, B] } });
     expect(recipes(c, 'operator')).toEqual([{ k: 'multiply', side: 'right', t: { k: 'port' } }]);
     expect(recipes(c, 'rewriter')).toEqual([{ k: 'insertPair', inv: true, x: { k: 'port' } }]);
-    expect(c.belts.some((b) => b.to.port === 't')).toBe(true);
-    expect(c.belts.some((b) => b.to.port === 'x')).toBe(true);
+    expect(c.belts.some((b) => b.to?.port === 't')).toBe(true);
+    expect(c.belts.some((b) => b.to?.port === 'x')).toBe(true);
   });
 
   it('L10: apply fed by the cond given → theorem{library given}; swapper/anvil → operator/joiner; room kept', () => {
@@ -110,7 +110,7 @@ describe('migrateCanvas: real v3 canvases → v4', () => {
     expect(recipes(c, 'operator')).toEqual([{ k: 'swap' }]);
     expect(recipes(c, 'joiner')).toEqual([{ k: 'clash' }]);
     expect(c.rooms.map((r) => r.kind)).toEqual(['suppose']);
-    expect(c.belts.some((b) => b.to.port === 'rule' || b.to.port === 'card')).toBe(false);
+    expect(c.belts.some((b) => b.to?.port === 'rule' || b.to?.port === 'card')).toBe(false);
   });
 
   it('L08: carddock{schema} → carddock{ref}; meet → joiner{chain}', () => {

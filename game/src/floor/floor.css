@@ -171,3 +171,8 @@
 .fl-badge { pointer-events: all; cursor: pointer; }
 .fl-badge:hover rect { fill: #2A3560; }
 .fl-root.is-alt .fl-badge { opacity: .9; }
+
+/* v4.1 open belts: the end cap is a handle (drag it on to an input or further floor) */
+.fl-bend { pointer-events: none; }
+.fl-bend .fl-hit { pointer-events: all; cursor: grab; }
+.fl-b.is-hover .fl-bend-knob, .fl-b.is-open:hover .fl-bend-knob { fill: #EEF0F5; }

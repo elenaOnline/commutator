@@ -34,7 +34,7 @@ describe('lowering: Rewriter recipes', () => {
     const f = new Floor(LEVEL_BY_ID.L01!);
     const r = f.add({ kind: 'rewriter', recipe: null, dir: 'fwd', target: { k: 'first' }, gap: { k: 'first' }, values: {}, tidy: true });
     f.wire(f.c.machines.find((m) => m.kind === 'spool')!.id, r);
-    expect(status(f.compile(), r)).toEqual({ k: 'starved', reason: 'choose a recipe' });
+    expect(status(f.compile(), r)).toEqual({ k: 'starved', reason: 'Choose a recipe.' });
   });
 
   it('L02 Another Identity: insert e after e′, then cite the given law H from the library (no belt)', () => {
@@ -92,10 +92,10 @@ describe('lowering: Rewriter recipes', () => {
     const sp = f.add(spool(a));
     const re = f.add(routed());
     f.wire(sp, re); f.wire(f.given('n'), re, 'rule');
-    expect(reason(f.compile(), re)).toMatch(/^this rule is an inequation \(a ≠ b\); a rewrite needs an equation/);
+    expect(reason(f.compile(), re)).toBe('a ≠ b is an inequation. A rule needs an equation.');
     const re2 = f.add(lawRw({ k: 'given', givenId: 'n' }));
     f.wire(sp, re2);
-    expect(reason(f.compile(), re2)).toMatch(/^this rule is an inequation/);
+    expect(reason(f.compile(), re2)).toMatch(/is an inequation\. A rule needs an equation\./);
   });
 
   it('pop removes a lone e; a sole e cannot be removed', () => {
@@ -108,7 +108,7 @@ describe('lowering: Rewriter recipes', () => {
     const s2 = f.add(spool(E));
     const p2 = f.add(pop());
     f.wire(s2, p2);
-    expect(reason(f.compile(), p2)).toBe('there is no e beside another factor in e = e');
+    expect(reason(f.compile(), p2)).toBe('No e to remove in e = e.');
   });
 });
 
@@ -188,7 +188,7 @@ describe('lowering: Operator, Joiner, Theorem', () => {
     const s2 = g.add(spool(a));
     const r2 = g.add(lawRw({ k: 'lagrange' }));
     g.wire(s2, r2);
-    expect(reason(g.compile(), r2)).toBe('Lagrange needs a group-size given |G| = n');
+    expect(reason(g.compile(), r2)).toBe('Lagrange needs a |G| = n given.');
   });
 });
 
@@ -210,12 +210,12 @@ describe('docks, jams and causes', () => {
     const can = f.add(cancel({ k: 'pin', side: 'r', selected: P(b, I(b)), neighbours: { left: [], right: [], leftEdge: false, rightEdge: false }, ancestors: [] }));
     f.wire(spoolId, can); f.wire(can, f.socket());
     const comp = f.compile();
-    expect(reason(comp, can)).toBe('no bb⁻¹ here: the incoming right side is a⁻¹ab');
+    expect(reason(comp, can)).toBe('No bb⁻¹ in a⁻¹ab. Pick the bracket again.');
     expect(status(comp, f.socket()).k).toBe('starved');
     expect(F.rootCause(comp, f.socket())).toBe(can);
     const g = new Floor(LEVEL_BY_ID.L01!);
     g.wire(g.c.machines.find((m) => m.kind === 'spool')!.id, g.socket());
-    expect(reason(g.compile(), g.socket())).toBe('this dock needs a⁻¹ab = b, but the belt delivers a⁻¹ab = a⁻¹ab');
+    expect(reason(g.compile(), g.socket())).toBe('Needs a⁻¹ab = b. Got a⁻¹ab = a⁻¹ab.');
   });
 
   it('forbidden dependency at the dock is rejected even with the right formula', () => {
@@ -223,7 +223,7 @@ describe('docks, jams and causes', () => {
     lv.sockets[0]!.allowedGivens = [];
     const f = new Floor(lv);
     f.wire(f.given('h'), f.socket());
-    expect(reason(f.compile(), f.socket())).toContain('still relies on given h');
+    expect(reason(f.compile(), f.socket())).toContain('rests on given h');
   });
 
   it('a feedback loop is a jam', () => {
@@ -231,7 +231,7 @@ describe('docks, jams and causes', () => {
     const o1 = f.add(op({ k: 'swap' })), o2 = f.add(op({ k: 'swap' }));
     f.wire(o1, o2); f.wire(o2, o1);
     const comp = f.compile();
-    expect(reason(comp, o1)).toContain('circular');
+    expect(reason(comp, o1)).toBe('This feeds itself. Break the loop.');
   });
 });
 
@@ -243,7 +243,7 @@ describe('scope from geometry', () => {
     const mu = f.add(mult('right', I(b)), { x: 34, y: 14 });
     const leak = f.wire(desk, mu);
     let comp = f.compile();
-    expect(comp.beltErrors[leak]).toBe('ab = b still depends on the supposition ab = b — it can only leave the room through the room’s gate');
+    expect(comp.beltErrors[leak]).toBe('ab = b rests on ab = b. Leave through the gate.');
     expect(status(comp, mu).k).toBe('jammed');
     expect(comp.scopeOf[desk]).toBe(room);
     f.c = { ...f.c, belts: f.c.belts.filter((x) => x.id !== leak), machines: f.c.machines.filter((m) => m.id !== mu) };

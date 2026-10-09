@@ -56,7 +56,7 @@ function migrateUnsafe(raw: unknown, ctx: KernelCtx): Canvas | null {
   const levelId = typeof raw.levelId === 'string' ? raw.levelId : ctx.level.id;
   if (levelId !== ctx.level.id) return null;
   const rawMs = (raw.machines as unknown[]).filter((m): m is Raw => isObj(m) && typeof m.id === 'string' && typeof m.kind === 'string' && isTile(m.at));
-  const rawBs = ((raw.belts as unknown[]) ?? []).filter((b): b is Raw => isObj(b) && typeof b.id === 'string' && isObj(b.from) && isObj(b.to));
+  const rawBs = ((raw.belts as unknown[]) ?? []).filter((b): b is Raw => isObj(b) && typeof b.id === 'string' && isObj(b.from) && (isObj(b.to) || b.to === null));
   const rooms: Room[] = (Array.isArray(raw.rooms) ? raw.rooms : []).filter((r): r is Raw => isObj(r) && typeof r.id === 'string' && isObj(r.rect))
     .map((r) => ({
       id: r.id as string,
@@ -67,7 +67,7 @@ function migrateUnsafe(raw: unknown, ctx: KernelCtx): Canvas | null {
   const v4 = isV4(rawMs);
 
   // Belts by endpoint, for following the v3 term network and spotting direct card feeds.
-  const feedOf = (m: string, port: string) => rawBs.find((b) => (b.to as Raw).m === m && (b.to as Raw).port === port);
+  const feedOf = (m: string, port: string) => rawBs.find((b) => isObj(b.to) && (b.to as Raw).m === m && (b.to as Raw).port === port);
   const byId = new Map(rawMs.map((m) => [m.id as string, m]));
 
   // Terms computed by v3 term machines (hopper / joiner / inverter chains).
@@ -197,8 +197,10 @@ function migrateUnsafe(raw: unknown, ctx: KernelCtx): Canvas | null {
   };
   for (const b of rawBs) {
     if (dropBelt.has(b.id as string)) continue;
-    const from = reKey(b.from as Raw), to = reKey(b.to as Raw);
-    if (!from || !to) continue;
+    const from = reKey(b.from as Raw);
+    const open = b.to === null;                                   // v4.1 open belt (ends on the floor)
+    const to = open ? null : reKey(b.to as Raw);
+    if (!from || (!open && !to)) continue;
     const path = Array.isArray(b.path) ? (b.path as unknown[]).filter(isTile).map((t) => ({ x: t.x, y: t.y })) : [];
     belts.push({ id: b.id as string, from, to, path, ...(typeof b.broken === 'string' ? { broken: b.broken } : {}) });
   }

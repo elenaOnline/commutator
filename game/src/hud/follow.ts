@@ -54,7 +54,7 @@ export function mountFollow(layer: HTMLElement, store: Store) {
     const queue = [sockMachine];
     while (queue.length) {
       const id = queue.shift()!;
-      for (const b of s.canvas.belts) if (b.to.m === id) {
+      for (const b of s.canvas.belts) if (b.to?.m === id) {
         belts.push(b.id);
         depth.set(b.from.m, Math.max(depth.get(b.from.m) ?? 0, (depth.get(id) ?? 0) + 1));
         if (!seen.has(b.from.m)) { seen.add(b.from.m); queue.push(b.from.m); }

@@ -40,7 +40,7 @@ export { initialCanvas, INITIAL_GAP } from './editor';
 /** Paint a room rectangle; creates its desk (inside) and gate (on the boundary). Rooms nest, never partially overlap. */
 /** Machine/belt at a tile (top-most), for picking. */
 export {
-  place, moveMachines, rotateMachine, remove, setConfig, setConfigCtx, route, routeOrWhy, connect, connectVia, branch, branchAt, autoLinks, spliceCandidates,
+  place, moveMachines, rotateMachine, remove, setConfig, setConfigCtx, route, routeOrWhy, connect, connectVia, extendTo, routeOpenOrWhy, branch, branchAt, autoLinks, spliceCandidates,
   paintRoom, resizeRoom, hit, portFacing, roomAt, roomOfMachine, freshId, copySelection, paste, repairBelts, placementWhy,
 } from './editor';
 

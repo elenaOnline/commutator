@@ -52,9 +52,11 @@ try {
     let s = await st();
     let sk = s.machines.find((m) => m.kind === 'socket');
     await fit(sk, [[-17, -4], [-17, 0], [-1, 0]]);
-    await placeAt('6', sk.at.x - 17, sk.at.y - 4); await page.keyboard.press('Escape'); await page.keyboard.press('Escape');
+    const tw0 = await placeAt('6', sk.at.x - 17, sk.at.y - 4); await page.keyboard.press('Escape'); await page.keyboard.press('Escape');
+    const xl = (await st()).machines.find((m) => m.id === tw0)?.cfg.label ?? 'x₁';
+    const xs = xl.replace(/[₀-₉]/g, '') + (/[₀-₉]/.test(xl) ? '_1' : '');
     const sp = await placeAt('1', sk.at.x - 17, sk.at.y); await page.keyboard.press('Escape');
-    await openLens(sp); await typeKnob('.h3-lens .h3-knob .h3-term', '(x_1^-1)^-1'); await page.keyboard.press('Escape');
+    await openLens(sp); await typeKnob('.h3-lens .h3-knob .h3-term', `(${xs}^-1)^-1`); await page.keyboard.press('Escape');
     const ra = await placeAt('2', sk.at.x - 13, sk.at.y); await pick('pairInv');
     const rb = await placeAt('2', sk.at.x - 9, sk.at.y); await pick('cancel');
     const fa = await placeAt('7', sk.at.x - 5, sk.at.y); await page.keyboard.press('Escape'); await page.keyboard.press('Escape');
@@ -64,13 +66,13 @@ try {
     await page.evaluate(() => window.__lw.setPlaying(false));
     await drag(await port(fa, 'out'), await port(sk.id, 'q'));
     await openLens(ra);
-    await typeKnob('.h3-lens .h3-knob .h3-term', 'x_1');
+    await typeKnob('.h3-lens .h3-knob .h3-term', xs);
     const gapEnd = page.locator('.h3-lens .h3-br.gap[data-side="r"][data-path=""][data-gap="1"]');
     check(await gapEnd.count() === 1, `[${W}] the end-of-rail gap is a clickable caret`);
     if (await gapEnd.count()) { await gapEnd.click(); await page.waitForTimeout(250); }
     await openLens(fa);
     const ft = await lensText();
-    check(/generalized/i.test(ft) && /ready to save/i.test(ft) && !/nothing to generalize/i.test(ft), `[${W}] S01 ∀ lens: ${ft.split('\n').filter((l) => /eneraliz|save|Nothing/i.test(l)).join(' / ')}`);
+    check(/generalized/i.test(ft) && /ready to save/i.test(ft) && !/build with a tower/i.test(ft), `[${W}] S01 ∀ lens: ${ft.split('\n').filter((l) => /eneraliz|save|Nothing/i.test(l)).join(' / ')}`);
     await shot('S01-forall');
     await page.keyboard.press('Escape'); await page.waitForTimeout(150);
     check((await st()).lens === null, `[${W}] Esc in the name field closes the lens`);
@@ -91,7 +93,7 @@ try {
     check(nm === 'Double Flip', `[${W}] ceremony offers the save, prefilled "${nm}"`);
     await page.keyboard.press('Escape'); await page.waitForTimeout(600);
     const note = await page.locator('.h3-ceremony .qed-note').innerText().catch(() => '');
-    check(/x1 was arbitrary|x₁ was arbitrary/.test(note.replace(/\s+/g, ' ')) || /arbitrary/.test(note), `[${W}] ceremony note: "${note}"`);
+    check(/could be anything/.test(note), `[${W}] ceremony note: "${note}"`);
     await shot('S01-ceremony');
     await page.locator('.h3-ceremony .qed-save button').click(); await page.waitForTimeout(900);
     s = await st();
@@ -149,7 +151,7 @@ try {
     await page.keyboard.press('Escape'); await page.waitForTimeout(300); await page.keyboard.press('Escape');
     await openLens(f2);
     const bt = await lensText();
-    check(/Generalized/.test(bt) && /Can’t save globally/.test(bt) && !/Nothing to generalize/.test(bt), `[${W}] B01 ∀: ${bt.split('\n').filter((l) => /eneraliz|save|Nothing/i.test(l)).join(' / ')}`);
+    check(/Generalized/.test(bt) && /Can’t save: it uses h/.test(bt) && !/Build with a Tower/.test(bt), `[${W}] B01 ∀: ${bt.split('\n').filter((l) => /eneraliz|save|Nothing/i.test(l)).join(' / ')}`);
     await shot('B01-forall');
     console.log(`[${W}x${H}] page errors:`, errors.length ? errors.slice(0, 6).join('\n  ') : 'none');
     await ctx.close();
