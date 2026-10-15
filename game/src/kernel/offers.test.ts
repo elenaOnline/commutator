@@ -173,9 +173,9 @@ describe('soundness: offers never include anything check() rejects', () => {
         const zs = K.cardZmetas(target);
         for (const m of target.metas) sub[m] = zs.has(m) ? K.intVal(K.polyZvar(p.declareInt(`${m}₁`))) : K.atom(p.declareVar(`${m}₁`));
         const inst = (t: Term) => K.instantiate(t, sub);
-        const concl = target.k === 'law' ? { k: 'eq' as const, l: target.l, r: target.r } : target.concl;
+        const concl = (target.k === 'law' ? { k: 'eq' as const, l: target.l, r: target.r } : target.concl) as K.EqPat;
         sock = { k: concl.k, l: inst(concl.l), r: inst(concl.r) };
-        if (target.k === 'cond') for (const pr of target.premises) p.openRoom('assume', inst(pr.l), inst(pr.r), ROOT, pr.k);
+        if (target.k === 'cond') for (const pr of target.premises as K.EqPat[]) p.openRoom('assume', inst(pr.l), inst(pr.r), ROOT, pr.k);
       } else sock = target as Pallet & { k: 'eq' | 'neq' };
       p.start(sock.l); p.start(sock.r);
       if (level.tools.press) for (const g of level.givens) if (g.fact.k === 'size') p.press(`g:${g.id}`);

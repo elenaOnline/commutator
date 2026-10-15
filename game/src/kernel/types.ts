@@ -14,7 +14,8 @@ export type MetaId = string;
 
 export type Term =
   | { k: 'atom'; id: AtomId }
-  | { k: 'e' }
+  /** The identity. Book phase C: `s` names its group sort (absent = the default group 'G'; norm drops s: 'G'). */
+  | { k: 'e'; s?: SortId }
   | { k: 'inv'; arg: Term }
   /** Flat product: fs.length >= 2 and no element of fs is a 'mul'. */
   | { k: 'mul'; fs: Term[] }
@@ -30,7 +31,21 @@ export type Term =
    * v4 Phase B: an INTEGER value, never a group element. Valid only as the value of a ℤ-sorted meta
    * in a Subst (an exponent knob). Rejected anywhere a group element is expected.
    */
-  | { k: 'int'; val: Poly };
+  | { k: 'int'; val: Poly }
+  /**
+   * Book phase C (KERNEL-EXT §5): a map applied to arguments, f(x) or σ(g, p). `fn` is a level map id, a Hom Tower
+   * id, or a card's hom/action binder. One factor of its enclosing word, like inv; Addr.path child i enters args[i].
+   */
+  | { k: 'app'; fn: string; args: Term[] };
+
+/** Book phase C: a group or set sort id. 'G' is the default group of every level; 'Z' stays reserved for ℤ. */
+export type SortId = string;
+/** Book phase C: a level-declared sort (a group or a plain set). */
+export interface SortDecl { id: SortId; kind: 'group' | 'set'; label: string }
+/** Book phase C: a level-declared map. hom: one group argument → a group. action: (group, set) → the set. */
+export interface MapDecl { id: string; label: string; args: SortId[]; res: SortId; kind?: 'map' | 'hom' | 'action' }
+/** Book phase C: a sort reference in a card: a level sort / group Tower, or a card's group (or set) binder. */
+export type SortRef = SortId | { k: 'sortmeta'; id: MetaId };
 
 /** v4 Phase B sorts: G = group elements, Z = integers. */
 export type Sort = 'G' | 'Z';
@@ -53,22 +68,61 @@ export type Pallet =
   | { k: 'neq'; l: Term; r: Term }
   | { k: 'bot' }
   /** |G| = n, n a positive literal (1..24). Never an element term. */
-  | { k: 'size'; n: number };
+  | { k: 'size'; n: number; s?: SortId }
+  /** Book phase B (KERNEL-EXT §4): t ∈ S for a level subgroup or a Subgroup Tower (never a binder on a belt). */
+  | MemPat;
 
 /** Cards: universally quantified statements, used by instantiation. */
 export type Card =
   /** ∀metas. l = r (unconditional law). Citable as a rewrite rule. */
-  | { k: 'law'; metas: MetaId[]; l: Term; r: Term }
-  /** ∀metas. premises ⇒ concl. Applied via an 'apply' node. */
-  | { k: 'cond'; metas: MetaId[]; premises: PatFact[]; concl: PatFact };
+  | { k: 'law'; metas: MetaId[]; l: Term; r: Term; binds?: StructBinder[]; metaSorts?: Record<MetaId, SortRef> }
+  /** ∀metas. premises ⇒ concl. Applied via an 'apply' node. Book phase B: premises/concl may be memberships;
+   *  `binds` = outermost ∀ over structures (subgroup parameters), bound before the element metas. */
+  | { k: 'cond'; metas: MetaId[]; premises: PatFact[]; concl: PatFact; binds?: StructBinder[]; metaSorts?: Record<MetaId, SortRef> };
+/* Book phase C: `metaSorts` gives each element meta its sort. A card WITHOUT metaSorts and without app terms is a
+ * ONE-GROUP card: sort-polymorphic, it applies in any group sort (its e reads as that sort's identity). */
 
 /** eq/neq whose sides may contain metas. */
-export type PatFact = { k: 'eq' | 'neq'; l: Term; r: Term };
+export type EqPat = { k: 'eq' | 'neq'; l: Term; r: Term };
+/** Book phase B: t ∈ S. In a card, t may contain metas and S may be a binder (`submeta`). */
+export type MemPat = { k: 'mem'; t: Term; sub: SubRef };
+/** A statement inside a card: an (in)equation, or (phase B) a membership. Use patTerms/mapPat (kernel) to walk it. */
+export type PatFact = EqPat | MemPat;
+
+/** Book phase B: a level subgroup or Subgroup Tower (`sub`, rigid), or a card's subgroup parameter (`submeta`). */
+export type SubRef = { k: 'sub'; id: string } | { k: 'submeta'; id: MetaId };
+/** Book phase B: a structure parameter of a card. Phase C adds group sorts, homs and actions. */
+export type StructBinder =
+  | { k: 'sub'; id: MetaId; normal: boolean; sort?: SortRef }
+  /** Book phase C: a group sort parameter ("for every group G"). */
+  | { k: 'grp'; id: MetaId }
+  /** Book phase C: a set sort parameter (only alongside an action parameter). */
+  | { k: 'set'; id: MetaId }
+  /** Book phase C: a homomorphism parameter f : dom → cod ("for every homomorphism f"). */
+  | { k: 'hom'; id: MetaId; dom: SortRef; cod: SortRef }
+  /** Book phase C: an action parameter σ : grp × on → on. */
+  | { k: 'act'; id: MetaId; grp: SortRef; on: SortRef };
+/** Book phase B: a level subgroup (`H ≤ G`, or `N ⊴ G` when normal). */
+export interface SubgroupDecl {
+  id: string; label: string; normal?: boolean; hue?: number;
+  /** Book phase C: the group it is a subgroup of (default 'G'). */
+  sort?: SortId;
+  /** Set by withVars for a Subgroup Tower (graph.structs): fresh, generalizable. Level subgroups are constants. */
+  variable?: boolean;
+}
+/** Book phase B: a structure declared by a Tower on the floor (graph-level, fresh like element Towers). */
+export type StructDecl =
+  | { k: 'sub'; id: string; label: string; normal: boolean; sort?: SortId }
+  /** Book phase C: a group Tower (a fresh group G₁; no atoms, no givens). */
+  | { k: 'grp'; id: string; label: string }
+  /** Book phase C: a Hom Tower f₁ : dom → cod (fresh or level group sorts). Its hom law has no dependency. */
+  | { k: 'hom'; id: string; label: string; dom: SortId; cod: SortId };
 
 export type Fact = Pallet | Card;
 
 // ───────────────────────────── Addresses ─────────────────────────────
 
+/** l / r: the rails of an (in)equation. Book phase B: a membership t ∈ S has ONE rail, its term t, addressed as 'l'. */
 export type Side = 'l' | 'r';
 
 /**
@@ -116,12 +170,29 @@ export interface Room {
   r: Term;
   /** For kind 'assume': whether the assumption is l = r (default) or l ≠ r. */
   rel?: 'eq' | 'neq';
+  /**
+   * Book phase A (design/pinter/KERNEL-EXT.md §2): a multi-desk Assume room. 1–3 assumptions, one desk
+   * each (`assume` node `slot` i). When present it is authoritative and l/r/rel are ignored by the
+   * kernel (writers keep them equal to assumes[0] for older readers). Only for kind 'assume'.
+   * The exit exports cond([], [P₀ … Pₖ₋₁], Q).
+   */
+  assumes?: DeskAssumption[];
 }
+
+/**
+ * One assumption of an Assume room (Book phase A). Phase B adds `{ rel: 'mem'; t: Term; sub: string }`;
+ * readers must treat an unknown `rel` as an error, never as eq.
+ */
+export type Assumption = { rel: 'eq' | 'neq'; l: Term; r: Term };
+/** Book phase B: an Assume desk that assumes a membership t ∈ S (never in Suppose / Classical rooms: there is no ∉). */
+export type MemAssumption = { rel: 'mem'; t: Term; sub: SubRef };
+/** What one desk of an Assume room assumes. Readers: `a.rel === 'mem' ? … : a.l / a.r`. */
+export type DeskAssumption = Assumption | MemAssumption;
 
 export type StepOp =
   /** Replace the focused redex (must equal norm(inst(src,σ))) by norm(inst(dst,σ)).
    *  dir 'fwd': src=l,dst=r. 'rev': src=r,dst=l. σ must bind every meta of the rule. */
-  | { k: 'rewrite'; rule: RuleRef; dir: 'fwd' | 'rev'; at: Addr; subst: Subst }
+  | { k: 'rewrite'; rule: RuleRef; dir: 'fwd' | 'rev'; at: Addr; subst: Subst; structs?: Record<MetaId, string> }
   /** Insert an explicit e factor at a gap (unit axiom read backwards). */
   | { k: 'insertE'; at: GapAddr }
   /** Multiply both rails by term on the given side. */
@@ -129,7 +200,10 @@ export type StepOp =
   /** L = R ⟹ R = L (eq) ; also L ≠ R ⟹ R ≠ L (neq). */
   | { k: 'swap' }
   /** v4: L = R ⟹ L⁻¹ = R⁻¹ (congruence with inverse); also L ≠ R ⟹ L⁻¹ ≠ R⁻¹ (inverse is injective). */
-  | { k: 'invert' };
+  | { k: 'invert' }
+  /** Book phase C: apply a map to both sides — u = v ⟹ f(…u…) = f(…v…); `slot` = the argument u fills
+   *  (default 0), `others` = ground terms for the remaining arguments (σ(g, p): slot 1, others [g]). */
+  | { k: 'applyMap'; fn: string; slot?: number; others?: Term[] };
 
 /** UI-only annotations. The kernel ignores them entirely. */
 export interface NodeMeta {
@@ -144,11 +218,13 @@ interface NodeBase { id: NodeId; scope: ScopeId; meta?: NodeMeta }
 export type ProofNode =
   | (NodeBase & { k: 'start'; term: Term })                       // ⊢ t = t
   | (NodeBase & { k: 'given'; givenId: string })                   // ⊢ manifest given (dep: givenId)
-  | (NodeBase & { k: 'assume'; room: ScopeId })                    // scope === room; dep: room assumption
+  /** scope === room; dep: room assumption. Book phase A: `slot` i (default 0) of a multi-desk room;
+   *  its dep is 'a:<room>' for slot 0 and 'a:<room>/<i>' otherwise (see depRoom in kernel/index.ts). */
+  | (NodeBase & { k: 'assume'; room: ScopeId; slot?: number })
   | (NodeBase & { k: 'step'; input: NodeId; op: StepOp })
   /** Instantiate a cond card (or a premise-free card: emits the instance) with σ,
    *  inputs[i] must prove inst(premises[i], σ) exactly (norm-equal). */
-  | (NodeBase & { k: 'apply'; rule: RuleRef; inputs: NodeId[]; subst: Subst })
+  | (NodeBase & { k: 'apply'; rule: RuleRef; inputs: NodeId[]; subst: Subst; structs?: Record<MetaId, string> })
   /** eq(X,M) , eq(Y,M) ⟹ eq(X,Y). Right sides must be norm-equal. */
   | (NodeBase & { k: 'merge'; inputs: [NodeId, NodeId] })
   /** eq(L,R) , neq(L,R) or neq(R,L) ⟹ bot. inputs = [eqNode, neqNode]. */
@@ -170,6 +246,8 @@ export interface ProofGraph {
   rooms: Room[];
   /** v4: player-declared variables (Towers). Each has variable: true and a unique id/label. */
   vars?: AtomDecl[];
+  /** Book phase B: structures declared by Towers (Subgroup Towers H₁ ≤ G, N₁ ⊴ G). Fresh, like vars. */
+  structs?: StructDecl[];
 }
 
 // ───────────────────────────── Level manifest ─────────────────────────────
@@ -189,6 +267,8 @@ export interface AtomDecl {
   /** v4 Phase B: the sort of a Tower variable. 'Z' Towers (n₁, k₁) are integers that occur only inside
    *  exponents (as zvar refs). Default 'G'. Level atoms are always G constants. */
   sort?: Sort;
+  /** Book phase C: the group or set sort an element atom / element Tower lives in (default the group 'G'). */
+  carrier?: SortId;
 }
 
 export interface GivenDecl {
@@ -204,6 +284,26 @@ export interface SocketDecl {
   target: Pallet | Card;
   /** Given ids a proof at this socket may depend on. */
   allowedGivens: string[];
+  /**
+   * Book phase A — an OPEN dock (design/pinter/KERNEL-EXT.md §1). Each hole is a meta id (sort G: a
+   * `{k:'meta'}` term; sort Z: a `{k:'zmeta'}` ref inside an exponent) that occurs in `target` and is
+   * NOT one of a card target's binders. The dock is filled by a fact equal to target[holes := T]; in a
+   * law/cond target T may mention the card's bound metas (a Skolem witness: ∀z ∃y. P(z, y)).
+   * Absent or [] = an ordinary closed dock.
+   */
+  holes?: HoleDecl[];
+}
+
+/** One hole of an open dock (Book phase A). */
+export interface HoleDecl {
+  /** The meta id standing for the hole inside the socket's target. Repeated occurrences bind one term. */
+  id: MetaId;
+  /** G (default): a group element. Z: an integer, occurring only inside exponents. */
+  sort?: Sort;
+  /** "Solve for d": the answer may not mention these level atoms. */
+  notMentioning?: AtomId[];
+  /** Display label of the empty hole (default '?', or '?₁', '?₂' … when there are several). */
+  label?: string;
 }
 
 /** A theorem in the registry. Statement only; proofs are the levels. */
@@ -215,7 +315,8 @@ export interface Schema {
   textbook: string;
   card: Card;
   /** v4 'authored': a player lemma from the Lemma Book (re-verified from its saved proof on load). */
-  origin: 'earned' | 'import' | 'authored';
+  /** 'axiom' (Book phase B): an axiom of a declared kind (subgroup closure), kernel-owned, no dependency. */
+  origin: 'earned' | 'import' | 'authored' | 'axiom';
   /** Level that earns it (earned only). */
   fromLevel?: string;
   /** Whether a mirror (Gᵒᵖ) variant is offered. */
@@ -241,12 +342,29 @@ export interface Toolset {
 export interface LevelManifest {
   id: string;            // 'L01' ...
   index: number;         // display number
-  chapter: 1 | 2 | 3 | 4; // 4 = Powers (v4 Phase B)
+  /** Main campaign: 1–4 (4 = Powers). The Book campaign: Pinter's chapter number, 2–16. */
+  chapter: number;
+  /** Which campaign the level belongs to (default 'main'). The Book follows Pinter (design/pinter/SYNTHESIS.md). */
+  campaign?: 'main' | 'book';
+  /** The Book: the world this level belongs to (1–14, see SYNTHESIS §3). */
+  world?: number;
+  /** The Book: the proof method this level trains, shown on the order chip (e.g. 'Uniqueness argument'). */
+  method?: string;
+  /** The Book: the specific insight, shown only on the Paper view after ∎ (never before: it would spoil). */
+  insight?: string;
+  /** The Book: design-only source citation, e.g. 'Pinter 4.A3'. Never shown to players as prose. */
+  source?: string;
   side?: boolean;        // side order
   title: string;
   memo: string;          // one dry work-order line
   /** Element constants of this level. */
   atoms: AtomDecl[];
+  /** Book phase B: the level's subgroups (H ≤ G; N ⊴ G when normal). Their closure axioms are dependency-free. */
+  subgroups?: SubgroupDecl[];
+  /** Book phase C: the level's sorts (default: one group 'G'). A level declaring sorts lists 'G' if it uses it. */
+  sorts?: SortDecl[];
+  /** Book phase C: the level's maps (plain maps, homomorphisms, actions). Kind laws are dependency-free. */
+  maps?: MapDecl[];
   givens: GivenDecl[];
   sockets: SocketDecl[];
   tools: Toolset;
@@ -289,6 +407,11 @@ export interface SocketResult {
   filledBy?: NodeId;
   ok: boolean;
   error?: string;
+  /** Book phase A, open docks: the bound hole values (G holes → terms, Z holes → { k: 'int' }), over the
+   *  target's own bound metas for a ∀ target. Present iff ok and the socket has holes. */
+  holes?: Subst;
+  /** Book phase A, open docks: target[holes := values] — the closed statement the dock now shows. */
+  instance?: Pallet | Card;
 }
 
 export interface CheckResult {

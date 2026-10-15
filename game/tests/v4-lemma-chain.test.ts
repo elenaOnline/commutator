@@ -13,5 +13,5 @@ test('verifyLemmas passes earlier lemma ids so chained lemmas survive reload', a
   const mk = (id: string, t: number) => ({ id, name: id, card: { k: 'law' as const, metas: ['x'], l: { k: 'meta' as const, id: 'x' }, r: { k: 'meta' as const, id: 'x' } }, levelId: 'S01', canvas: { version: 3 as const, levelId: 'S01', machines: [], belts: [], rooms: [] }, machine: 'm', savedAt: t });
   const out = FactoryStore.verifyLemmas({ version: 4, lemmas: [mk('lemma:b-2', 2), mk('lemma:a-1', 1)], levels: {}, earned: [], settings: { speed: 1, reducedMotion: false } });
   expect(calls).toEqual([{ id: 'lemma:a-1', earlier: [] }, { id: 'lemma:b-2', earlier: ['lemma:a-1'] }]);
-  expect(out.lemmas.every((l) => l.verified)).toBe(true);
+  expect(out.campaigns.main.lemmas.every((l) => l.verified)).toBe(true); // v5: the v4 save is upgraded, all of it to 'main'
 });

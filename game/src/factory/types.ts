@@ -2,8 +2,8 @@
 // their own files. Engineering reference: design/v3/proposals/sol-compiler.md.
 // Decisions: design/v3/DESIGN.md (wins where they differ).
 import type {
-  Addr, Card, CheckResult, Family, GapAddr, MetaId, NodeId, Pallet, ProofGraph,
-  RuleRef, ScopeId, Term,
+  Addr, Assumption, Card, DeskAssumption, CheckResult, Family, GapAddr, MetaId, NodeId, Pallet, ProofGraph,
+  RuleRef, ScopeId, SortId, Subst, Term,
 } from '../kernel/types';
 
 // ───────────────────────────── Geometry ─────────────────────────────
@@ -16,7 +16,9 @@ export interface Rect { x: number; y: number; w: number; h: number } // half-ope
 
 // ───────────────────────────── Items ─────────────────────────────
 
-export type ItemKind = 'term' | 'eq' | 'neq' | 'bot' | 'size' | 'law' | 'cond';
+/** Book phase B adds 'mem' (a membership t ∈ H). Exhaustive Record<ItemKind, …> maps need a 'mem' entry
+ *  (KERNEL-EXT §4.10 lists the floor/HUD spots; plain fallbacks are fine until the UI lead draws it). */
+export type ItemKind = 'term' | 'eq' | 'neq' | 'bot' | 'size' | 'law' | 'cond' | 'mem';
 
 /** A value riding a belt. Facts/cards are backed by checked kernel nodes or registry schemas. */
 export type ItemValue =
@@ -31,7 +33,8 @@ export const itemKindOf = (v: ItemValue): ItemKind =>
 
 /** Neighbouring factors around a selection, for structural re-resolution (Sol §6). */
 export interface Neighbours { left: Term[]; right: Term[]; leftEdge: boolean; rightEdge: boolean }
-export type Anchor = { k: 'inv' } | ({ k: 'factor' } & Neighbours);
+/** Book phase C adds `arg`: argument i of the map fn (a frame f(…) on the way down). */
+export type Anchor = { k: 'inv' } | ({ k: 'factor' } & Neighbours) | { k: 'arg'; fn: string; i: number };
 
 export type SpanTarget =
   | { k: 'first' }
@@ -66,7 +69,9 @@ export type MachineKind =
 export type LibRef =
   | { k: 'axiom'; id: 'unitL' | 'unitR' | 'invL' | 'invR' }
   | { k: 'given'; givenId: string }
-  | { k: 'schema'; id: string; mirror?: boolean }   // earned or authored (Lemma Book)
+  /** earned or authored (Lemma Book). Book phase B: `structs` picks which subgroup plays each subgroup parameter
+   *  of the card (binder id → level subgroup or Subgroup Tower id); the picker lists one ref per choice. */
+  | { k: 'schema'; id: string; mirror?: boolean; structs?: Record<MetaId, string> }
   | { k: 'lagrange' };                              // IMPORTED ∀x. x^{|G|} = e (needs a |G| = n given)
 
 export type RewriteRecipe =
@@ -80,7 +85,10 @@ export type RewriteRecipe =
 export type OperatorRecipe =
   | { k: 'multiply'; side: 'left' | 'right'; t: Param }
   | { k: 'invert' }
-  | { k: 'swap' };
+  | { k: 'swap' }
+  /** Book phase C: apply the map fn to both sides (u = v ⟹ f(u) = f(v)); for a two-argument map (an action
+   *  σ(g, p)) the equation fills argument `slot` and `others` supply the rest (knobs, or term ports 'arg:<i>'). */
+  | { k: 'apply'; fn: string; slot?: number; others?: Param[] };
 
 export type JoinerRecipe = { k: 'chain' } | { k: 'product' } | { k: 'clash' };
 
@@ -90,17 +98,24 @@ export type TheoremRecipe =
 
 export type MachineConfig =
   | { kind: 'spool'; t: Param }
-  | { kind: 'tower'; varId: string; label: string; sort: 'G' | 'Z' }  // label unique on the floor, e.g. 'x₁'
+  /** label unique on the floor, e.g. 'x₁'. Book phase B: `sub` makes it a Subgroup Tower — 'sub' declares
+   *  "H₁ ≤ G", 'normal' declares "N₁ ⊴ G" (graph.structs); `sort` is then ignored (keep 'G'). */
+  | { kind: 'tower'; varId: string; label: string; sort: 'G' | 'Z'; sub?: 'sub' | 'normal';
+      /** Book phase C: an element Tower's group or set (default 'G'); a group Tower (G₁); a Hom Tower f₁ : dom → cod. */
+      carrier?: SortId; group?: boolean; hom?: { dom: SortId; cod: SortId } }
   | { kind: 'rewriter'; recipe: RewriteRecipe | null; dir: 'fwd' | 'rev'; target: SpanTarget; gap: GapTarget; values: Record<MetaId, Param>; tidy: boolean }
   | { kind: 'operator'; recipe: OperatorRecipe | null }
   | { kind: 'joiner'; recipe: JoinerRecipe | null }
-  | { kind: 'theorem'; recipe: TheoremRecipe | null; choice: number; values: Record<MetaId, Param> }
+  /** Book phase B: `structs` = which subgroup plays each subgroup parameter of a ROUTED card (library refs carry
+   *  their own). Absent entries are inferred from the premises when they determine them. */
+  | { kind: 'theorem'; recipe: TheoremRecipe | null; choice: number; values: Record<MetaId, Param>; structs?: Record<MetaId, string> }
   | { kind: 'forall' }
   | { kind: 'carddock'; ref: LibRef | null }
   | { kind: 'hopper'; t: Term | null }
   | { kind: 'given'; givenId: string }
   | { kind: 'socket'; socketId: string }
-  | { kind: 'desk'; room: string }
+  /** Book phase A: `slot` = which of the room's assumptions this desk emits (default 0). */
+  | { kind: 'desk'; room: string; slot?: number }
   | { kind: 'gate'; room: string };
 
 export interface Machine {
@@ -158,6 +173,12 @@ export interface Room {
   l: Term;
   r: Term;
   rect: Rect;
+  /**
+   * Book phase A (design/pinter/KERNEL-EXT.md §2): a multi-desk Assume room, 1–3 assumptions in desk order;
+   * desk i has config { kind: 'desk', room, slot: i }. Authoritative when present; l/r/rel then mirror
+   * assumes[0] so single-desk readers keep working. The gate exports cond([], [P₀ … Pₖ₋₁], Q).
+   */
+  assumes?: DeskAssumption[];
 }
 
 export interface Canvas {
@@ -200,6 +221,11 @@ export interface MachineResult {
   /** For targeting machines: every candidate target on the incoming equation, and the chosen index. */
   candidates?: { addr: Addr | GapAddr; label: string }[];
   chosen?: number;
+  /**
+   * Book phase B, Theorem machines: the card's subgroup parameters — the reuse lens data. One entry per binder:
+   * the compatible subgroups in scope (normal binders list only normal ones) and the one in use, if decided.
+   */
+  structs?: { binder: MetaId; normal: boolean; options: { id: string; label: string }[]; chosen?: string }[];
   /** For apply/stamp: the binding alternatives (cuts/prefixes) and the chosen index. */
   choices?: { label: string; bindings: { meta: MetaId; addr: Addr }[] }[];
   /** Processing time in ticks. */
@@ -213,11 +239,26 @@ export interface Compiled {
   /** Room membership per machine (innermost containing room or 'root'). */
   scopeOf: Record<string, ScopeId>;
   /** Per socket id: the machine feeding it and whether its delivery would be accepted. */
-  sockets: Record<string, { by?: string; ok: boolean; reason?: string }>;
+  sockets: Record<string, DockState>;
   /** True iff every socket would accept what is routed into it. QED waits for runtime delivery. */
   solvable: boolean;
   /** Belt-level problems (bad endpoints, crossings, scope leaks) keyed by belt id. */
   beltErrors: Record<string, string>;
+}
+
+/**
+ * What a dock knows (compile time). Book phase A, open docks: when ok, `holes` / `instance` are the answer the
+ * first certified inlet would deliver, and `answers` has one per certified inlet (port id → answer). Show the
+ * answer only once the runtime has delivered (RunStateX.via / dockAnswer in runtime.ts): before that the dock
+ * shows its open shape (kernel openDisplay / dockText). Never derive a hint from these before delivery.
+ */
+export interface DockState {
+  by?: string;
+  ok: boolean;
+  reason?: string;
+  holes?: Subst;
+  instance?: Pallet | Card;
+  answers?: Record<string, { holes: Subst; instance: Pallet | Card }>;
 }
 
 // ───────────────────────────── Runtime ─────────────────────────────

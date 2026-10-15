@@ -20,6 +20,7 @@ export function termSVG(t: Term, L: Labels): string {
       case 'atom': return it(L[t.id] ?? t.id);
       case 'meta': return it(t.id);
       case 'e': return it('e');
+      case 'app': return it(L[t.fn] ?? t.fn) + up('(') + t.args.map((x) => termSVG(x, L)).join(up(', ')) + up(')'); // Book phase C
       case 'inv': {
         const a = t.arg;
         const simple = a.k === 'atom' || a.k === 'meta' || a.k === 'e';
@@ -62,6 +63,7 @@ export function factSVG(f: Fact, L: Labels): string {
   switch (f.k) {
     case 'eq': return termSVG(f.l, L) + rel('=') + termSVG(f.r, L);
     case 'neq': return termSVG(f.l, L) + rel('≠') + termSVG(f.r, L);
+    case 'mem': return termSVG(f.t, L) + rel('∈') + it(L[f.sub.id] ?? f.sub.id); // Book phase B (plain fallback)
     case 'bot': return up('⊥');
     case 'size': return up('|') + it('G') + up('|') + rel('=') + up(String(f.n));
     case 'law': return (f.metas.length ? up('∀') + f.metas.map(it).join(up(', ')) + up('. ') : '') + termSVG(f.l, L) + rel('=') + termSVG(f.r, L);
@@ -82,6 +84,7 @@ export function factPlain(f: Fact | undefined, L: Labels): string {
       case 'e': return 'e';
       case 'inv': return (t.arg.k === 'mul' ? `(${tp(t.arg)})` : tp(t.arg)) + '⁻¹';
       case 'mul': return t.fs.map(tp).join('');
+      case 'app': return `${L[t.fn] ?? t.fn}(${t.args.map(tp).join(', ')})`;
       case 'pow': return `${t.base.k === 'mul' || t.base.k === 'inv' || t.base.k === 'pow' ? `(${tp(t.base)})` : tp(t.base)}^(${exponentText(t.exp, L)})`;
       case 'int': return exponentText(t.val, L);
     }
@@ -89,6 +92,7 @@ export function factPlain(f: Fact | undefined, L: Labels): string {
   switch (f.k) {
     case 'eq': return `${tp(f.l)} = ${tp(f.r)}`;
     case 'neq': return `${tp(f.l)} ≠ ${tp(f.r)}`;
+    case 'mem': return `${tp(f.t)} ∈ ${L[f.sub.id] ?? f.sub.id}`;
     case 'bot': return '⊥';
     case 'size': return `|G| = ${f.n}`;
     case 'law': return `∀${f.metas.join(',')}. ${tp(f.l)} = ${tp(f.r)}`;

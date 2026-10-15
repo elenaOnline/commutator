@@ -3,7 +3,8 @@
 import type { LevelManifest } from '../kernel/types';
 import { makeSaveLink } from '../ui/savelink';
 import { hasseUses, type MapNode } from '../shell/map';
-import { CHAPTERS, LEVELS, LEVEL_BY_ID, REGISTRY, esc, fH, h, ideaOf, isOpen, isSolved, labels, nextLevel, richHTML, schemaNames, type S as State, type Store } from './util';
+import { openView, CAMPAIGN_NAMES, CHAPTERS, LEVELS, LEVEL_BY_ID, REGISTRY, bookWorlds, campaignOf, displayNo, esc, fH, h, ideaOf, isOpen, isSolved, labels, nextLevel, richHTML, schemaNames, tally, type Campaign, type S as State, type Store } from './util';
+import { campSave } from '../state/factoryStore';
 
 const IMPORT_ID = 'IMPORT:lagrange';
 
@@ -53,6 +54,9 @@ export function mapLayout(): { nodes: MapNode[]; rows: number; bands: { chapter:
 
 
 type NodeState = 'solved' | 'next' | 'open' | 'locked';
+const mapCampaign = (s: State): Campaign => (s.save.campaign === 'book' ? 'book' : 'main');
+/** The suggested next order on the map's campaign. */
+const nextOn = (s: State) => nextLevel(s.save, undefined, mapCampaign(s));
 function nodeState(s: State, lv: LevelManifest, next: string | null): NodeState {
   if (isSolved(s.save, lv.id)) return 'solved';
   if (!isOpen(s.save, lv)) return 'locked';
@@ -62,8 +66,17 @@ function nodeState(s: State, lv: LevelManifest, next: string | null): NodeState 
 export function mountMap(el: HTMLElement, store: Store): (s: State) => void {
   const layout = mapLayout();
   el.className = 'lw-map h3-map';
+  // The campaign switch (SYNTHESIS §4): the original campaign and The Book, each with its own progress.
+  const switchEl = h('div', { class: 'map-switch', role: 'tablist', 'aria-label': 'Campaign' });
+  const tabs = (['main', 'book'] as Campaign[]).map((c) => {
+    const b = h('button', { class: 'map-tab', role: 'tab', 'data-campaign': c }, CAMPAIGN_NAMES[c]);
+    b.addEventListener('click', () => { if (store.get().save.campaign !== c) { savedScroll = null; forceReveal = true; pendingEntry = true; store.setCampaign(c); } });
+    switchEl.append(b);
+    return b;
+  });
+  const sub = h('span', { class: 'map-sub' });
   const head = h('header', { class: 'map-head' },
-    h('div', { class: 'map-brand' }, h('span', { class: 'map-mark' }, 'Commutator'), h('span', { class: 'map-sub' }, 'Theorem map · edges read “used to build”')),
+    h('div', { class: 'map-brand' }, switchEl, sub),
     h('div', { class: 'map-progress' }),
   );
   // Carry progress to another copy of the game (e.g. dev server → live site): the save rides in the link's #fragment.
@@ -83,7 +96,8 @@ export function mountMap(el: HTMLElement, store: Store): (s: State) => void {
   back.addEventListener('click', () => store.openLevel(store.get().ui.levelId));
   const canvas = h('div', { class: 'map-canvas' });
   canvas.append(svg, tip);
-  field.append(canvas);
+  const bookEl = h('div', { class: 'map-book', hidden: true });
+  field.append(canvas, bookEl);
   const cueTop = h('div', { class: 'map-cue top', 'aria-hidden': 'true' }, h('span', {}, 'more above ↑'));
   const cueBottom = h('div', { class: 'map-cue bottom', 'aria-hidden': 'true' }, h('span', {}, 'more below ↓'));
   const fieldWrap = h('div', { class: 'map-fieldwrap' }, field, cueTop, cueBottom);
@@ -93,12 +107,19 @@ export function mountMap(el: HTMLElement, store: Store): (s: State) => void {
     cueBottom.classList.toggle('on', field.scrollTop + field.clientHeight < field.scrollHeight - 4);
   };
   // entry: reveal the next playable node (24 px clear) the first time; afterwards keep the reader's place
+  let forceReveal = false;
   let savedScroll: number | null = null, onMap = store.get().ui.screen === 'map', pendingEntry = onMap;
   field.addEventListener('scroll', () => { if (onMap) savedScroll = field.scrollTop; cues(); }, { passive: true });
   const reveal = () => {
-    if (savedScroll !== null) { field.scrollTop = savedScroll; cues(); return; }
+    if (savedScroll !== null && !forceReveal) { field.scrollTop = savedScroll; cues(); return; }
+    forceReveal = false;
     const s = store.get();
-    const target = nodeEls.get(nextLevel(s.save)?.id ?? '') ?? nodeEls.get(s.ui.levelId);
+    let target = nodeEls.get(nextOn(s)?.id ?? '') ?? nodeEls.get(s.ui.levelId);
+    // The Book reads top-down: bring the target's world heading into view with it
+    if (target && mapCampaign(s) === 'book') {
+      const sec = target.closest('.bw') as HTMLElement | null;
+      if (sec) { field.scrollTop = Math.max(0, field.scrollTop + sec.getBoundingClientRect().top - field.getBoundingClientRect().top - 8); savedScroll = field.scrollTop; cues(); return; }
+    }
     if (target) {
       const fr = field.getBoundingClientRect(), r = target.getBoundingClientRect();
       if (r.bottom > fr.bottom - 24) field.scrollTop += r.bottom - (fr.bottom - 24);
@@ -118,17 +139,26 @@ export function mountMap(el: HTMLElement, store: Store): (s: State) => void {
 
   const render = (s: State) => {
     if (pendingEntry && lastKey) requestAnimationFrame(() => { if (pendingEntry) { pendingEntry = false; reveal(); } });
-    const next = nextLevel(s.save)?.id ?? null;
-    const key = JSON.stringify([Object.keys(s.save.levels).map((k) => [k, s.save.levels[k]!.solvedAt, s.save.levels[k]!.best]), s.ui.levelId, el.clientWidth, el.clientHeight]);
-    back.style.display = s.save.levels[s.ui.levelId] || Object.keys(s.save.levels).length ? '' : 'none';
+    const c = mapCampaign(s);
+    const cs = campSave(s.save, c);
+    const next = nextOn(s)?.id ?? null;
+    const key = JSON.stringify([c, Object.keys(cs.levels).map((k) => [k, cs.levels[k]!.solvedAt, cs.levels[k]!.best]), s.ui.levelId, el.clientWidth, el.clientHeight]);
+    back.style.display = Object.keys(campSave(s.save, 'main').levels).length || Object.keys(campSave(s.save, 'book').levels).length ? '' : 'none';
     if (key === lastKey) return;
     lastKey = key;
-    const solvedMain = LEVELS.filter((l) => !l.side && isSolved(s.save, l.id)).length;
+    for (const t of tabs) { const on = t.dataset.campaign === c; t.classList.toggle('on', on); t.setAttribute('aria-selected', String(on)); }
+    sub.textContent = c === 'book' ? 'Pinter’s A Book of Abstract Algebra, chapter by chapter' : 'Theorem map · edges read “used to build”';
+    const t = tally(s.save, c);
     head.querySelector('.map-progress')!.innerHTML =
-      `<span><b>${solvedMain}</b> of ${LEVELS.filter((l) => !l.side).length} proven</span><span><b>${s.save.earned.length}</b> machine${s.save.earned.length === 1 ? '' : 's'} earned</span>`;
+      `<span><b>${t.solved}</b> of ${t.total} proven</span><span><b>${cs.earned.length}</b> ${c === 'book' ? 'theorem' : 'machine'}${cs.earned.length === 1 ? '' : 's'} earned</span>`;
+    canvas.hidden = c === 'book';
+    bookEl.hidden = c !== 'book';
+    nodeEls.clear();
+    tip.classList.remove('on');
+    if (c === 'book') { (bookEl as HTMLElement).append(tip); renderBook(s, next); requestAnimationFrame(() => { if (pendingEntry) { pendingEntry = false; reveal(); } else cues(); }); return; }
+    canvas.append(tip);
 
     canvas.querySelectorAll('.mn, .map-band, .map-lane').forEach((n) => n.remove());
-    nodeEls.clear();
     const W = field.clientWidth || 1200, Hf = field.clientHeight || 800;
     const padT = 40, padB = 34;
     const rowH = Math.max(84, (Hf - padT - padB) / Math.max(1, layout.rows - 0.4));
@@ -154,12 +184,13 @@ export function mountMap(el: HTMLElement, store: Store): (s: State) => void {
       if (n.imported) {
         node = h('div', { class: 'mn imported', tabindex: 0, 'data-id': n.id },
           h('div', { class: 'mn-top' }, h('span', { class: 'mn-imp' }, 'Imported'), h('span', { class: 'mn-title' }, 'Lagrange’s theorem')),
-          h('div', { class: 'mn-stmt math', html: `|<i>G</i>| <span class="m-rel">=</span> <i>n</i> <span class="m-rel">⇒</span> <i>x</i><sup class="m-sup"><i>n</i></sup> <span class="m-rel">=</span> <i>e</i>` }),
+          h('div', { class: 'mn-stmt math', html: `|<i>G</i>| <span class="m-rel">=</span> <i>n</i> <span class="m-rel">⟹</span> <i>x</i><sup class="m-sup"><i>n</i></sup> <span class="m-rel">=</span> <i>e</i>` }),
           h('div', { class: 'mn-note' }, 'not proven in this game'));
       } else {
         const lv = LEVEL_BY_ID[n.id]!;
         const st = nodeState(s, lv, next);
-        const L = labels(lv);
+        const ov = openView(lv);
+        const L = labels(ov.level);
         const sock = lv.sockets[0]!;
         const hyps = lv.givens.filter((g) => lv.sockets.some((sk) => sk.allowedGivens.includes(g.id)));
         void sock;
@@ -169,7 +200,7 @@ export function mountMap(el: HTMLElement, store: Store): (s: State) => void {
           h('div', { class: 'mn-top' }, h('span', { class: 'mn-no' }, n.side ? `S${lv.index - LEVELS.filter((l) => !l.side).length}` : String(lv.index)), h('span', { class: 'mn-title' }, lv.title),
             st === 'next' ? h('span', { class: 'mn-next' }, 'next') : null,
             st === 'solved' && lv.unlocks.length ? h('span', { class: 'mn-chips' }, ...lv.unlocks.map((u) => h('span', { class: 'chip-machine' }, REGISTRY[u]?.name ?? u))) : null),
-          h('div', { class: 'mn-stmt math', html: hypHTML + lv.sockets.map((sk) => fH(sk.target, L)).join(', ') }),
+          h('div', { class: 'mn-stmt math', html: ov.chips(hypHTML + ov.level.sockets.map((sk) => fH(sk.target, L)).join(', ')) }),
           st === 'solved' ? h('span', { class: 'mn-seal', title: 'Proven', html: '<span class="tomb"></span>' }) : st === 'locked' ? h('span', { class: 'mn-q', title: 'Locked' }, '?') : null,
         );
         node.addEventListener('click', () => { if (st !== 'locked') store.openLevel(lv.id); });
@@ -238,6 +269,60 @@ export function mountMap(el: HTMLElement, store: Store): (s: State) => void {
   };
   const rowGap = () => { const ys = [...nodeEls.values()].map((n) => parseFloat(n.style.top)).sort((a, b) => a - b); let g = 999; for (let i = 1; i < ys.length; i++) if (ys[i]! - ys[i - 1]! > 8) g = Math.min(g, ys[i]! - ys[i - 1]!); return g; };
 
+  /** Why a Book level is still locked, in the book's terms. */
+  const bookBlockers = (s: State, lv: LevelManifest): string[] => {
+    const ws = bookWorlds();
+    const wi = ws.findIndex((w) => w.world === lv.world);
+    const prev = wi > 0 ? ws[wi - 1]! : null;
+    if (prev && !prev.main.every((l) => isSolved(s.save, l.id))) return [`World ${prev.world}, ${prev.title}`];
+    const mains = ws[wi]?.main ?? [];
+    const i = mains.indexOf(lv);
+    return i > 0 ? [`${displayNo(mains[i - 1]!)} ${mains[i - 1]!.title}`] : [];
+  };
+
+  /** The Book's map: a table of contents. One section per world, in the book's order; main levels in order, then side levels. */
+  const renderBook = (s: State, next: string | null) => {
+    bookEl.querySelectorAll('.bw, .bw-empty').forEach((n) => n.remove());
+    const ws = bookWorlds();
+    if (!ws.length) { bookEl.append(h('p', { class: 'bw-empty' }, 'The Book’s levels are still being written.')); return; }
+    for (const w of ws) {
+      const open = w.main.some((l) => isOpen(s.save, l)) || w.side.some((l) => isOpen(s.save, l));
+      const done = w.main.length > 0 && w.main.every((l) => isSolved(s.save, l.id));
+      const sec = h('section', { class: `bw${open ? '' : ' locked'}${done ? ' done' : ''}`, 'aria-label': `World ${w.world}, ${w.title}` },
+        h('header', { class: 'bw-head' },
+          h('span', { class: 'bw-no' }, String(w.world)),
+          h('span', { class: 'bw-title' }, w.title),
+          h('span', { class: 'bw-ch' }, w.chapters ? `Pinter ch. ${w.chapters}` : ''),
+          h('span', { class: 'bw-count' }, `${w.main.filter((l) => isSolved(s.save, l.id)).length} of ${w.main.length}`)));
+      const grid = h('div', { class: 'bw-grid' });
+      for (const lv of [...w.main, ...w.side]) grid.append(bookNode(s, lv, next));
+      sec.append(grid);
+      bookEl.append(sec);
+    }
+  };
+  const bookNode = (s: State, lv: LevelManifest, next: string | null): HTMLElement => {
+    const st = nodeState(s, lv, next);
+    const ov = openView(lv);
+    const L = labels(ov.level);
+    const hyps = lv.givens.filter((g) => lv.sockets.some((sk) => sk.allowedGivens.includes(g.id)));
+    const hypHTML = hyps.length ? `<span class="mn-if">${hyps.map((g) => fH(g.fact, L)).join(', ')} <span class="m-rel">⊢</span></span> ` : '';
+    const node = h('button', { class: `mn bk-node ${st}${lv.side ? ' side' : ''}${s.ui.levelId === lv.id ? ' current' : ''}`, 'data-id': lv.id, 'aria-disabled': st === 'locked' ? 'true' : undefined,
+      'aria-label': `${lv.side ? 'Side level' : 'Level'} ${displayNo(lv)}, ${lv.title}, ${st}` },
+      h('div', { class: 'mn-top' }, h('span', { class: 'mn-no' }, displayNo(lv)), h('span', { class: 'mn-title' }, lv.title),
+        st === 'next' ? h('span', { class: 'mn-next' }, 'next') : null),
+      lv.method ? h('div', { class: 'bk-method', html: richHTML(lv.method, lv) }) : null,
+      h('div', { class: 'mn-stmt math', html: ov.chips(hypHTML + ov.level.sockets.map((sk) => fH(sk.target, L)).join(', ')) }),
+      st === 'solved' ? h('span', { class: 'mn-seal', title: 'Proven', html: '<span class="tomb"></span>' }) : st === 'locked' ? h('span', { class: 'mn-q', title: 'Locked' }, '?') : null,
+    );
+    node.addEventListener('click', () => { if (st !== 'locked') store.openLevel(lv.id); });
+    node.addEventListener('mouseenter', () => showTip(lv.id, node));
+    node.addEventListener('focus', () => showTip(lv.id, node));
+    node.addEventListener('mouseleave', () => tip.classList.remove('on'));
+    node.addEventListener('blur', () => tip.classList.remove('on'));
+    nodeEls.set(lv.id, node);
+    return node;
+  };
+
   const showTip = (id: string, node: HTMLElement) => {
     const s = store.get();
     if (id === IMPORT_ID) {
@@ -246,19 +331,21 @@ export function mountMap(el: HTMLElement, store: Store): (s: State) => void {
         <p class="tip-dim">Imported: its proof needs cosets, which this game does not build.</p>`;
     } else {
       const lv = LEVEL_BY_ID[id]!;
-      const pr = s.save.levels[id];
-      const st = nodeState(s, lv, nextLevel(s.save)?.id ?? null);
-      const blockers = lv.uses.filter((u) => !LEVEL_BY_ID[u]?.side && !isSolved(s.save, u)).map((u) => `${LEVEL_BY_ID[u]!.index} ${LEVEL_BY_ID[u]!.title}`);
-      tip.innerHTML = `<div class="tip-title">${lv.index}. ${esc(lv.title)}</div>
+      const book = campaignOf(lv) === 'book';
+      const pr = campSave(s.save, campaignOf(lv)).levels[id];
+      const st = nodeState(s, lv, nextOn(s)?.id ?? null);
+      const blockers = book ? bookBlockers(s, lv) : lv.uses.filter((u) => !LEVEL_BY_ID[u]?.side && !isSolved(s.save, u)).map((u) => `${LEVEL_BY_ID[u]!.index} ${LEVEL_BY_ID[u]!.title}`);
+      tip.innerHTML = `<div class="tip-title">${displayNo(lv)}. ${esc(lv.title)}</div>
         <p class="tip-idea">${richHTML(ideaOf(lv), lv)}</p>
         <dl>
+          ${book && lv.method ? `<dt>Method</dt><dd>${richHTML(lv.method, lv)}</dd>` : ''}
           <dt>Textbook par</dt><dd>${lv.par.parts} moves · ${lv.par.axioms} axioms</dd>
           <dt>Your best</dt><dd>${pr?.best ? `${pr.best.machines} machines · area ${pr.best.area} · ${pr.best.cycles ?? '—'} cycles` : '—'}</dd>
           ${lv.unlocks.length ? `<dt>Earns</dt><dd>${lv.unlocks.map((u) => `${esc(schemaNames(u).name)} <span class="tip-dim">(${esc(schemaNames(u).textbook)})</span>`).join(', ')}</dd>` : ''}
         </dl>
         ${st === 'locked' ? `<p class="tip-dim">Locked. Prove ${blockers.map(esc).join(' and ')} first.</p>` : ''}`;
     }
-    const fr = canvas.getBoundingClientRect(), r = node.getBoundingClientRect();
+    const fr = (tip.parentElement ?? canvas).getBoundingClientRect(), r = node.getBoundingClientRect();
     tip.classList.add('on');
     const tw = tip.offsetWidth, th = tip.offsetHeight;
     let x = r.right - fr.left + 12, y = r.top - fr.top + r.height / 2 - th / 2;

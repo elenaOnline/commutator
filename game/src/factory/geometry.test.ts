@@ -75,7 +75,7 @@ describe('footprints and ports by recipe', () => {
     const r = portsOf(mk('rewriter', 0, rw({ k: 'routed' }, { x: { k: 'port' }, y: { k: 'knob', term: null } })), ctx);
     const by = Object.fromEntries(r.map((p) => [p.id, p]));
     expect(Object.keys(by).sort()).toEqual(['meta:x', 'out', 'q', 'rule']);
-    expect(by.q).toMatchObject({ dir: 'in', role: 'work', tile: { x: 3, y: 4 }, face: 'W', accepts: ['eq'] });
+    expect(by.q).toMatchObject({ dir: 'in', role: 'work', tile: { x: 3, y: 4 }, face: 'W', accepts: ['eq', 'mem'] }); // Book phase B: the membership rail too
     expect(by.out).toMatchObject({ dir: 'out', tile: { x: 4, y: 4 }, face: 'E' });
     expect(by.rule).toMatchObject({ role: 'rule', tile: { x: 3, y: 4 }, face: 'N', accepts: ['eq', 'law'] });
     expect(by['meta:x']).toMatchObject({ role: 'param', tile: { x: 3, y: 4 }, face: 'S', accepts: ['term'] });

@@ -145,7 +145,7 @@ export function groundChevron(c: G2, d: G2, s = 0.1): string {
 export function kindGhost(kind: ItemKind, x: number, y: number, ink: string = INK.navy3, role?: string): string {
   const st = `fill="#fff" stroke="${ink}" stroke-width="1.1" stroke-dasharray="2 1.8"`;
   const tx = (s: string, size = 9.5, dy = 3.3, font: string = FONT.math) => `<text x="${f1(x)}" y="${f1(y + dy)}" text-anchor="middle" font-family="${font}" font-size="${size}" fill="${ink}">${s}</text>`;
-  if (role === 'rule' || kind === 'law' || kind === 'cond') return `<rect x="${f1(x - 8)}" y="${f1(y - 6)}" width="16" height="12" rx="2.2" ${st}/>${tx(kind === 'cond' ? '⇒' : '∀', 9)}`;
+  if (role === 'rule' || kind === 'law' || kind === 'cond') return `<rect x="${f1(x - 8)}" y="${f1(y - 6)}" width="16" height="12" rx="2.2" ${st}/>${tx(kind === 'cond' ? '⟹' : '∀', 9)}`;
   switch (kind) {
     case 'term': return `<circle cx="${f1(x)}" cy="${f1(y)}" r="5.2" ${st}/><circle cx="${f1(x)}" cy="${f1(y)}" r="1.4" fill="${ink}"/>`;
     case 'size': return `<rect x="${f1(x - 9)}" y="${f1(y - 6)}" width="18" height="12" rx="2" ${st}/>${tx('|<tspan font-style="italic">G</tspan>|', 8)}`;

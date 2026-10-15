@@ -72,7 +72,7 @@ export function v4Fixture(): { state: FState; outs: Record<string, ItemValue> } 
     cards: { open: false, page: 0 }, lemmaBookOpen: false, hint: null, toast: null,
   };
   const state = {
-    save: { version: 4, levels: {}, earned: ['witness', 'cancel', 'socks'], settings: { speed: 1, reducedMotion: false } },
+    save: { version: 5, campaign: 'main', campaigns: { main: { levels: {}, earned: ['witness', 'cancel', 'socks'], lemmas: [] }, book: { levels: {}, earned: [], lemmas: [] } }, settings: { speed: 1, reducedMotion: false } },
     ui, level, ctx, canvas: c, compiled: fakeCompile(c, outs), run: initRun(c, outs),
   } as unknown as FState;
   return { state, outs };

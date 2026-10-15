@@ -10,11 +10,14 @@
 import type { KernelCtx } from '../kernel';
 import { evalStep } from '../kernel';
 import type {
-  AtomDecl, AxiomId, Card, CheckResult, Fact, GapAddr, MetaId, NodeId, Pallet, PatFact, ProofGraph, ProofNode,
+  AtomDecl, AxiomId, Card, CheckResult, Fact, GapAddr, MetaId, NodeId, Pallet, PatFact, ProofGraph, ProofNode, StructDecl,
   Room as KRoom, RuleRef, ScopeId, StepOp, Subst, Term, Addr,
 } from '../kernel/types';
 import { ROOT } from '../kernel/types';
-import { applyCore, axiomCard, check as kcheck, checkGround, checkInt, flipConclusion, nodeUses, schemaInfo, stackWordHint, withVars, pressCard, resolveCond, resolveLaw, sameCardUpToRenaming, schemaCard } from '../kernel/logic';
+import { mapClosureProblem, applyCore, assumptionsOf, axiomCard, check as kcheck, checkGround, checkInt, checkStatement, depRoom, flipConclusion, levelLabels, nodeUses, roomDep, samePat, schemaInfo, stackWordHint, withVars, pressCard, resolveCond, resolveLaw, sameCardUpToPermutation, schemaCard } from '../kernel/logic';
+import { factSubs, factTerms, mapPat, sameSub, subsIn } from '../kernel/members';
+import { retagE, sortEnv, sortOf } from '../kernel/sorts';
+import { fillOpen, isOpen, openDisplay } from '../kernel/open';
 import { E, KErr, instantiate, instantiatePartial, match, matchOpen, metasOf, norm, same, substKey, word } from '../kernel/terms';
 import { polyRefs } from '../kernel/poly';
 import { factText, labelsOf, substText, termText, type Labels } from '../kernel/print';
@@ -35,7 +38,7 @@ import {
 
 const NOUN: Record<ItemKind, string> = {
   term: 'an element', eq: 'an equation', neq: 'an inequation', bot: 'a contradiction (⊥)',
-  size: 'the order of the group', law: 'a law', cond: 'a conditional theorem',
+  size: 'the order of the group', law: 'a law', cond: 'a conditional theorem', mem: 'a membership',
 };
 const nounList = (ks: ItemKind[]) => {
   const ns = [...new Set(ks.map((k) => NOUN[k]))];
@@ -107,6 +110,7 @@ export const JAMS = {
   budget: 'Too many matches. Bracket a smaller part.',
   gatePlace: 'This gate is not on its own wall.',
   deskPlace: 'This desk is not in its room.',
+  deskSlot: 'This desk has no assumption in its room.',
   // v4
   chooseRecipe: 'Choose a recipe.',
   unknownRecipe: 'Unknown recipe. Choose another.',
@@ -125,6 +129,18 @@ export const JAMS = {
   assumeGate: (f: string) => `${f} is not an equation. This gate takes = or ≠.`,
   socketNeedsCard: (want: string, got: string) => `Needs ${want}. Run ${got} through ∀ first.`,
   socketLibrary: 'Needs a proof made here, not a library card.',
+  // Book phase B: subgroups
+  chooseSub: (binder: string) => `Choose which subgroup plays ${binder}.`,
+  // Book phase C: maps
+  chooseMap: (binder: string, k: 'hom' | 'act') => `Choose which ${k === 'hom' ? 'homomorphism' : 'action'} plays ${binder}.`,
+  noMap: (binder: string, k: 'hom' | 'act') => `No ${k === 'hom' ? 'homomorphism' : 'action'} here can play ${binder}.`,
+  applyNeq: (f: string) => `${f} is an inequation. A map can be applied only to an equation.`,
+  noSub: (binder: string, normal: boolean) => (normal ? `No normal subgroup here can play ${binder}.` : `No subgroup here can play ${binder}.`),
+  lemmaSubgroup: (h: string) => `Mentions the subgroup ${h} of this order. Use a Subgroup Tower instead.`,
+  memGate: (f: string) => `${f} is not an equation or a membership. This gate takes =, ≠ or ∈.`,
+  /** Open docks (Book phase A): name the broken rule, never a value. */
+  openMentions: (want: string, letters: string) => `Needs ${want}. The answer may not use ${letters}.`,
+  openTower: (want: string) => `Needs ${want}, with an answer in this order's letters. A Tower is not one.`,
   /** A dock with several wired inlets names the belt a reason is about. */
   dockFrom: (who: string, reason: string) => `From the ${who}: ${reason}`,
   socketStack: (_want: string, have: string, needed: string, hint: string) => `Got ${have}, the goal has ${needed}. ${hint[0]!.toUpperCase()}${hint.slice(1)}.`,
@@ -226,6 +242,8 @@ export function sortSubsts(ss: Subst[]): Subst[] {
 
 function matchFact(p: PatFact, f: Fact, s0: Subst): Subst[] {
   if (f.k !== p.k) return [];
+  if (p.k === 'mem') return f.k === 'mem' && sameSub(p.sub, f.sub) ? match(p.t, f.t, s0) : [];
+  if (f.k !== 'eq' && f.k !== 'neq') return [];
   const out: Subst[] = [];
   for (const s1 of match(p.l, f.l, s0)) out.push(...match(p.r, f.r, s1));
   return out;
@@ -233,12 +251,13 @@ function matchFact(p: PatFact, f: Fact, s0: Subst): Subst[] {
 
 /** Where each meta of a premise pattern sits on the premise fact under σ (for drawing cuts / prefixes). */
 export function bindingsOn(fact: Pallet, prem: PatFact, s: Subst): { meta: MetaId; addr: Addr }[] {
-  if (fact.k !== 'eq' && fact.k !== 'neq') return [];
+  if (fact.k !== 'eq' && fact.k !== 'neq' && fact.k !== 'mem') return [];
   const out: { meta: MetaId; addr: Addr }[] = [];
   const walk = (side: 'l' | 'r', P: Term, T: Term, path: number[]) => {
     switch (P.k) {
       case 'meta': out.push({ meta: P.id, addr: { side, path } }); return;
       case 'inv': if (T.k === 'inv') walk(side, P.arg, T.arg, [...path, 0]); return;
+      case 'app': if (T.k === 'app' && T.fn === P.fn) P.args.forEach((pa, j) => walk(side, pa, T.args[j]!, [...path, j])); return;
       case 'mul': {
         const tw = word(T);
         let j = 0;
@@ -261,6 +280,11 @@ export function bindingsOn(fact: Pallet, prem: PatFact, s: Subst): { meta: MetaI
       default: return;
     }
   };
+  // Book phase B: a membership's single rail is addressed as 'l'
+  if (prem.k === 'mem' || fact.k === 'mem') {
+    if (prem.k === 'mem' && fact.k === 'mem') walk('l', norm(prem.t), norm(fact.t), []);
+    return out;
+  }
   walk('l', norm(prem.l), norm(fact.l), []);
   walk('r', norm(prem.r), norm(fact.r), []);
   return out;
@@ -291,10 +315,12 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
 
   // ── towers → graph variables (unique ids and labels; never a level constant's name) ──
   const vars: AtomDecl[] = [];
+  const structs: StructDecl[] = [];
   const towerErr: Record<string, string> = {};
   {
     const taken = new Map<string, string>();
     for (const a of ctx0.level.atoms) { taken.set(`id:${a.id}`, 'a constant of this order'); taken.set(`lb:${a.label}`, 'a constant of this order'); }
+    for (const a of subsIn(ctx0.level)) { taken.set(`id:${a.id}`, 'a subgroup of this order'); taken.set(`lb:${a.label}`, 'a subgroup of this order'); }
     for (const m of machines) {
       if (m.config.kind !== 'tower') continue;
       const cfg = m.config;
@@ -302,22 +328,30 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
       const dup = taken.get(`id:${cfg.varId}`) ?? taken.get(`lb:${cfg.label}`);
       if (dup) { towerErr[m.id] = JAMS.towerDup(cfg.label, dup); continue; }
       taken.set(`id:${cfg.varId}`, `another Tower (${m.id})`); taken.set(`lb:${cfg.label}`, `another Tower (${m.id})`);
-      vars.push({ id: cfg.varId, label: cfg.label, hue: vars.length % 6, variable: true, ...(cfg.sort === 'Z' ? { sort: 'Z' as const } : {}) });
+      // Book phase B: a Subgroup Tower declares H₁ ≤ G (or N₁ ⊴ G) in graph.structs
+      if (cfg.sub === 'sub' || cfg.sub === 'normal') { structs.push({ k: 'sub', id: cfg.varId, label: cfg.label, normal: cfg.sub === 'normal', ...(cfg.carrier ? { sort: cfg.carrier } : {}) }); continue; }
+      // Book phase C: a group Tower declares G₁; a Hom Tower declares f₁ : dom → cod (its hom law has no dependency)
+      if (cfg.group) { structs.push({ k: 'grp', id: cfg.varId, label: cfg.label }); continue; }
+      if (cfg.hom) { structs.push({ k: 'hom', id: cfg.varId, label: cfg.label, dom: cfg.hom.dom, cod: cfg.hom.cod }); continue; }
+      vars.push({ id: cfg.varId, label: cfg.label, hue: vars.length % 6, variable: true, ...(cfg.sort === 'Z' ? { sort: 'Z' as const } : {}), ...(cfg.sort !== 'Z' && cfg.carrier && cfg.carrier !== 'G' ? { carrier: cfg.carrier } : {}) });
     }
     // the kernel's own admission rule (e.g. a name a given or goal already uses is not fresh)
-    if (vars.length) {
-      const wv = withVars(ctx0, { nodes: [], rooms: [], vars });
-      const okIds = new Set(wv.vars.map((v) => v.id));
+    if (vars.length || structs.length) {
+      const wv = withVars(ctx0, { nodes: [], rooms: [], vars, structs });
+      const okIds = new Set([...wv.vars.map((v) => v.id), ...wv.structs.map((x) => x.id)]);
       for (const m of machines) {
         if (m.config.kind !== 'tower' || towerErr[m.id]) continue;
         if (!okIds.has(m.config.varId)) towerErr[m.id] = wv.error ?? JAMS.towerUnnamed;
       }
       vars.splice(0, vars.length, ...vars.filter((v) => okIds.has(v.id)));
+      structs.splice(0, structs.length, ...structs.filter((v) => okIds.has(v.id)));
     }
   }
-  /** Lowering context: the level's constants plus this floor's declared variables (for ground checks). */
-  const ctx: KernelCtx = vars.length ? { ...ctx0, level: { ...ctx0.level, atoms: [...ctx0.level.atoms, ...vars] } } : ctx0;
-  const L = labelsOf(ctx.level.atoms);
+  /** Graph declarations of this floor's Towers (element / ℤ variables and, phase B, Subgroup Towers). */
+  const gdecl = { ...(vars.length ? { vars } : {}), ...(structs.length ? { structs } : {}) };
+  /** Lowering context: the level's constants plus this floor's declared variables and subgroups (for ground checks). */
+  const ctx: KernelCtx = vars.length || structs.length ? withVars(ctx0, { nodes: [], rooms: [], ...gdecl }).ctx : ctx0;
+  const L = levelLabels(ctx.level);
   const T = (t: Term) => termText(t, L);
   const F = (f: Fact) => factText(f, L);
   const itemText = (v: ItemValue) => (v.k === 'term' ? T(v.term) : v.k === 'fact' ? F(v.fact) : F(v.card));
@@ -346,7 +380,11 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
     }
     parentOf.set(r.id, best ? best.id : ROOT);
   }
-  const kRooms: KRoom[] = rooms.map((r) => ({ id: r.id, parent: parentOf.get(r.id) ?? ROOT, kind: r.kind, l: r.l, r: r.r, ...(r.kind === 'assume' ? { rel: r.rel ?? 'eq' } : {}) }));
+  const kRooms: KRoom[] = rooms.map((r) => ({
+    id: r.id, parent: parentOf.get(r.id) ?? ROOT, kind: r.kind, l: r.l, r: r.r, ...(r.kind === 'assume' ? { rel: r.rel ?? 'eq' } : {}),
+    // Book phase A: a multi-desk Assume room passes its assumptions through (the kernel validates them)
+    ...(r.assumes !== undefined ? { assumes: r.assumes } : {}),
+  }));
   const tileScope = (t: Tile): ScopeId => {
     let best: (typeof rooms)[number] | null = null;
     for (const r of rooms) if (inRect(t, r.rect) && (!best || area(r.rect) < area(best.rect))) best = r;
@@ -361,11 +399,16 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
     }
     return false;
   };
-  const supposition = (roomId: string): string => {
-    const r = roomById.get(roomId);
-    if (!r) return 'a supposition';
-    const k = r.kind === 'suppose' || (r.kind === 'assume' && (r.rel ?? 'eq') === 'eq') ? 'eq' : 'neq';
-    try { return F({ k, l: r.l, r: r.r }); } catch { return 'a supposition'; }
+  /** The statement behind a room dependency ('a:<room>' or 'a:<room>/<slot>'), as text. */
+  const supposition = (dep: string): string => {
+    try { return F(assumptionFor(dep) ?? (() => { throw new Error(); })()); } catch { return 'a supposition'; }
+  };
+  /** The single assumption a room dependency stands for (Book phase A: one per desk). */
+  const assumptionFor = (dep: string): Pallet | null => {
+    const dr = depRoom(dep);
+    const kr = dr ? kRooms.find((x) => x.id === dr.room) : undefined;
+    if (!dr || !kr) return null;
+    try { return assumptionsOf(kr)[dr.slot] ?? null; } catch { return null; }
   };
 
   // ── machines: ports, footprints, scopes ──
@@ -579,7 +622,7 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
       const nn = byNode.get(x);
       if (nn) { const u = usesOf(nn); stack.push(...u.inputs, ...(u.rule ? [u.rule] : [])); }
     }
-    const g: ProofGraph = { nodes: [...byNode.values()].filter((x) => seen.has(x.id)), rooms: kRooms, ...(vars.length ? { vars } : {}) };
+    const g: ProofGraph = { nodes: [...byNode.values()].filter((x) => seen.has(x.id)), rooms: kRooms, ...gdecl };
     const res = kcheck(g, ctx0).nodes[n.id];
     if (!res?.ok || !res.fact) throw new KErr(res?.error ?? 'the kernel rejected this step');
     deps.clear();
@@ -608,10 +651,12 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
         case 'assume': {
           const r = roomsK.get(n.room);
           if (!r) throw new KErr('there is no such room to suppose in');
-          deps.add(`a:${r.id}`);
-          const l = checkGround(r.l, ctx, 'the supposition'), rr = checkGround(r.r, ctx, 'the supposition');
-          const asEq = r.kind === 'suppose' || (r.kind === 'assume' && (r.rel ?? 'eq') === 'eq');
-          f = asEq ? { k: 'eq', l, r: rr } : { k: 'neq', l, r: rr };
+          const slot = n.slot ?? 0;
+          const a = assumptionsOf(r)[slot];
+          if (!a) throw new KErr(JAMS.deskSlot);
+          deps.add(roomDep(r.id, slot));
+          checkStatement(a, ctx, 'the supposition');
+          f = mapPat(a, norm) as Pallet;
           break;
         }
         case 'step': {
@@ -630,10 +675,10 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
         }
         case 'apply': {
           const rf = n.rule.k === 'node' ? use(n.rule.id) : undefined;
-          const card = resolveCond(n.rule, ctx, rf, L);
+          const card = resolveCond(n.rule, ctx, rf, L, n.structs);
           const ins = n.inputs.map((id, i) => {
             const x = use(id);
-            if (x.k !== 'eq' && x.k !== 'neq') throw new KErr(`premise ${i + 1} must be an equation or an inequation`);
+            if (x.k !== 'eq' && x.k !== 'neq' && x.k !== 'mem') throw new KErr(`premise ${i + 1} must be an equation, an inequation or a membership`);
             return x;
           });
           f = applyCore(card, ins, n.subst, ctx);
@@ -726,7 +771,7 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
   const givenName = (id: string) => ctx.level.givens.find((g) => g.id === id)?.name ?? id;
 
   /** A library entry as a rewrite rule (equation or law). */
-  const libRule = (ref: LibRef, on?: Fact): { ref: RuleRef; fact?: Fact; text: string } => {
+  const libRule = (ref: LibRef, on?: Fact): { ref: RuleRef; fact?: Fact; text: string; structs?: Record<MetaId, string>; card?: Card } => {
     switch (ref.k) {
       case 'axiom': return { ref: { k: 'axiom', id: ref.id }, text: F(axiomCard(ref.id)) };
       case 'given': {
@@ -744,7 +789,7 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
         try { card = schemaCard(ref.id, ref.mirror, ctx); } catch (e) { return jam((e as Error).message); }
         const name = sideName(ref.id, ref.mirror, schemaInfo(ref.id, ctx)?.name ?? ref.id);
         if (card.k === 'cond') return jam(JAMS.ruleCond(`${name} (${F(card)})`));
-        return { ref: { k: 'schema', id: ref.id, ...(ref.mirror ? { mirror: true } : {}) }, text: name };
+        return { ref: { k: 'schema', id: ref.id, ...(ref.mirror ? { mirror: true } : {}) }, text: name, card, ...(ref.structs ? { structs: ref.structs } : {}) };
       }
       case 'lagrange': {
         const ln = hasPow(on) ? lagrangePow : lagrangeNode;
@@ -854,7 +899,7 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
     /** "needs …" for the first missing metas, integer or element. */
     const needMsg = (ms: string[], z: Set<string>) => (ms.length && ms.every((m) => z.has(m)) ? JAMS.needsInt(ms.join(', ')) : JAMS.needsMeta(ms.join(', ')));
     /** A routed rewrite rule: an equation fact or a law card. */
-    const getRule = (pid: string): { ref: RuleRef; fact?: Fact; text: string } => {
+    const getRule = (pid: string): { ref: RuleRef; fact?: Fact; text: string; card?: Card } => {
       const v = get(pid, true);
       if (v.k === 'fact') {
         if (v.fact.k === 'eq') return { ref: { k: 'node', id: v.node }, fact: v.fact, text: F(v.fact) };
@@ -863,7 +908,7 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
       }
       if (v.k === 'card') {
         if (v.card.k === 'cond') return jam(JAMS.ruleCond(F(v.card)));
-        return { ref: v.ref, fact: v.ref.k === 'node' ? v.card : undefined, text: F(v.card) };
+        return { ref: v.ref, fact: v.ref.k === 'node' ? v.card : undefined, text: F(v.card), card: v.card };
       }
       return jam(JAMS.ruleOther(T(v.term), 'term'));
     };
@@ -908,18 +953,74 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
       return res.loc;
     }
 
+    /**
+     * A card's structure parameters (Book phase B/C): chosen (LibRef / config `structs`), else read off the premises,
+     * else the only candidate in scope. Fills r.structs (the reuse-lens data); halts while one is undecided.
+     * Group / set parameters are solved by the kernel from the homs, actions and subgroups chosen.
+     */
+    const settleStructs = (raw: Card | null, chosenStructs: Record<MetaId, string> | undefined, infer: (binder: MetaId) => string | undefined): Record<MetaId, string> | undefined => {
+      const binds = (raw?.binds ?? []).filter((b) => b.k === 'sub' || b.k === 'hom' || b.k === 'act');
+      if (!binds.length) return chosenStructs && Object.keys(chosenStructs).length ? chosenStructs : undefined;
+      const out: Record<MetaId, string> = {};
+      r.structs = [];
+      for (const b of binds) {
+        const nb = b.k === 'sub' && b.normal;
+        const options = b.k === 'sub'
+          ? subsIn(ctx.level).filter((x) => !nb || x.normal).map((x) => ({ id: x.id, label: x.label }))
+          : (ctx.level.maps ?? []).filter((m) => (m.kind ?? 'map') === (b.k === 'hom' ? 'hom' : 'action')).map((m) => ({ id: m.id, label: m.label }));
+        let chosen = chosenStructs?.[b.id] ?? infer(b.id);
+        if (!chosen && options.length === 1) chosen = options[0]!.id;
+        r.structs.push({ binder: b.id, normal: nb, options, ...(chosen ? { chosen } : {}) });
+        if (chosen) out[b.id] = chosen;
+      }
+      for (const [k, v] of Object.entries(chosenStructs ?? {})) if (!(k in out)) out[k] = v; // group / set choices pass through
+      const open = r.structs.find((x) => !x.chosen);
+      if (open) {
+        const b = binds.find((x) => x.id === open.binder)!;
+        if (b.k === 'sub') return open.options.length ? starve(JAMS.chooseSub(open.binder)) : jam(JAMS.noSub(open.binder, open.normal));
+        return open.options.length ? starve(JAMS.chooseMap(open.binder, b.k)) : jam(JAMS.noMap(open.binder, b.k));
+      }
+      return out;
+    };
+
     /** Apply-style lowering shared by Apply and stamps. */
     const lowerApply = (ref: RuleRef, ruleFact: Fact | undefined, name: string, premisePorts: number,
-      values: Record<MetaId, Param>, choice: number) => {
-      let card;
-      try { card = resolveCond(ref, ctx, ruleFact, L); } catch (e) { return jam((e as Error).message); }
-      if (card.premises.length !== premisePorts) return jam(JAMS.premiseCount(name, card.premises.length, premisePorts));
+      values: Record<MetaId, Param>, choice: number, chosenStructs?: Record<MetaId, string>) => {
+      // Book phase B: the raw card first, to settle its subgroup parameters (chosen, else read off the premises)
+      let raw: Card | null = null;
+      try {
+        raw = ref.k === 'schema' ? schemaCard(ref.id, ref.mirror, ctx) : ref.k === 'axiom' ? axiomCard(ref.id) : ruleFact && (ruleFact.k === 'law' || ruleFact.k === 'cond') ? ruleFact : null;
+      } catch (e) { return jam((e as Error).message); }
+      const binds = raw?.binds ?? [];
+      const premRaw = raw?.k === 'cond' ? raw.premises : [];
+      if (premRaw.length !== premisePorts && raw) return jam(JAMS.premiseCount(name, premRaw.length, premisePorts));
       const facts: Pallet[] = [];
       const premNodes: NodeId[] = [];
       for (let i = 0; i < premisePorts; i++) {
         const v = getFact(`p${i}`);
-        if (v.fact.k !== 'eq' && v.fact.k !== 'neq') return jam(JAMS.wrongKind(['eq', 'neq'], F(v.fact), v.fact.k));
+        if (v.fact.k !== 'eq' && v.fact.k !== 'neq' && v.fact.k !== 'mem') return jam(JAMS.wrongKind(['eq', 'neq', 'mem'], F(v.fact), v.fact.k));
         facts.push(v.fact); premNodes.push(v.node);
+      }
+      const structs = settleStructs(raw, chosenStructs, (b) => {
+        // the premises may already say which subgroup plays it
+        const seenIds = new Set<string>();
+        premRaw.forEach((p, i) => { const f = facts[i]; if (p.k === 'mem' && p.sub.k === 'submeta' && p.sub.id === b && f?.k === 'mem' && f.sub.k === 'sub') seenIds.add(f.sub.id); });
+        return seenIds.size === 1 ? [...seenIds][0] : undefined;
+      });
+      let card;
+      try { card = resolveCond(ref, ctx, ruleFact, L, structs); } catch (e) { return jam((e as Error).message); }
+      if (card.premises.length !== premisePorts) return jam(JAMS.premiseCount(name, card.premises.length, premisePorts));
+      {
+        // Book phase C: a one-group card reads in the group of its first premise (as the kernel's applyCore does)
+        const senv = sortEnv(ctx.level);
+        const f0 = facts[0];
+        const t0 = f0 && (f0.k === 'eq' || f0.k === 'neq') ? f0.l : f0 && f0.k === 'mem' ? f0.t : undefined;
+        if (card.poly && senv.multi && t0) {
+          let S = 'G';
+          try { S = sortOf(norm(t0), senv); } catch { /* the kernel reports it */ }
+          const rt = (t: Term) => retagE(t, S);
+          card = { ...card, premises: card.premises.map((pp) => mapPat(pp, rt)), concl: mapPat(card.concl, rt) };
+        }
       }
       const partial: Subst = {};
       for (const mId of Object.keys(values).sort(cmp)) {
@@ -935,7 +1036,7 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
         if (!next.length) {
           const pr = card.premises[i]!;
           const s0 = ss[0] ?? partial;
-          const want: PatFact = { k: pr.k, l: instantiatePartial(pr.l, s0), r: instantiatePartial(pr.r, s0) };
+          const want: PatFact = mapPat(pr, (u) => instantiatePartial(u, s0));
           const which = card.premises.length > 1 ? `premise ${i + 1}` : 'the premise';
           return jam(JAMS.premiseShape(which, F(want), F(facts[i]!)));
         }
@@ -947,7 +1048,7 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
       if (!complete.length) return jam(needMsg(missing(card.metas, ss[0]!), card.zmetas));
       r.choices = complete.map((s) => {
         let concl = '';
-        try { concl = F({ k: card.concl.k, l: instantiate(card.concl.l, s), r: instantiate(card.concl.r, s) }); } catch { /* shown as σ only */ }
+        try { concl = F(mapPat(card.concl, (u) => instantiate(u, s)) as Pallet); } catch { /* shown as σ only */ }
         return {
           label: `${concl}${concl ? '  ' : ''}(${substText(s, L)})`,
           bindings: facts[0] && card.premises[0] ? bindingsOn(facts[0], card.premises[0], s) : [],
@@ -955,7 +1056,7 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
       });
       if (choice < 0 || choice >= complete.length) return jam(JAMS.choiceGone(choice, complete.length));
       r.chosen = choice;
-      emit({ k: 'apply', rule: ref, inputs: premNodes, subst: complete[choice]! } as never, name, 'apply');
+      emit({ k: 'apply', rule: ref, inputs: premNodes, subst: complete[choice]!, ...(structs ? { structs } : {}) } as never, name, 'apply');
       r.duration = 2;
     };
 
@@ -966,11 +1067,14 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
       if (op) emit({ k: 'step', input: lastNode(), op } as never, 'auto-tidy', 'tidy');
     };
     /** Rewrite with a rule (library or routed): at a bracket, or at a gap when the source side is e. */
-    const rewriteWith = (qv: ItemValue & { k: 'fact' }, rule: { ref: RuleRef; fact?: Fact; text: string }) => {
+    const rewriteWith = (qv: ItemValue & { k: 'fact' }, rule: { ref: RuleRef; fact?: Fact; text: string; structs?: Record<MetaId, string>; card?: Card }) => {
       if (cfg.kind !== 'rewriter') return;
       const q = qv.fact;
+      // Book phase C: a law over a hom / action (f(xy) = f(x)f(y), a saved hom card) needs its map chosen
+      const structs = settleStructs(rule.card ?? null, rule.structs, () => undefined);
+      const sx = structs ? { structs } : {};
       let law;
-      try { law = resolveLaw(rule.ref, ctx, rule.fact, L); } catch (e) { law = jam((e as Error).message); }
+      try { law = resolveLaw(rule.ref, ctx, rule.fact, L, structs); } catch (e) { law = jam((e as Error).message); }
       const [src, dst] = cfg.dir === 'fwd' ? [law.l, law.r] : [law.r, law.l];
       const partial: Subst = {};
       for (const mId of Object.keys(cfg.values).sort(cmp)) {
@@ -986,31 +1090,37 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
         if (!s) jam(needMsg(missing(law.metas, ss[0] ?? partial), law.zmetas));
         const g = pickGap(q, cfg.gap);
         emit({ k: 'step', input: qv.node, op: { k: 'insertE', at: gapAddr(g) } } as never, `insert by ${rule.text}`, 'insert');
-        emit({ k: 'step', input: lastNode(), op: { k: 'rewrite', rule: rule.ref, dir: cfg.dir, at: { side: g.side, path: [...g.wordPath], range: [g.gap, g.gap + 1] }, subst: s! } } as never, `by ${rule.text}`, 'rewrite');
+        emit({ k: 'step', input: lastNode(), op: { k: 'rewrite', rule: rule.ref, dir: cfg.dir, at: { side: g.side, path: [...g.wordPath], range: [g.gap, g.gap + 1] }, subst: s!, ...sx } } as never, `by ${rule.text}`, 'rewrite');
         return;
       }
       let incomplete: string[] | null = null;
       const cands: { loc: SpanLoc; x: Subst }[] = [];
       const fixedLen = metasOf(src).length ? undefined : word(norm(src)).length;
       if (fixedLen === undefined && spanCount(q) > MATCH_BUDGET) jam(JAMS.budget);
+      // Book phase C: a one-group law reads with the redex's own e (the kernel does the same)
+      const senv = sortEnv(ctx.level);
+      const srcAt = (redex: Term): Term => {
+        if (!law.poly || !senv.multi) return src;
+        try { return norm(retagE(src, sortOf(norm(redex), senv))); } catch { return src; }
+      };
       for (const loc of spanCandidates(q, RAIL_ORDER, fixedLen)) {
-        const ms = sortSubsts(match(src, loc.redex, partial));
+        const ms = sortSubsts(match(srcAt(loc.redex), loc.redex, partial));
         const full = ms.find((x) => !missing(law.metas, x).length);
         if (full) { cands.push({ loc, x: full }); continue; }
         if (incomplete) continue;
         // exponents the matcher will not guess (e.g. reverse (xᵐ)ⁿ = xᵐⁿ): ask for knobs
-        const open = ms.length ? ms : matchOpen(src, loc.redex, partial);
+        const open = ms.length ? ms : matchOpen(srcAt(loc.redex), loc.redex, partial);
         if (open.length) incomplete = missing(law.metas, open[0]!);
       }
       const pat = T(instantiatePartial(src, partial));
       const pick = pickSpan(q, cfg.target, cands,
         () => (incomplete ? needMsg(incomplete, law.zmetas) : JAMS.noRedex(pat, qText(q), rule.text)),
         (loc) => {
-          const ms = matchOpen(src, loc.redex, partial);
+          const ms = matchOpen(srcAt(loc.redex), loc.redex, partial);
           if (ms.length) return needMsg(missing(law.metas, ms[0]!), law.zmetas);
           return JAMS.pinMismatch(T(loc.redex), rule.text, pat);
         });
-      emit({ k: 'step', input: qv.node, op: { k: 'rewrite', rule: rule.ref, dir: cfg.dir, at: spanAddr(pick.loc), subst: pick.x } } as never, `by ${rule.text}`, 'rewrite');
+      emit({ k: 'step', input: qv.node, op: { k: 'rewrite', rule: rule.ref, dir: cfg.dir, at: spanAddr(pick.loc), subst: pick.x, ...sx } } as never, `by ${rule.text}`, 'rewrite');
       if (cfg.tidy) {
         let dstInst: Term | null = null;
         try { dstInst = instantiate(dst, pick.x); } catch { dstInst = null; }
@@ -1035,7 +1145,7 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
           const pv = (() => { const b = c.belts.find((x) => x.id === bad); return b ? pout[b.from.m] : undefined; })();
           if (lr !== undefined && pv) {
             const dep = pv.k === 'fact' ? [...(pdeps.get(pv.node) ?? [])].find((d) => d.startsWith('a:')) : undefined;
-            beltErrors[bad] = dep ? JAMS.leakFact(itemText(pv), supposition(dep.slice(2))) : JAMS.leakItem(itemText(pv));
+            beltErrors[bad] = dep ? JAMS.leakFact(itemText(pv), supposition(dep)) : JAMS.leakItem(itemText(pv));
           }
           if (dockWired.length > 1) continue; // another inlet may still deliver: the dock judges each one below
           jam(beltErrors[bad] ?? JAMS.beltPort);
@@ -1084,7 +1194,10 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
         }
         case 'desk': {
           source = true;
-          emit({ k: 'assume', room: cfg.room } as never, 'suppose', 'assume');
+          // Book phase A: desk `slot` i of a multi-desk Assume room emits its own assumption Pᵢ (own dep)
+          const slot = cfg.slot ?? 0;
+          if (!Number.isInteger(slot) || slot < 0) jam(JAMS.deskSlot);
+          emit({ k: 'assume', room: cfg.room, ...(slot ? { slot } : {}) } as never, 'suppose', slot ? `assume.${slot}` : 'assume');
           break;
         }
         case 'carddock': {
@@ -1101,7 +1214,8 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
           const rc = cfg.recipe!;
           const qv = getFact('q');
           const q = qv.fact;
-          if (q.k !== 'eq') jam(JAMS.wrongKind(['eq'], F(q), q.k));
+          // Book phase B: memberships have one rail (t of t ∈ H); everything but Operator-style moves works on it
+          if (q.k !== 'eq' && q.k !== 'mem') jam(JAMS.wrongKind(['eq', 'mem'], F(q), q.k));
           switch (rc.k) {
             case 'cancel': {
               const cands = cancelCandidates(q).map((cd) => ({ loc: cd.loc, x: { id: cd.id as AxiomId, s: { x: cd.x } as Subst } }));
@@ -1151,7 +1265,13 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
             emit({ k: 'step', input: qv.node, op: { k: 'lift', side: rc.side, term: t } } as never, `multiply on the ${rc.side}`, 'lift');
           } else if (rc.k === 'invert') emit({ k: 'step', input: qv.node, op: { k: 'invert' } } as never, 'invert both sides', 'invert');
           else if (rc.k === 'swap') emit({ k: 'step', input: qv.node, op: { k: 'swap' } } as never, 'symmetry', 'swap');
-          else jam(JAMS.unknownRecipe);
+          else if (rc.k === 'apply') {
+            // Book phase C: apply a map to both sides (congruence); other arguments by knob or term port
+            if (qv.fact.k !== 'eq') jam(JAMS.applyNeq(F(qv.fact)));
+            const others = (rc.others ?? []).map((p0, i) => param(p0, `arg:${i}`, `argument ${i + 1}`));
+            const mname = (ctx.level.maps ?? []).find((m) => m.id === rc.fn)?.label ?? rc.fn;
+            emit({ k: 'step', input: qv.node, op: { k: 'applyMap', fn: rc.fn, ...(rc.slot ? { slot: rc.slot } : {}), ...(others.length ? { others } : {}) } } as never, `apply ${mname} to both sides`, 'apply');
+          } else jam(JAMS.unknownRecipe);
           r.duration = 1;
           break;
         }
@@ -1189,7 +1309,8 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
             ref = cv.ref; rf = cv.ref.k === 'node' ? cv.card : undefined; name = F(cv.card);
           } else { ref = jam(JAMS.unknownRecipe); rf = undefined; name = ''; }
           const pPorts = myPorts.filter((p) => p.dir === 'in' && /^p\d+$/.test(p.id)).length;
-          lowerApply(ref, rf, name, pPorts, cfg.values, cfg.choice);
+          const libStructs = rc.k === 'library' && rc.ref.k === 'schema' ? rc.ref.structs : undefined;
+          lowerApply(ref, rf, name, pPorts, cfg.values, cfg.choice, libStructs || cfg.structs ? { ...(libStructs ?? {}), ...(cfg.structs ?? {}) } : undefined);
           break;
         }
         // ───── ∀: generalize over the floor's tower variables ─────
@@ -1200,13 +1321,14 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
           const node = v.k === 'fact' ? v.node : (v as { ref: { id: string } }).ref.id;
           // eigenvariable condition, explained before the kernel decides: no supposition this rests on
           // may mention a variable being bound
-          const free = atomsOfFact(v.k === 'fact' ? v.fact : (v as ItemValue & { k: 'card' }).card);
+          const vf = v.k === 'fact' ? v.fact : (v as ItemValue & { k: 'card' }).card;
+          const free = new Set([...atomsOfFact(vf), ...factSubs(vf)]);
+          const towerIds = new Map<string, string>([...vars.map((vv) => [vv.id, vv.label] as const), ...structs.map((x) => [x.id, x.label] as const)]);
           for (const d of [...(pdeps.get(node) ?? [])].sort(cmp)) {
-            if (!d.startsWith('a:')) continue;
-            const rm = roomById.get(d.slice(2));
-            if (!rm) continue;
-            const hit = [...atomsOfFact({ k: 'eq', l: rm.l, r: rm.r })].find((x) => free.has(x) && vars.some((vv) => vv.id === x));
-            if (hit) jam(JAMS.forallEigen(supposition(rm.id), vars.find((vv) => vv.id === hit)!.label));
+            const a = assumptionFor(d);
+            if (!a || (a.k !== 'eq' && a.k !== 'neq' && a.k !== 'mem')) continue;
+            const hit = [...atomsOfFact(a), ...factSubs(a)].find((x) => free.has(x) && towerIds.has(x));
+            if (hit) jam(JAMS.forallEigen(supposition(d), towerIds.get(hit)!));
           }
           emit({ k: 'generalize', input: node } as never, 'generalize', 'forall');
           r.duration = 2;
@@ -1219,7 +1341,7 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
           const gp = ins0.find((pid) => inBelt.has(`${id}|${pid}`) || badIn.has(`${id}|${pid}`) || brokenIn.has(`${id}|${pid}`)) ?? ins0[0] ?? 'q';
           const qv = getFact(gp);
           if (room?.kind === 'assume') {
-            if (qv.fact.k !== 'eq' && qv.fact.k !== 'neq') jam(JAMS.assumeGate(F(qv.fact)));
+            if (qv.fact.k !== 'eq' && qv.fact.k !== 'neq' && qv.fact.k !== 'mem') jam(JAMS.memGate(F(qv.fact)));
           } else if (qv.fact.k !== 'bot') jam(JAMS.gateNeedsBot(F(qv.fact)));
           emit({ k: 'exit', room: cfg.room, input: qv.node } as never, room?.kind === 'assume' ? 'discharge (⇒)' : 'discharge', 'exit');
           r.duration = 1;
@@ -1232,19 +1354,48 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
           socketStatic[cfg.socketId] = {};
           const tg = sd!.target;
           /** What arrives at one inlet, judged against the goal: its proof node, or halt. */
+          const open = isOpen(sd!);
+          /** The goal as the dock shows it: holes as `?` (never an answer). */
+          const FT = () => { const d = openDisplay(sd!); return factText(d.fact, { ...L, ...d.labels }); };
           const deliverFrom = (pid: string): { port: string; by?: string; P: NodeId } => {
             const prod = inBelt.get(`${id}|${pid}`)?.from.m;
             const v = get(pid);
+            if (open) {
+              // Book phase A: an open dock — any fact of the target's shape (holes filled consistently) fills it
+              if (tg.k === 'law' || tg.k === 'cond') {
+                if (v.k !== 'card') jam(v.k === 'fact' ? JAMS.socketNeedsCard(FT(), F(v.fact)) : JAMS.socketWrong(FT(), itemText(v)));
+                const cv = v as ItemValue & { k: 'card' };
+                if (cv.ref.k !== 'node') jam(JAMS.socketLibrary);
+                const fill = fillOpen(sd!, cv.card, { rigid: new Set(vars.map((x) => x.id)), sameCard: sameCardUpToPermutation });
+                if (!fill) jam(openWhy(sd!, cv.card, FT(), F(cv.card), new Set(vars.map((x) => x.id)), L));
+                return { port: pid, by: prod, P: (cv.ref as { id: string }).id };
+              }
+              if (v.k !== 'fact') jam(JAMS.socketWrong(FT(), itemText(v)));
+              const f = (v as ItemValue & { k: 'fact' }).fact;
+              const node = (v as ItemValue & { k: 'fact' }).node;
+              const fill = fillOpen(sd!, f, { rigid: new Set(vars.map((x) => x.id)), allowFlip: true, sameCard: sameCardUpToPermutation });
+              if (!fill) jam(openWhy(sd!, f, FT(), F(f), new Set(vars.map((x) => x.id)), L));
+              if (!fill!.flipped) return { port: pid, by: prod, P: node };
+              emit({ k: 'step', input: node, op: { k: 'swap' } } as never, 'auto-swap', pid === 'q' ? 'swap' : `swap.${pid}`);
+              return { port: pid, by: prod, P: lastNode() };
+            }
             if (tg.k === 'law' || tg.k === 'cond') {
               // a ∀ goal: a card proved on this floor, equal to the target up to renaming its variables
               if (v.k !== 'card') jam(v.k === 'fact' ? JAMS.socketNeedsCard(F(tg), F(v.fact)) : JAMS.socketWrong(F(tg), itemText(v)));
               const cv = v as ItemValue & { k: 'card' };
               if (cv.ref.k !== 'node') jam(JAMS.socketLibrary);
-              // as the kernel: a law read either way round (and a cond with a flipped = conclusion) fills it
-              if (!sameCardUpToRenaming(cv.card, tg) && !sameCardUpToRenaming(flipConclusion(cv.card), tg)) jam(JAMS.socketWrong(F(tg), F(cv.card)));
+              // as the kernel: a law read either way round (and a cond with a flipped = conclusion) fills it;
+              // premises in any order (Book phase A)
+              if (!sameCardUpToPermutation(cv.card, tg) && !sameCardUpToPermutation(flipConclusion(cv.card), tg)) jam(JAMS.socketWrong(F(tg), F(cv.card)));
               return { port: pid, by: prod, P: (cv.ref as { id: string }).id };
             }
             if (v.k !== 'fact') jam(JAMS.socketWrong(F(tg), itemText(v)));
+            if (tg.k === 'mem') {
+              // Book phase B: a membership dock — same term (norm-equal), same subgroup
+              const fv = (v as ItemValue & { k: 'fact' });
+              if (!samePat(fv.fact, tg)) jam(JAMS.socketWrong(F(tg), F(fv.fact)));
+              return { port: pid, by: prod, P: fv.node };
+            }
             if (tg.k !== 'eq' && tg.k !== 'neq') jam(JAMS.socketWrong(F(tg), itemText(v)));
             const f = (v as ItemValue & { k: 'fact' }).fact as Pallet & { k: 'eq' | 'neq'; l: Term; r: Term };
             if (f.k !== 'eq' && f.k !== 'neq') jam(JAMS.socketWrong(F(tg), F(f)));
@@ -1306,7 +1457,7 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
   }
 
   // ── the authority: one full kernel check ──
-  const graph: ProofGraph = { nodes, rooms: kRooms, ...(vars.length ? { vars } : {}) };
+  const graph: ProofGraph = { nodes, rooms: kRooms, ...gdecl };
   const chk: CheckResult = kcheck(graph, ctx0);
 
   // reconcile: kernel failures jam their owner; dependants starve with the cause
@@ -1345,6 +1496,8 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
 
   // ── sockets: wired delivery with a P-first closure check (§8) ──
   const nodeById = new Map(nodes.map((n) => [n.id, n]));
+  /** Open docks: the answer node P delivers (kernel fillOpen on P's checked fact), per socket and node. */
+  const answerOf = new Map<string, { holes: Subst; instance: Pallet | Card }>();
   /** The kernel's verdict on delivering node P to socket sd: undefined = accepted, else the reason. */
   const closureReason = (sd: (typeof ctx.level.sockets)[number], P: NodeId): string | undefined => {
     const pn = nodeById.get(P);
@@ -1361,15 +1514,18 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
       stack.push(...u.inputs, ...(u.rule ? [u.rule] : []));
     }
     // the delivered proof's own closure, re-checked by the kernel (in topological order)
-    const closure: ProofGraph = { nodes: nodes.filter((n) => seen.has(n.id)), rooms: kRooms, ...(vars.length ? { vars } : {}) };
+    const closure: ProofGraph = { nodes: nodes.filter((n) => seen.has(n.id)), rooms: kRooms, ...gdecl };
     const cr = kcheck(closure, ctx0);
     const so = cr.sockets.find((s) => s.id === sd.id);
     const pr = cr.nodes[P];
     const allowed = new Set(sd.allowedGivens.map((g) => `g:${g}`));
     const tg = sd.target;
     const pf = pr?.fact;
-    const matches = !!pf && ((tg.k === 'law' || tg.k === 'cond')
-      ? (pf.k === 'law' || pf.k === 'cond') && (sameCardUpToRenaming(pf, tg) || sameCardUpToRenaming(flipConclusion(pf), tg))
+    // an open dock: P's own fact must fill it (the kernel's socket may name an earlier node; the answer is P's)
+    const fill = pf && isOpen(sd) ? fillOpen(sd, pf, { rigid: new Set(vars.map((x) => x.id)), sameCard: sameCardUpToPermutation }) : null;
+    if (fill) answerOf.set(`${sd.id}|${P}`, { holes: fill.holes, instance: fill.instance });
+    const matches = !!pf && (isOpen(sd) ? !!fill : tg.k === 'mem' ? samePat(pf as Pallet, tg) : (tg.k === 'law' || tg.k === 'cond')
+      ? (pf.k === 'law' || pf.k === 'cond') && (sameCardUpToPermutation(pf, tg) || sameCardUpToPermutation(flipConclusion(pf), tg))
       : (pf.k === tg.k && (tg.k === 'eq' || tg.k === 'neq') && (pf.k === 'eq' || pf.k === 'neq') && same(norm(pf.l), norm(tg.l)) && same(norm(pf.r), norm(tg.r))));
     const extra = pr?.deps.filter((d) => !allowed.has(d)) ?? [];
     if (cr.ok && !!so?.ok && !!pr?.ok && matches && !extra.length) return undefined;
@@ -1384,7 +1540,7 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
     if (r.status.k !== 'ok' || !st.P) { sockets[sd.id] = { ...(st.by ? { by: st.by } : {}), ok: false, reason: r.status.k !== 'ok' ? r.status.reason : st.reason ?? 'nothing arrives' }; continue; }
     // every inlet that would deliver is re-checked on its own closure; any certified inlet may seal the dock
     const live = (st.cands ?? [{ port: 'q', by: st.by, P: st.P }]).filter((cd) => !cd.by || results[cd.by]?.status.k === 'ok');
-    const certified: { port: string; by?: string }[] = [];
+    const certified: { port: string; by?: string; P: NodeId }[] = [];
     let firstReason: string | undefined, firstBy: string | undefined;
     for (const cd of live) {
       const reason = closureReason(sd, cd.P);
@@ -1395,6 +1551,12 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
     const by = ok ? certified[0]!.by : firstBy ?? st.by;
     const reason = ok ? undefined : firstReason ?? 'the kernel does not accept this delivery';
     sockets[sd.id] = { ...(by ? { by } : {}), ok, ...(reason ? { reason } : {}) };
+    if (ok && isOpen(sd)) {
+      const answers: NonNullable<Compiled['sockets'][string]['answers']> = {};
+      for (const cd of certified) { const a = answerOf.get(`${sd.id}|${cd.P}`); if (a) answers[cd.port] = a; }
+      const first = answers[certified[0]!.port];
+      sockets[sd.id] = { ...sockets[sd.id]!, ...(first ? { holes: first.holes, instance: first.instance } : {}), answers };
+    }
     if (ok) plan.machines[sm.id]!.ins = certified.map((cd) => ({ port: cd.port, catalyst: false }));
     else { r.status = { k: 'jammed', reason: reason! }; plan.machines[sm.id]!.ok = false; }
   }
@@ -1424,15 +1586,29 @@ export function atomsOfFact(f: Fact): Set<string> {
       case 'atom': out.add(t.id); return;
       case 'inv': walk(t.arg); return;
       case 'mul': t.fs.forEach(walk); return;
+      case 'app': t.args.forEach(walk); return;
       case 'pow': walk(t.base); for (const r of polyRefs(t.exp)) if (r.k === 'zvar') out.add(r.id); return;
       case 'int': for (const r of polyRefs(t.val)) if (r.k === 'zvar') out.add(r.id); return;
       default: return;
     }
   };
-  if (f.k === 'eq' || f.k === 'neq' || f.k === 'law') { walk(f.l); walk(f.r); }
-  else if (f.k === 'cond') { for (const p of f.premises) { walk(p.l); walk(p.r); } walk(f.concl.l); walk(f.concl.r); }
+  for (const t of factTerms(f)) walk(t);
   return out;
 }
+
+/**
+ * Why a fact does not fill an open dock, in the dock's own terms. Names WHICH rule failed (a forbidden
+ * letter, a free Tower, the shape) but never proposes a value for a hole.
+ */
+function openWhy(sd: LevelManifestSocket, f: Fact, shown: string, got: string, rigid: Set<string>, L: Labels): string {
+  const holes = sd.holes ?? [];
+  const banned = [...new Set(holes.flatMap((h) => h.notMentioning ?? []))];
+  const loose = { ...sd, holes: holes.map((h) => ({ ...h, notMentioning: [] })) };
+  if (banned.length && fillOpen(loose, f, { rigid, allowFlip: true, sameCard: sameCardUpToPermutation })) return JAMS.openMentions(shown, banned.map((a) => L[a] ?? a).join(', '));
+  if (rigid.size && fillOpen(loose, f, { allowFlip: true, sameCard: sameCardUpToPermutation })) return JAMS.openTower(shown);
+  return JAMS.socketWrong(shown, got);
+}
+type LevelManifestSocket = KernelCtx['level']['sockets'][number];
 
 // ───────────────────────────── Lemma Book ─────────────────────────────
 
@@ -1460,9 +1636,11 @@ export function lemmaFrom(comp: Compiled, c: Canvas, machineId: string, ctx: Ker
       return { ok: false, reason: JAMS.lemmaGiven(gd ? `${gd.name}: ${factText(gd.fact, L)}` : d.slice(2)) };
     }
     if (d.startsWith('a:')) {
-      const rm = c.rooms.find((x) => x.id === d.slice(2));
-      const k = rm && (rm.kind === 'suppose' || (rm.kind === 'assume' && (rm.rel ?? 'eq') === 'eq')) ? 'eq' : 'neq';
-      return { ok: false, reason: JAMS.lemmaSupposition(rm ? factText({ k, l: rm.l, r: rm.r }, L) : 'a room’s assumption') };
+      const dr = depRoom(d);
+      const rm = dr ? comp.graph.rooms.find((x) => x.id === dr.room) : undefined;
+      let a: Pallet | undefined;
+      try { a = rm ? assumptionsOf(rm)[dr!.slot] : undefined; } catch { a = undefined; }
+      return { ok: false, reason: JAMS.lemmaSupposition(a ? factText(a, L) : 'a room’s assumption') };
     }
     return { ok: false, reason: JAMS.lemmaNotReady(`It rests on ${d}.`) };
   }
@@ -1472,6 +1650,15 @@ export function lemmaFrom(comp: Compiled, c: Canvas, machineId: string, ctx: Ker
   const constant = atoms.find((x) => !varIds.has(x));
   if (constant) return { ok: false, reason: JAMS.lemmaConst(L[constant] ?? constant) };
   if (atoms.length) return { ok: false, reason: JAMS.lemmaVar(L[atoms[0]!] ?? atoms[0]!) };
+  // Book phase B, lemma closure (SYNTHESIS §4.1 pin 1): every subgroup it mentions must be a parameter
+  const subs = [...factSubs(nr.fact)].sort(cmp);
+  const towerSubs = new Map((comp.graph.structs ?? []).map((x) => [x.id, x.label] as const));
+  const lvSub = subs.find((x) => !towerSubs.has(x));
+  if (lvSub) return { ok: false, reason: JAMS.lemmaSubgroup(subsIn(ctx.level).find((x) => x.id === lvSub)?.label ?? lvSub) };
+  if (subs.length) return { ok: false, reason: JAMS.lemmaVar(towerSubs.get(subs[0]!) ?? subs[0]!) };
+  // Book phase C, lemma closure: no level map or sort, no free Hom / group Tower
+  const mc = mapClosureProblem(nr.fact, withVars(ctx, comp.graph).ctx, comp.graph.structs ?? []);
+  if (mc) return { ok: false, reason: mc };
   return { ok: true, card: nr.fact };
 }
 
@@ -1508,7 +1695,8 @@ export function verifyLemma(l: SavedLemma, ctx: KernelCtx, earlier: string[] = [
     const comp = compile(l.canvas, vctx);
     const res = lemmaFrom(comp, l.canvas, l.machine, vctx);
     if (!res.ok) return res;
-    if (!sameCardUpToRenaming(res.card, l.card)) return { ok: false, reason: JAMS.lemmaChanged };
+    // Book phase A: premises compare up to order (a multi-desk gate's premises are a conjunction)
+    if (!sameCardUpToPermutation(res.card, l.card)) return { ok: false, reason: JAMS.lemmaChanged };
     return { ok: true };
   } catch (e) {
     return { ok: false, reason: `the saved proof could not be read (${(e as Error)?.message ?? 'unknown'})` };

@@ -1,5 +1,5 @@
 // LEMMA WORKS kernel — printing (Unicode + TeX) and term entry parsing. Pure.
-import type { AtomDecl, Fact, PatFact, Poly, Subst, Term, ZRef } from './types';
+import type { AtomDecl, Fact, MapDecl, PatFact, Poly, SortDecl, SortRef, StructBinder, Subst, Term, ZRef } from './types';
 import { inv, mul, norm, same } from './terms';
 import { polyAdd, polyConst, polyMul, polyNeg, polyNorm, polyPowNat, polySub, polyText, polyZvar } from './poly';
 
@@ -19,8 +19,14 @@ interface Style {
 
 const isSimple = (t: Term) => t.k === 'atom' || t.k === 'e' || t.k === 'meta';
 
+/** Book phase C: the identity of a non-default group prints with its sort, e_H. */
+const eText = (t: Term, L: Labels, tex: boolean) => {
+  const s = t.k === 'e' ? t.s : undefined;
+  if (!s || s === 'G') return 'e';
+  return tex ? `e_{${texLabel(L[s] ?? s)}}` : `e_${L[s] ?? s}`;
+};
 const TEXT: Style = {
-  base: (t, L) => (t.k === 'atom' ? (L[t.id] ?? t.id) : t.k === 'e' ? 'e' : t.k === 'meta' ? t.id : '?'),
+  base: (t, L) => (t.k === 'atom' ? (L[t.id] ?? t.id) : t.k === 'e' ? eText(t, L, false) : t.k === 'meta' ? t.id : '?'),
   pow: (b, n) => (n < 0 ? `${b}⁻${supNum(-n)}` : `${b}${supNum(n)}`),
   paren: (s) => `(${s})`,
 };
@@ -35,7 +41,7 @@ const texLabel = (s: string) => {
   return `\\mathit{${t}}`;
 };
 const TEX: Style = {
-  base: (t, L) => (t.k === 'atom' ? texLabel(L[t.id] ?? t.id) : t.k === 'e' ? 'e' : t.k === 'meta' ? t.id : '?'),
+  base: (t, L) => (t.k === 'atom' ? texLabel(L[t.id] ?? t.id) : t.k === 'e' ? eText(t, L, true) : t.k === 'meta' ? t.id : '?'),
   pow: (b, n) => `${b}^{${n}}`,
   paren: (s) => `(${s})`,
 };
@@ -60,6 +66,11 @@ function factorStr(f: Term, L: Labels, st: Style): string {
     const b = f.base;
     const bs = isSimple(b) ? st.base(b, L) : st.paren(b.k === 'inv' && isSimple(b.arg) ? factorStr(b, L, st) : termStr(b, L, st));
     return `${bs}${expStr(f.exp, L, st === TEX)}`;
+  }
+  // Book phase C: a map frame f(x), σ(g, p)
+  if (f.k === 'app') {
+    const name = st === TEX ? texLabel(L[f.fn] ?? f.fn) : (L[f.fn] ?? f.fn);
+    return `${name}(${f.args.map((a) => termStr(a, L, st)).join(', ')})`;
   }
   if (f.k === 'int') return polyText(f.val, (r) => (r.k === 'zvar' ? (st === TEX ? texLabel(L[r.id] ?? r.id) : (L[r.id] ?? r.id)) : r.id), st === TEX);
   if (f.k === 'inv') {
@@ -106,7 +117,25 @@ const quant = (metas: string[], tex: boolean) =>
 
 function patText(p: PatFact, L: Labels, tex: boolean): string {
   const T = tex ? termTex : termText;
+  // Book phase B: t ∈ H (a binder prints as its own name; a rigid subgroup by its label)
+  if (p.k === 'mem') return `${T(p.t, L)} ${tex ? '\\in' : '∈'} ${subText(p.sub.id, L, tex)}`;
   return `${T(p.l, L)} ${p.k === 'eq' ? '=' : tex ? '\\neq' : '≠'} ${T(p.r, L)}`;
+}
+const subText = (id: string, L: Labels, tex: boolean) => { const s = L[id] ?? id; return tex ? s.replace(/[₀-₉]+/g, (m) => `_{${[...m].map((c) => String(c.charCodeAt(0) - 0x2080)).join('')}}`) : s; };
+/** Book phase B: "∀H ≤ G. " / "∀N ⊴ G. " for a card's subgroup parameters. */
+const bquant = (binds: StructBinder[] | undefined, tex: boolean) =>
+  (binds ?? []).map((b) => bindText(b, tex)).join('');
+/** One structure parameter: H ≤ G, N ⊴ G (phase B); a group G, a set Ω, f : G → H, σ : G × Ω → Ω (phase C). */
+function bindText(b: StructBinder, tex: boolean): string {
+  const sr = (r: SortRef) => (typeof r === 'string' ? r : r.id);
+  const q = (body: string) => (tex ? `\\forall ${body}.\\; ` : `∀${body}. `);
+  switch (b.k) {
+    case 'sub': return q(`${b.id} ${b.normal ? (tex ? '\\trianglelefteq' : '⊴') : (tex ? '\\le' : '≤')} ${sr(b.sort ?? 'G')}`);
+    case 'grp': return q(`${b.id} ${tex ? '\\text{ a group}' : 'a group'}`);
+    case 'set': return q(`${b.id} ${tex ? '\\text{ a set}' : 'a set'}`);
+    case 'hom': return q(`${b.id} : ${sr(b.dom)} ${tex ? '\\to' : '→'} ${sr(b.cod)}`);
+    case 'act': return q(`${b.id} : ${sr(b.grp)} ${tex ? '\\times' : '×'} ${sr(b.on)} ${tex ? '\\to' : '→'} ${sr(b.on)}`);
+  }
 }
 
 export function factText(f: Fact, L: Labels): string { return factStr(f, L, false); }
@@ -115,11 +144,15 @@ export function factTex(f: Fact, L: Labels): string { return factStr(f, L, true)
 function factStr(f: Fact, L: Labels, tex: boolean): string {
   const T = tex ? termTex : termText;
   switch (f.k) {
-    case 'eq': case 'neq': return patText(f, L, tex);
+    case 'eq': case 'neq': case 'mem': return patText(f, L, tex);
     case 'bot': return tex ? '\\bot' : '⊥';
     case 'size': return `|G| = ${f.n}`;
-    case 'law': return `${quant(f.metas, tex)}${T(f.l, L)} = ${T(f.r, L)}`;
-    case 'cond': return `${quant(f.metas, tex)}${f.premises.map((p) => patText(p, L, tex)).join(', ')} ${tex ? '\\Rightarrow' : '⇒'} ${patText(f.concl, L, tex)}`;
+    case 'law': return `${bquant(f.binds, tex)}${quant(f.metas, tex)}${T(f.l, L)} = ${T(f.r, L)}`;
+    case 'cond': {
+      // a premise-free card reads as its conclusion (e.g. ∀H ≤ G. e ∈ H)
+      if (!f.premises.length && (f.binds?.length || f.concl.k === 'mem')) return `${bquant(f.binds, tex)}${quant(f.metas, tex)}${patText(f.concl, L, tex)}`;
+      return `${bquant(f.binds, tex)}${quant(f.metas, tex)}${f.premises.map((p) => patText(p, L, tex)).join(', ')} ${tex ? '\\Rightarrow' : '⇒'} ${patText(f.concl, L, tex)}`;
+    }
   }
 }
 
@@ -133,9 +166,10 @@ export function substText(s: Subst, L: Labels): string {
 const SUP_MAP: Record<string, string> = { '⁰': '0', '¹': '1', '²': '2', '³': '3', '⁴': '4', '⁵': '5', '⁶': '6', '⁷': '7', '⁸': '8', '⁹': '9' };
 const MAX_POW = 99;
 
-type Name = { name: string; id: string | null; sort: 'G' | 'Z' };
+/** sort F: a map name (Book phase C, followed by its bracketed arguments); E: an identity of a named group, e_H. */
+type Name = { name: string; id: string | null; sort: 'G' | 'Z' | 'F' | 'E' };
 
-function nameTable(atoms: AtomDecl[]): Name[] {
+function nameTable(atoms: AtomDecl[], extra?: ParseExtra): Name[] {
   // label (and its ASCII-prime spelling) → atom id; 'e' → identity unless a label claims it
   const names: Name[] = [];
   for (const a of atoms) {
@@ -152,9 +186,19 @@ function nameTable(atoms: AtomDecl[]): Name[] {
     }
   }
   if (!names.some((n) => n.name === 'e')) names.push({ name: 'e', id: null, sort: 'G' });
+  // Book phase C: maps (f, σ, Hom Towers f₁) and the identities of named groups (e_H, e_{H})
+  for (const m of extra?.maps ?? []) {
+    names.push({ name: m.label, id: m.id, sort: 'F' });
+    if (/[₀-₉]/u.test(m.label)) names.push({ name: m.label.replace(/[₀-₉]/gu, (c) => String('₀₁₂₃₄₅₆₇₈₉'.indexOf(c))), id: m.id, sort: 'F' });
+  }
+  for (const g of extra?.sorts ?? []) if (g.kind === 'group' && g.id !== 'G') {
+    names.push({ name: `e_${g.label}`, id: g.id, sort: 'E' }, { name: `e_{${g.label}}`, id: g.id, sort: 'E' });
+  }
   names.sort((x, y) => y.name.length - x.name.length);
   return names;
 }
+/** Book phase C: what term entry needs besides the atoms (pass the level's maps and sorts, after withVars). */
+export interface ParseExtra { maps?: MapDecl[]; sorts?: SortDecl[] }
 
 class PErr extends Error {}
 
@@ -264,9 +308,9 @@ function parseIntExpr(c: Cursor, bare: boolean): Poly {
  * power node: `a^(5)`, `a^0`, `a^-3`, `a^n₁`, `(ab)^(5k₁)`, `x^-n₁`, `a^{2n+1}`.
  * Also accepts '⁻¹', superscript digits (words), "'" for a prime (e' ↔ e′), whitespace, '·', '*'.
  */
-export function parseTerm(src: string, atoms: AtomDecl[]):
+export function parseTerm(src: string, atoms: AtomDecl[], extra?: ParseExtra):
   { ok: true; term: Term } | { ok: false; error: string } {
-  const c = new Cursor(src, nameTable(atoms));
+  const c = new Cursor(src, nameTable(atoms, extra));
   const s = src;
   const skip = () => { while (c.i < s.length && /[\s·*⋅]/.test(s[c.i]!)) c.i++; };
 
@@ -304,7 +348,19 @@ export function parseTerm(src: string, atoms: AtomDecl[]):
       }
       if (hit.sort === 'Z') throw new PErr(`${hit.name} is an integer, not a group element.`);
       c.i += hit.name.length;
-      base = hit.id === null ? { k: 'e' } : { k: 'atom', id: hit.id };
+      if (hit.sort === 'F') {
+        // f(x) or σ(g, p): the map's arguments, comma-separated, in brackets
+        skip();
+        if (s[c.i] !== '(') throw new PErr(`${hit.name} is a map. Write ${hit.name}(…).`);
+        c.i++;
+        const args: Term[] = [parseTermInner()];
+        skip();
+        while (s[c.i] === ',') { c.i++; args.push(parseTermInner()); skip(); }
+        if (s[c.i] !== ')') throw new PErr('A bracket is not closed.');
+        c.i++;
+        base = { k: 'app', fn: hit.id!, args };
+      } else if (hit.sort === 'E') base = { k: 'e', s: hit.id! };
+      else base = hit.id === null ? { k: 'e' } : { k: 'atom', id: hit.id };
     }
     // postfix powers
     for (;;) {
@@ -357,7 +413,7 @@ export function parseTerm(src: string, atoms: AtomDecl[]):
     const fs: Term[] = [];
     for (;;) {
       skip();
-      if (c.i >= s.length || s[c.i] === ')') break;
+      if (c.i >= s.length || s[c.i] === ')' || s[c.i] === ',') break;
       fs.push(parseFactor());
     }
     if (!fs.length) throw new PErr('The term is empty.');
@@ -367,7 +423,7 @@ export function parseTerm(src: string, atoms: AtomDecl[]):
   try {
     const t = parseTermInner();
     skip();
-    if (c.i < s.length) throw new PErr('A closing bracket has no opening one.');
+    if (c.i < s.length) throw new PErr(s[c.i] === ',' ? 'A comma belongs between a map’s arguments.' : 'A closing bracket has no opening one.');
     return { ok: true, term: norm(t) };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };

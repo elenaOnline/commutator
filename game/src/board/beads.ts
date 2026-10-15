@@ -46,6 +46,7 @@ function toks(t: Term, L: Labels): Tok[] {
       // v4 Phase B placeholder: a power is one labelled bead, e.g. (ab)^n₁ (the floor polishes visuals)
       case 'pow': return { k: 'atom', label: K_termText(f, L), slot: 0 };
       case 'int': return { k: 'atom', label: K_termText(f, L), slot: 0 };
+      case 'app': return { k: 'atom', label: K_termText(f, L), slot: 0 }; // Book phase C placeholder
     }
   });
 }

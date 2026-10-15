@@ -2,8 +2,9 @@
 import type { CheckResult, Family, NodeId, ProofGraph, ProofNode, RuleRef, StepOp } from './types';
 import type { KernelCtx, Metrics } from './index';
 import { beads, norm } from './terms';
-import { assumptionOf, check, nodeUses, schemaInfo, withVars } from './logic';
+import { assumptionOf, assumptionsOf, check, nodeUses, schemaInfo, withVars } from './logic';
 import { atomsOf } from './terms';
+import { factSubs, factTerms } from './members';
 import { factText, labelsOf, substText, termText, type Labels } from './print';
 import { LEVEL_BY_ID, MIRROR_NAMES } from '../levels/levels';
 
@@ -23,6 +24,7 @@ export function opFamily(op: StepOp, next: StepOp | undefined, kindOf: (id: Node
     case 'rewrite': return ruleFamily(op.rule, op.rule.k === 'node' ? kindOf(op.rule.id) : undefined);
     case 'lift': return 'structure';
     case 'invert': return 'structure';
+    case 'applyMap': return 'structure';
     case 'swap': return 'equation';
   }
 }
@@ -97,7 +99,11 @@ export function justify(n: ProofNode, g: ProofGraph, ctx0: KernelCtx): string {
     case 'given': return ctx.level.givens.find((x) => x.id === n.givenId)?.name ?? n.givenId;
     case 'assume': {
       const room = g.rooms.find((r) => r.id === n.room);
-      if (room?.kind === 'assume') return `assume ${factText(assumptionOf(room), L)}`;
+      if (room?.kind === 'assume') {
+        let a = assumptionOf(room);
+        try { a = assumptionsOf(room)[n.slot ?? 0] ?? a; } catch { /* the check reports it */ }
+        return `assume ${factText(a, L)}`;
+      }
       return room?.kind === 'classical' ? 'assume the opposite (for contradiction)' : 'supposition';
     }
     case 'step': {
@@ -106,6 +112,7 @@ export function justify(n: ProofNode, g: ProofGraph, ctx0: KernelCtx): string {
         case 'insertE': return 'unit';
         case 'swap': return 'symmetry';
         case 'invert': return 'invert both sides';
+        case 'applyMap': return `apply ${L[op.fn] ?? op.fn} to both sides`;
         case 'lift': return `multiply on the ${op.side} by ${termText(op.term, L)}`;
         case 'rewrite': {
           const r = op.rule;
@@ -128,15 +135,17 @@ export function justify(n: ProofNode, g: ProofGraph, ctx0: KernelCtx): string {
       const f = cachedCheck(g, ctx0).nodes[n.input]?.fact;
       const vars = new Set((g.vars ?? []).map((v) => v.id));
       const seen = new Set<string>();
-      if (f && (f.k === 'eq' || f.k === 'neq' || f.k === 'law')) { atomsOf(f.l, seen); atomsOf(f.r, seen); }
-      if (f && f.k === 'cond') for (const p of [...f.premises, f.concl]) { atomsOf(p.l, seen); atomsOf(p.r, seen); }
-      const names = [...seen].filter((id) => vars.has(id)).map((id) => L[id] ?? id);
+      if (f) for (const t of factTerms(f)) atomsOf(t, seen);
+      // Book phase B: Subgroup Towers bound by ∀ are named too
+      const towers = new Set((g.structs ?? []).map((x) => x.id));
+      if (f) for (const id of factSubs(f)) if (towers.has(id)) seen.add(id);
+      const names = [...seen].filter((id) => vars.has(id) || towers.has(id)).map((id) => L[id] ?? (g.structs ?? []).find((x) => x.id === id)?.label ?? id);
       return names.length ? `${names.join(', ')} ${names.length === 1 ? 'was' : 'were'} arbitrary: generalize` : 'generalize';
     }
     case 'clash': return 'contradiction';
     case 'exit': {
       const room = g.rooms.find((r) => r.id === n.room);
-      if (room?.kind === 'assume') return 'discharge the assumption (implication)';
+      if (room?.kind === 'assume') return Array.isArray(room.assumes) && room.assumes.length > 1 ? 'discharge the assumptions (implication)' : 'discharge the assumption (implication)';
       return room?.kind === 'classical' ? 'proof by contradiction (classical)' : 'the supposition led to a contradiction';
     }
     case 'press': return 'Lagrange (imported)';

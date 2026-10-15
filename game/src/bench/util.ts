@@ -46,6 +46,7 @@ export function plain(t: Term, L: Labels): string {
       return a.k === 'mul' || a.k === 'inv' ? `(${plain(a, L)})${SUP_M1}` : `${plain(a, L)}${SUP_M1}`;
     }
     case 'mul': return t.fs.map((f) => plain(f, L)).join('');
+    case 'app': return `${L[t.fn] ?? t.fn}(${t.args.map((x) => plain(x, L)).join(', ')})`; // Book phase C (plain fallback)
     // v4 Phase B: always bracket the exponent so the text re-parses as a power node, never a word
     case 'pow': {
       const b = t.base;
@@ -60,6 +61,7 @@ export function plainFact(f: Fact, L: Labels): string {
   switch (f.k) {
     case 'eq': return `${plain(f.l, L)} = ${plain(f.r, L)}`;
     case 'neq': return `${plain(f.l, L)} ≠ ${plain(f.r, L)}`;
+    case 'mem': return `${plain(f.t, L)} ∈ ${L[f.sub.id] ?? f.sub.id}`; // Book phase B (the bench never shows one)
     case 'bot': return '⊥';
     case 'size': return `|G| = ${f.n}`;
     case 'law': return `∀${f.metas.join(',')}. ${plain(f.l, L)} = ${plain(f.r, L)}`;

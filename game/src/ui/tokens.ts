@@ -26,6 +26,15 @@ export const FAMILY: Record<Family, { ink: string; text: string; glyph: string; 
   given:         { ink: '#74C043', text: '#3B7A1E', glyph: '∵',  label: 'Given' },        // leaf green (review 2026-10): inlets and rules cited from a given
 };
 
+/**
+ * Book phase B: the subgroup family (memberships t ∈ H, the subgroup axioms, Subgroup Towers). Slate-teal, chosen
+ * by CIEDE2000 distance to every family ink, the ℤ variable inks and the jam red, under normal vision and Machado
+ * deuteranopia / protanopia (worst case ΔE₀₀ 13.3, against jam under protanopia; contradiction orange ≥ 24, identity
+ * yellow ≥ 40). Cinnamon #B5651D was rejected: ΔE₀₀ 9.0 to contradiction orange under protanopia. NORMS.md › Floor.
+ * Only the subgroup carries it: a membership's term stays navy.
+ */
+export const SUBGROUP = { ink: '#325D4E', text: '#325D4E', fill: '#EEF3F1', glyph: '≤', label: 'Subgroup' } as const;
+
 /** Isometric projection used by the board: grid unit → screen px at zoom 1. */
 export const ISO = {
   unit: 56,

@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { Fact, Term } from '../kernel/types';
 import { LEVELS } from '../levels/levels';
 import { oracleCheck } from './oracle';
@@ -38,4 +38,18 @@ it('restricts models by dependency size, rather than every level given', () => {
   const l = { ...level, givens: [{ id: 's', name: 'size', fact: { k: 'size' as const, n: 7 } }] };
   expect(oracleCheck(l, { commute: node(commute, ['g:s']) }, [])).toEqual([]);
   expect(oracleCheck(l, { commute: node(commute) }, [])).toHaveLength(1);
+});
+
+import { nontrivialModels } from './oracle';
+import { mkLevel } from '../kernel/testkit';
+describe('nontrivialModels (authoring helper)', () => {
+  it('counts models of the allowed givens with |G| ≥ 2 and some named element ≠ e; flags near-vacuous levels', () => {
+    const a = { k: 'atom' as const, id: 'a' }, e = { k: 'e' as const };
+    const rich = mkLevel({ givens: [{ id: 'g', name: 'g', fact: { k: 'eq', l: { k: 'mul', fs: [a, a] }, r: e } }], sockets: [{ id: 's', target: { k: 'eq', l: a, r: { k: 'inv', arg: a } }, allowedGivens: ['g'] }] });
+    expect(nontrivialModels(rich, 's').ok).toBe(true);
+    const vacuous = mkLevel({ givens: [{ id: 'g', name: 'g', fact: { k: 'eq', l: a, r: e } }], sockets: [{ id: 's', target: { k: 'eq', l: a, r: a }, allowedGivens: ['g'] }] });
+    expect(nontrivialModels(vacuous, 's')).toMatchObject({ count: 0, ok: false, threshold: 10 });
+    const members = mkLevel({ subgroups: [{ id: 'H', label: 'H' }], givens: [{ id: 'g', name: 'g', fact: { k: 'mem', t: a, sub: { k: 'sub', id: 'H' } } }], sockets: [{ id: 's', target: { k: 'mem', t: e, sub: { k: 'sub', id: 'H' } }, allowedGivens: ['g'] }] } as never);
+    expect(nontrivialModels(members, 's').count).toBeGreaterThan(10);
+  });
 });

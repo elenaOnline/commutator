@@ -6,7 +6,7 @@
 // Towers are standard boxes in their sort's colour (review 2026-10).
 import type { Family, LevelManifest, Schema, Term } from '../kernel/types';
 import type { LibRef, Machine } from '../factory/types';
-import { FAMILY, INK, VAR } from '../ui/tokens';
+import { FAMILY, INK, SUBGROUP, VAR } from '../ui/tokens';
 import { shade } from '../board/geom';
 import { schemaMachineName, schemaOf } from '../factory/catalog';
 import { MIRROR_NAMES, SIDE_PAIRS } from '../levels/levels';
@@ -27,6 +27,10 @@ export interface Look {
   dir?: 'fwd' | 'rev';    // rewriters: a persistent direction mark on the chassis (→ / ←)
   sheet?: boolean;        // Given Inlet: a folded sheet (east corner chamfered, white fold)
   tower?: 'G' | 'Z';      // Tower: its variable's sort (glyph x∈G / n∈ℤ, transmitter on the back corner)
+  /** Book phase B: a Subgroup Tower (H₁ ≤ G, or N₁ ⊴ G when normal), in the subgroup ink. */
+  subTower?: 'sub' | 'normal';
+  /** Book phase B: a subgroup axiom's box ends its glyph in the subgroup, drawn as a small Euler set (xy ∈ (H)). */
+  subBlob?: { label: string; normal: boolean };
 }
 
 const NEUTRAL = { ink: '#E4E6EC', hull: '#BFC3CF', on: INK.navy2 };
@@ -69,8 +73,19 @@ function libLook(lc: LookCtx, ref: LibRef, asTheorem: boolean): Look {
       if (ref.id === 'invR') return fam('inverse', 'xx⁻¹', 'xx⁻¹ = e');
       if (ref.id === 'unitL') return fam('identity', 'ex', 'ex = x');
       return fam('identity', 'xe', 'xe = x');
-    case 'given': { const n = givenName(lc, ref.givenId); return { ...fam('given', asTheorem ? `${n}⇒` : n, 'LAW'), name: n }; }
+    case 'given': { const n = givenName(lc, ref.givenId); return { ...fam('given', asTheorem ? `${n}⟹` : n, 'LAW'), name: n }; }
     case 'schema': {
+      // Book phase B: the subgroup axioms are machines of their kind, like the group laws — a box in the subgroup
+      // ink with the closure as its glyph. (Earned "contains e" keeps the gold plate; imported powers the hatch.)
+      const SUB_GLYPH: Record<string, string> = { 'sub.mul': 'xy ∈', 'sub.inv': 'x⁻¹ ∈', 'sub.conj': 'gxg⁻¹ ∈' };
+      if (SUB_GLYPH[ref.id]) {
+        const n = schemaName(lc, ref.id, ref.mirror);
+        // the subgroup the recipe names (its chosen one), else the card's own letter
+        const chosen = ref.structs ? Object.values(ref.structs)[0] : undefined;
+        const sg = chosen ? (lc.level.subgroups ?? []).find((x) => x.id === chosen) : undefined;
+        const blob = { label: sg?.label ?? (ref.id === 'sub.conj' ? 'N' : 'H'), normal: ref.id === 'sub.conj' || !!sg?.normal };
+        return { fam: 'lemma', ink: SUBGROUP.ink, hull: shade(SUBGROUP.ink, 0.26), on: '#FFFFFF', glyph: SUB_GLYPH[ref.id]!, label: short(n), subBlob: blob };
+      }
       const n = schemaName(lc, ref.id, ref.mirror);
       return imported(lc, ref.id) ? plate(n, short(n), 'hatch', 'IMPORTED') : plate(n, short(n));
     }
@@ -88,6 +103,8 @@ export function lookOf(m: Machine, lc: LookCtx): Look {
     case 'desk': return fam('scope', '⊢', 'ASSUMPTION DESK');
     case 'gate': return fam('scope', '⊣', 'EXIT GATE');
     case 'tower': {
+      // Book phase B: a Subgroup Tower declares a subgroup H₁ ≤ G (N₁ ⊴ G): the subgroup ink, the set glyph
+      if (c.sub === 'sub' || c.sub === 'normal') return { fam: 'scope', ink: SUBGROUP.ink, hull: shade(SUBGROUP.ink, 0.3), on: '#FFFFFF', glyph: c.label, label: c.label, tower: 'G', subTower: c.sub };
       const sort = c.sort === 'Z' ? 'Z' : 'G', V = VAR[sort];
       return { fam: 'scope', ink: V.ring, hull: shade(V.ring, 0.3), on: '#FFFFFF', glyph: c.label, label: c.label, tower: sort };
     }
@@ -123,7 +140,7 @@ export function lookOf(m: Machine, lc: LookCtx): Look {
     case 'theorem': {
       const r = c.recipe;
       if (!r) return neutral('THEOREM');
-      if (r.k === 'routed') return fam('equation', '⇒', 'ROUTED CARD');
+      if (r.k === 'routed') return fam('equation', '⟹', 'ROUTED CARD');
       return libLook(lc, r.ref, true);
     }
   }

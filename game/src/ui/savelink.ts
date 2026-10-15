@@ -26,9 +26,14 @@ export async function makeSaveLink(base = LIVE_URL): Promise<string> {
   return `${base}#save=${b64url(packed)}`;
 }
 
+type Lv = Record<string, { solvedAt?: number }>;
+/** Solved levels in a save of any version (v5 keeps one record per campaign). */
 const solvedCount = (raw: string | null): number => {
-  try { return Object.values((JSON.parse(raw ?? '{}') as { levels?: Record<string, { solvedAt?: number }> }).levels ?? {}).filter((l) => l.solvedAt).length; }
-  catch { return 0; }
+  try {
+    const s = JSON.parse(raw ?? '{}') as { levels?: Lv; campaigns?: Record<string, { levels?: Lv }> };
+    const all = s.campaigns ? Object.values(s.campaigns).flatMap((c) => Object.values(c?.levels ?? {})) : Object.values(s.levels ?? {});
+    return all.filter((l) => l.solvedAt).length;
+  } catch { return 0; }
 };
 
 /** If the page was opened with #save=…, offer to import it (before the store reads localStorage). */
@@ -39,8 +44,8 @@ export async function importSaveFromHash(): Promise<void> {
   try {
     const raw = new TextDecoder().decode(await pipe(unb64url(m[1]!), new DecompressionStream('deflate-raw')));
     const parsed = JSON.parse(raw) as { version?: number };
-    // Saves are version 4 now (v3 saves are still accepted; the store migrates them on load).
-    if (parsed.version !== 3 && parsed.version !== 4) throw new Error(`not a Commutator save (version ${String(parsed.version)})`);
+    // Saves are version 5 now (campaigns namespaced); v3 and v4 saves are still accepted and migrated on load.
+    if (parsed.version !== 3 && parsed.version !== 4 && parsed.version !== 5) throw new Error(`not a Commutator save (version ${String(parsed.version)})`);
     const here = localStorage.getItem(SAVE_KEY);
     const ok = !here || window.confirm(
       `Import this save? It has ${solvedCount(raw)} solved level(s); the save already in this browser has ${solvedCount(here)}.\n\nImporting replaces the save here.`);

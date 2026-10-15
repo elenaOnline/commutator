@@ -1,7 +1,7 @@
 // LEMMA WORKS v3 — the order chip (top-left, floating, compact): level, title, goal(s) in Latin Modern,
 // givens; expands to the memo. "Suppose …" arms the Room tool with that assumption. Map button.
 import type { Pallet } from '../kernel/types';
-import { CHAPTERS, LEVELS, esc, fH, h, ideaOf, isSolved, labels, nameHTML, nextLevel, richHTML, type S, type Store } from './util';
+import { givenPrefixHTML, camp, campaignOf, displayNo, dockAnswers, openView, esc, fH, h, ideaOf, isSolved, labels, nameHTML, nextLevel, richHTML, type S, type Store } from './util';
 
 export interface OrderApi { render: (s: S) => void; el: HTMLElement; addPlan: (p: Pallet) => void; plans: () => Pallet[] }
 
@@ -14,10 +14,13 @@ export function mountOrder(layer: HTMLElement, store: Store, hooks: { armRoom: (
 
   const render = (s: S) => {
     const del = s.run?.delivered ?? {};
-    const key = JSON.stringify([s.level.id, open, s.level.sockets.map((k) => del[k.id] !== undefined), isSolved(s.save, s.level.id), (plans.get(s.level.id) ?? []).length, s.save.earned.length]);
+    const key = JSON.stringify([s.level.id, open, s.level.sockets.map((k) => del[k.id] !== undefined), isSolved(s.save, s.level.id), (plans.get(s.level.id) ?? []).length, camp(s).earned.length]);
     if (key === lastKey) return;
     lastKey = key;
-    const lv = s.level, L = labels(lv);
+    const lv = s.level;
+    // open docks: `d = ?` with a hole chip, filled with the answer once the dock has accepted it
+    const ov = openView(lv, dockAnswers(s));
+    const L = labels(ov.level);
     const solved = isSolved(s.save, lv.id);
     el.innerHTML = '';
     el.classList.toggle('open', open);
@@ -28,16 +31,18 @@ export function mountOrder(layer: HTMLElement, store: Store, hooks: { armRoom: (
     const help = h('button', { class: 'h3-qbtn', title: 'Concept cards for this order', 'aria-label': 'Concept cards' }, '?');
     help.addEventListener('click', () => store.openCards(0));
     more.addEventListener('click', () => { open = !open; lastKey = ''; render(store.get()); });
-    const ch = CHAPTERS[lv.chapter];
+    const book = campaignOf(lv) === 'book';
     el.append(h('div', { class: 'h3-order-top' }, mapBtn,
-      h('span', { class: 'h3-badge' }, lv.side ? `S${lv.index - LEVELS.filter((l) => !l.side).length}` : String(lv.index)),
+      h('span', { class: 'h3-badge' }, displayNo(lv)),
       h('span', { class: 'h3-order-title' }, lv.title), help, more));
+    // The Book names the proof method each order trains (SYNTHESIS §4), where the main campaign says "New idea".
+    if (book && lv.method) el.append(h('div', { class: 'h3-method' }, h('span', { class: 'h3-label' }, 'Method'), h('span', { class: 'h3-method-dot', 'aria-hidden': 'true' }, '·'), h('span', { class: 'h3-method-name', html: richHTML(lv.method, lv) })));
 
     const goals = h('div', { class: `h3-goals${lv.sockets.length > 1 ? ' multi' : ''}` });
-    for (const sk of lv.sockets) {
+    for (const sk of ov.level.sockets) {
       const got = del[sk.id] !== undefined;
       goals.append(h('div', { class: `h3-goal math${got ? ' got' : ''}`, title: got ? 'Delivered' : 'Deliver this statement to its receiving dock',
-        html: `${lv.sockets.length > 1 ? `<span class="h3-sock">${esc(sk.id)}</span>` : ''}${fH(sk.target, L)}${got ? '<span class="h3-seal"><span class="tomb"></span></span>' : ''}` }));
+        html: `${lv.sockets.length > 1 ? `<span class="h3-sock">${esc(sk.id)}</span>` : ''}${ov.chips(fH(sk.target, L))}${got ? '<span class="h3-seal"><span class="tomb"></span></span>' : ''}` }));
     }
     el.append(goals);
 
@@ -46,7 +51,7 @@ export function mountOrder(layer: HTMLElement, store: Store, hooks: { armRoom: (
     if (gs.length) {
       const row = h('div', { class: 'h3-givens' });
       for (const g of gs) {
-        const b = h('button', { class: `h3-given k-${g.fact.k}`, title: 'Show its inlet on the floor', html: `<span class="math">${g.name === '|G|' ? '' : `<i>${nameHTML(g.name)}</i>:&thinsp;`}${fH(g.fact, L)}</span>` });
+        const b = h('button', { class: `h3-given k-${g.fact.k}`, title: 'Show its inlet on the floor', html: `<span class="math">${givenPrefixHTML(g.name)}${fH(g.fact, L)}</span>` });
         b.addEventListener('click', () => {
           const m = store.get().canvas.machines.find((x) => x.config.kind === 'given' && x.config.givenId === g.id);
           if (m) { store.select([m.id]); store.openLens(m.id); }
@@ -60,7 +65,7 @@ export function mountOrder(layer: HTMLElement, store: Store, hooks: { armRoom: (
     const presets = h('div', { class: 'h3-presets' });
     for (const sk of lv.sockets) {
       const g = sk.target;
-      if (g.k !== 'eq' && g.k !== 'neq') continue;
+      if (g.k !== 'eq' && g.k !== 'neq' || sk.holes?.length) continue;
       const wanted = g.k === 'neq' ? lv.tools.suppose : lv.tools.classical;
       if (!wanted && !open) continue;
       const b = h('button', { class: `h3-preset${g.k === 'eq' ? ' classical' : ''}`, html: `Suppose <span class="math">${fH({ k: g.k === 'neq' ? 'eq' : 'neq', l: g.l, r: g.r }, L)}</span>` });
@@ -72,7 +77,7 @@ export function mountOrder(layer: HTMLElement, store: Store, hooks: { armRoom: (
 
     if (open) {
       el.append(h('p', { class: 'h3-memo' }, lv.memo));
-      if (lv.idea) el.append(h('p', { class: 'h3-idea', html: `<span class="h3-label">New idea</span> ${richHTML(ideaOf(lv), lv)}` }));
+      if (lv.idea) el.append(h('p', { class: 'h3-idea', html: `${book ? '' : '<span class="h3-label">New idea</span> '}${richHTML(ideaOf(lv), lv)}` }));
       const pl = plans.get(lv.id) ?? [];
       if (pl.length) {
         const box = h('div', { class: 'h3-plans' }, h('span', { class: 'h3-label' }, 'Planning targets · not proven'));

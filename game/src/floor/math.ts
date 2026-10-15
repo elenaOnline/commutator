@@ -12,6 +12,8 @@ const sup = (s: string) => `<tspan font-style="normal" font-size="68%" baseline-
 const rel = (s: string) => up(` ${s} `);
 /** Tower variables print in their sort's ink (VAR tokens); set per floor render. */
 let VAR_INK: Map<string, string> = new Map();
+/** Book phase B: the subgroup family's ink (a subgroup's name in t ∈ H). */
+export const SUBG_INK = '#325D4E'; // SUBGROUP.text (ui/tokens)
 export const setVarInks = (m: Map<string, string>) => { VAR_INK = m; };
 /** An italic letter with a REAL subscript (tower variables: x₁ → x<sub>1</sub>). */
 const sub = (s: string, ink?: string) => {
@@ -58,6 +60,8 @@ export function termSVG(t: Term, L: Labels): string {
       case 'mul': return word(x.fs);
       case 'pow': return (simple(x.base) ? one(x.base) : up('(') + termSVG(x.base, L) + up(')')) + sup(polyText(x.exp, L));
       case 'int': return up(polyText(x.val, L));
+      // Book phase C: a map applied, f(x) (plain until the Maps visuals land)
+      case 'app': return it(L[x.fn] ?? x.fn) + up('(') + x.args.map((a) => termSVG(a, L)).join(up(', ')) + up(')');
     }
   };
   return t.k === 'mul' ? word(t.fs) : one(t);
@@ -85,7 +89,9 @@ export function factSVG(f: Fact | PatFact, L: Labels): string {
     case 'bot': return up('⊥');
     case 'size': return up('|') + it('G') + up('|') + rel('=') + up(String(f.n));
     case 'law': return q(f.metas) + termSVG(f.l, L) + rel('=') + termSVG(f.r, L);
-    case 'cond': return q(f.metas) + f.premises.map((p) => factSVG(p, L)).join(up(', ')) + rel('⇒') + factSVG(f.concl, L);
+    case 'cond': return q(f.metas) + f.premises.map((p) => factSVG(p, L)).join(up(', ')) + rel('⟹') + factSVG(f.concl, L); // NORMS: ⟹ for implication
+    // Book phase B: t ∈ H, the subgroup in its own ink
+    case 'mem': return termSVG(f.t, L) + rel('∈') + `<tspan class="fl-subg" fill="${SUBG_INK}">${sub(L[f.sub.id] ?? f.sub.id)}</tspan>`;
   }
 }
 

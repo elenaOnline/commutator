@@ -2,7 +2,8 @@
 // Groups (review 2026-10): Operations · Group laws · Given here · Theorems · Saved · Imported · Made here.
 // No origin notes. Mirror pairs and the insert-pair orientations are ONE row each; the toggle that picks the
 // side / orientation lives in the lens's recipe section (merge.ts).
-import { hasDistinctMirror } from '../factory/catalog';
+import { hasDistinctMirror, structChoices, subgroupsInScope } from '../factory/catalog';
+import { eulerBlobHTML } from '../ui/euler';
 import * as K from '../kernel';
 import type { Card, Fact, Family, Term } from '../kernel/types';
 import { FAMILY } from '../ui/tokens';
@@ -13,7 +14,7 @@ import { h } from './util';
 import { entryKeyOf, familyName, sideName } from './merge';
 
 export type AnyRecipe = RewriteRecipe | OperatorRecipe | JoinerRecipe | TheoremRecipe | { k: 'ref'; ref: LibRef };
-export type Group = 'Operations' | 'Group laws' | 'Given here' | 'Theorems' | 'Saved' | 'Imported' | 'Made here';
+export type Group = 'Operations' | 'Group laws' | 'Subgroup' | 'Given here' | 'Theorems' | 'Saved' | 'Imported' | 'Made here';
 
 /** A merged row's toggle: the two sides of a mirror pair, or the two orientations of insert pair. */
 export type Sides =
@@ -67,6 +68,24 @@ const joinDemo = (ins: Rails[], out: Rails | string, family: Family, L = DL, sma
   return el;
 };
 
+/**
+ * A membership card as a demo strip: x ∈ (H), y ∈ (H) ⟹ xy ∈ (H) — terms as beads, the subgroup as its Euler set,
+ * the conclusion's term tinted in the subgroup ink.
+ */
+const memDemo = (card: Card) => (): HTMLElement => {
+  const el = h('span', { class: 'h3-tf h3-join small h3-memdemo' });
+  const one = (p: { k: string; t?: Term; l?: Term; r?: Term; sub?: { id: string } }, concl: boolean) => {
+    if (p.k !== 'mem' || !p.t) return h('span', { class: 'math', html: fH(p as never, DL) });
+    const label = p.sub!.id;
+    return h('span', { class: 'h3-memend' }, stripEl({ l: p.t }, DL, DH, { vars: DV, ...(concl ? { range: 'all', ink: '#325D4E', which: 'l' } : {}) }),
+      h('span', { class: 'h3-rung math' }, '∈'), h('span', { class: 'h3-blob', html: eulerBlobHTML(label, 13) }));
+  };
+  if (card.k !== 'cond') return el;
+  card.premises.forEach((p, i) => { if (i) el.append(h('span', { class: 'h3-tf-comma' }, ',')); el.append(one(p, false)); });
+  if (card.premises.length) el.append(h('span', { class: 'h3-tf-implies math' }, '⟹'));
+  el.append(one(card.concl, true));
+  return el;
+};
 const I = (t: Term): Term => ({ k: 'inv', arg: t });
 const e: Term = { k: 'e' };
 const stmt = (f: Fact, L: Record<string, string>) => fH(f, L);
@@ -78,7 +97,7 @@ export function libCard(s: S, ref: LibRef): Fact | null {
     case 'axiom': return safe(() => K.axiomCard(ref.id), null);
     case 'given': return s.level.givens.find((g) => g.id === ref.givenId)?.fact ?? null;
     case 'schema': {
-      const sc = s.ctx.registry[ref.id] ?? REGISTRY[ref.id] ?? safe(() => K.powerSchema(ref.id), null);
+      const sc = s.ctx.registry[ref.id] ?? REGISTRY[ref.id] ?? K.subSchema(ref.id) ?? safe(() => K.powerSchema(ref.id), null);
       if (!sc) return null;
       return ref.mirror ? safe(() => K.mirrorCard(sc.card), sc.card) : sc.card;
     }
@@ -97,7 +116,7 @@ export function libName(s: S, ref: LibRef): string {
   switch (ref.k) {
     case 'axiom': return ({ unitL: 'e x = x', unitR: 'x e = x', invL: 'x⁻¹x = e', invR: 'x x⁻¹ = e' } as Record<string, string>)[ref.id] ?? ref.id;
     case 'given': return s.level.givens.find((g) => g.id === ref.givenId)?.name ?? ref.givenId;
-    case 'schema': { const sc = s.ctx.registry[ref.id] ?? REGISTRY[ref.id] ?? safe(() => K.powerSchema(ref.id), null); return sc ? sideName(ref.id, !!ref.mirror, sc.name) : ref.id; }
+    case 'schema': { const sc = s.ctx.registry[ref.id] ?? REGISTRY[ref.id] ?? K.subSchema(ref.id) ?? safe(() => K.powerSchema(ref.id), null); return sc ? sideName(ref.id, !!ref.mirror, sc.name) : ref.id; }
     case 'lagrange': return 'Lagrange';
   }
 }
@@ -166,6 +185,25 @@ export function libraryFor(s: S, kind: MachineKind): LibEntry[] {
     }
     return out2;
   };
+  /**
+   * Book phase B: the Subgroup family — the axioms of the kind (closed under products, inverses, and conjugation for a
+   * normal subgroup), "a subgroup contains e" once earned, "powers of a member are members" when imported. One row
+   * each; which subgroup plays H is chosen in the lens (the chip row under the recipe), never a row per subgroup.
+   */
+  const subEntries = (mk: (ref: LibRef) => AnyRecipe): LibEntry[] => {
+    const scope = safe(() => subgroupsInScope(s.ctx, s.canvas as never), []);
+    if (!scope.length && !s.ctx.level.tools.schemas.some((id) => id.startsWith('sub.'))) return [];
+    const lv = { ...s.ctx.level, subgroups: scope };
+    const out2: LibEntry[] = [];
+    for (const [id, sc] of Object.entries(safe(() => K.SUB_SCHEMAS, {} as typeof K.SUB_SCHEMAS))) {
+      if (!safe(() => K.subAllowed(id, lv), false)) continue;
+      const choice = safe(() => structChoices(sc.card, scope), [] as Record<string, string>[]);
+      if (!choice.length) continue; // e.g. conjugation with no normal subgroup in play
+      const ref: LibRef = { k: 'schema', id, ...(choice.length === 1 && Object.keys(choice[0]!).length ? { structs: choice[0] } : {}) };
+      out2.push({ key: `schema:${id}`, group: 'Subgroup', name: `${sc.name} subgroup ${sc.textbook}`, nameHTML: esc(sc.name), stmt: stmt(sc.card, {}), recipe: mk(ref), ref, demo: memDemo(sc.card) });
+    }
+    return out2;
+  };
   if (kind === 'rewriter') {
     const pairDemo = (inv: boolean) => tf({ l: W(da, db) }, { l: inv ? W(da, I(dx), dx, db) : W(da, dx, I(dx), db) }, 'inverse', { made: [1, 3] })();
     out.push(
@@ -204,10 +242,12 @@ export function libraryFor(s: S, kind: MachineKind): LibEntry[] {
   } else if (kind === 'theorem') {
     for (const g of s.level.givens) if (g.fact.k === 'cond') out.push(givenEntry(g, { k: 'library', ref: { k: 'given', givenId: g.id } }));
     for (const sc of usableSchemas(s)) if (sc.card.k === 'cond') out.push(schemaEntry(sc, { k: 'library', ref: { k: 'schema', id: sc.id } }, true));
+    out.push(...subEntries((ref) => ({ k: 'library', ref })));
     out.push({ key: 'routed', group: 'Made here', name: 'the card port routed made here', nameHTML: 'the card port', stmt: '', note: 'route a theorem into the card port', recipe: { k: 'routed' } });
   } else if (kind === 'carddock') {
     for (const g of s.level.givens) if (g.fact.k === 'law' || g.fact.k === 'cond') out.push(givenEntry(g, { k: 'ref', ref: { k: 'given', givenId: g.id } }));
     for (const sc of usableSchemas(s)) out.push(schemaEntry(sc, { k: 'ref', ref: { k: 'schema', id: sc.id } }, false));
+    out.push(...subEntries((ref) => ({ k: 'ref', ref })));
     const lg = lagrange({ k: 'ref', ref: { k: 'lagrange' } });
     if (lg) out.push(lg);
     out.push(...powerEntries((ref) => ({ k: 'ref', ref })));
@@ -215,7 +255,7 @@ export function libraryFor(s: S, kind: MachineKind): LibEntry[] {
   return out;
 }
 
-export const GROUP_ORDER: Group[] = ['Operations', 'Group laws', 'Given here', 'Theorems', 'Saved', 'Imported', 'Made here'];
+export const GROUP_ORDER: Group[] = ['Operations', 'Group laws', 'Subgroup', 'Given here', 'Theorems', 'Saved', 'Imported', 'Made here'];
 
 /** Stable key of a configured recipe (presets and pins tell sides and orientations apart). */
 export function recipeKey(r: AnyRecipe | null | undefined): string {

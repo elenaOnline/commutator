@@ -13,6 +13,7 @@ import * as P from './print';
 import * as Lg from './logic';
 import * as D from './describe';
 import * as O from './offers';
+import * as Op from './open';
 
 export * from './types';
 
@@ -82,8 +83,8 @@ export function factTex(f: Fact, L: Labels): string { return P.factTex(f, L); }
  * Also accepts '⁻¹', "'" for a prime in labels (e' ↔ e′), whitespace, '·', '*'.
  * Positive INT n = n copies. Undeclared names are errors.
  */
-export function parseTerm(src: string, atoms: AtomDecl[]):
-  { ok: true; term: Term } | { ok: false; error: string } { return P.parseTerm(src, atoms); }
+export function parseTerm(src: string, atoms: AtomDecl[], extra?: P.ParseExtra):
+  { ok: true; term: Term } | { ok: false; error: string } { return P.parseTerm(src, atoms, extra); }
 
 // ───────────── Rules ─────────────
 
@@ -113,11 +114,11 @@ export function check(g: ProofGraph, ctx: KernelCtx): CheckResult { return Lg.ch
 export function generalize(level: LevelManifest, socketId: string): Card | null { return Lg.generalize(level, socketId); }
 
 /** v4: the context extended with a graph's declared variables (Towers), plus any declaration error. */
-export function withVars(ctx: KernelCtx, g: ProofGraph | null | undefined): { ctx: KernelCtx; vars: AtomDecl[]; error?: string } { return Lg.withVars(ctx, g); }
+export function withVars(ctx: KernelCtx, g: ProofGraph | null | undefined): { ctx: KernelCtx; vars: AtomDecl[]; structs: import('./types').StructDecl[]; error?: string } { return Lg.withVars(ctx, g); }
 /** v4: ∀-introduction on a fact (what a 'generalize' node computes). Throws a maths-language Error on
  *  failure (nothing to bind, or the eigenvariable condition: a bound variable appears in a hypothesis). */
-export function generalizeFact(f: Fact, vars: AtomDecl[], hyps: import('./types').Room[] = [], reserved?: Set<string>, L?: Labels): Card {
-  return Lg.generalizeFact(f, vars, hyps, reserved, L);
+export function generalizeFact(f: Fact, vars: AtomDecl[], hyps: import('./types').Room[] = [], reserved?: Set<string>, L?: Labels, structs?: import('./types').StructDecl[]): Card {
+  return Lg.generalizeFact(f, vars, hyps, reserved, L, structs);
 }
 
 /** v4 Phase B: may this checked fact be saved to the Lemma Book? (statement-level gate; see logic.ts) */
@@ -133,6 +134,49 @@ export function cardZmetas(c: Card): Set<MetaId> { return Lg.cardZmetas(c); }
 
 /** Extra (test helper): card equality up to a bijective renaming of metas. */
 export function sameCardUpToRenaming(a: Card, b: Card): boolean { return Lg.sameCardUpToRenaming(a, b); }
+
+// ───────────── Book phase A (design/pinter/KERNEL-EXT.md) ─────────────
+
+/** Card equality up to binder renaming AND premise order (a conjunction). Sockets and Lemma Book identity use this. */
+export function sameCardUpToPermutation(a: Card, b: Card): boolean { return Lg.sameCardUpToPermutation(a, b); }
+/** Multi-desk Assume rooms: every assumption of a room in desk (slot) order; the dep token of a desk and its inverse. */
+export { assumptionsOf, assumptionFact, roomDep, depRoom, MAX_DESKS } from './logic';
+/**
+ * Open docks. isOpen(sock): has holes. fillOpen(sock, fact, opts): the hole values and closed instance a fact
+ * would deliver (null = it does not fill). openDisplay(sock): the target with holes as `?` placeholders plus
+ * their labels. dockText(sock, L, answer?, tex?): `d = ?`, or the filled instance once SocketResult.holes is known.
+ * plugHoles(target, holes): target[holes := values]. holesProblem(sock): why a hole declaration is malformed.
+ */
+export { isOpen, fillOpen, openDisplay, dockText, plugHoles, holesProblem } from './open';
+/** Authoring check (SYNTHESIS §4.1 pin 5): the trivial statement a bare Spool of one side would deliver, if it fills the dock. */
+export function trivialFill(sock: import('./types').SocketDecl): Pallet | Card | null { return Op.trivialFill(sock, Lg.sameCardUpToPermutation); }
+export type { OpenFill, FillOpts } from './open';
+
+// ───────────── Book phase B: Members (design/pinter/KERNEL-EXT.md §4) ─────────────
+
+/** Walk statements: patTerms(p) (eq/neq → [l, r], mem → [t]), mapPat(p, f, subMap?), factPats(fact), factTerms(fact),
+ *  factSubs(fact) (rigid subgroup ids), submetasOf(card) (subgroup binders in first-occurrence order). */
+export { patTerms, mapPat, factPats, factTerms, factSubs, submetasOf, sameSub, subsIn, subDecl, instStructs } from './members';
+/** Kernel-owned subgroup schemas: sub.mul, sub.inv, sub.conj (axioms of the kind), sub.e (earned in P5.1, unconditional),
+ *  sub.pow (imported). subAllowed(id, level) says whether a level may use one. Merge SUB_SCHEMAS into a registry for names. */
+export { SUB_SCHEMAS, SUB_AXIOMS, subSchema, subAllowed } from './members';
+// ───────────── Book phase C: Maps (design/pinter/KERNEL-EXT.md §5) ─────────────
+
+/** Sorts: sortEnv(level) (sorts, maps, atom carriers; multi = many-sorted), sortOf(term, env), DEFAULT_GROUP ('G'),
+ *  mapsOf / eSortsOf (map heads, identity tags), isOneGroup(card) (sort-polymorphic), retagE(term, S). */
+export { sortEnv, sortOf, checkEqSorts, mapsOf, eSortsOf, isOneGroup, retagE, isGroupSort, mapKind, DEFAULT_GROUP } from './sorts';
+export type { SortEnv } from './sorts';
+/** The map kinds' laws: hom.mul (f(xy) = f(x)f(y)), hom.pow (imported), act.mul, act.e — schematic over the hom /
+ *  action; use with structs { f: <hom id> } / { σ: <action id> }. mapAllowed(id, level). */
+export { MAP_SCHEMAS, mapSchema, mapAllowed } from './maps';
+/** Lemma closure for maps and sorts (pin 1): null = closed, else the reason it can't be saved. */
+export { mapClosureProblem, checkFactSorts, mirrorSafe } from './logic';
+/** A registry / kernel schema's card as this level may use it (mirror included); throws a maths-language error. */
+export function schemaCardOf(id: string, mirror: boolean | undefined, ctx: KernelCtx): Card { return Lg.schemaCard(id, mirror, ctx); }
+export type { ParseExtra } from './print';
+
+/** Display labels of a level including its subgroups (and, after withVars, Subgroup Towers). */
+export { levelLabels, instPat, samePat } from './logic';
 
 // ───────────── Bench offers ─────────────
 

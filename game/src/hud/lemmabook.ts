@@ -2,7 +2,7 @@
 // proof on load. Clicking one arms a Rewriter (a law) or a Theorem (a conditional) with it as the recipe.
 import type { LibRef } from '../factory/types';
 import { armPreset, presetKey } from './presets';
-import { LEVEL_BY_ID, fH, h, type S, type Store } from './util';
+import { LEVEL_BY_ID, camp, displayNo, fH, h, type S, type Store } from './util';
 
 export function mountLemmaBook(layer: HTMLElement, store: Store, opts: { top: () => number }) {
   const el = h('aside', { class: 'h3-drawer-side h3-book', hidden: true, 'aria-label': 'Lemma Book' });
@@ -14,7 +14,8 @@ export function mountLemmaBook(layer: HTMLElement, store: Store, opts: { top: ()
     if (el.hidden === open) el.hidden = !open;
     if (!open) return;
     el.style.top = `${opts.top()}px`;
-    const key = JSON.stringify([s.save.lemmas.map((l) => [l.id, l.verified, l.reason]), confirmId, s.level.id]);
+    const lemmas = camp(s).lemmas;
+    const key = JSON.stringify([lemmas.map((l) => [l.id, l.verified, l.reason]), confirmId, s.level.id]);
     if (key === lastKey) return;
     lastKey = key;
     el.innerHTML = '';
@@ -22,10 +23,10 @@ export function mountLemmaBook(layer: HTMLElement, store: Store, opts: { top: ()
     close.addEventListener('click', () => store.toggleLemmaBook(false));
     el.append(h('header', { class: 'h3-drawer-head' }, h('span', { class: 'h3-label' }, 'Lemma Book'), h('span', { class: 'h3-dim' }, 'your theorems'), h('span', { class: 'h3-flex' }), close));
     const list = h('div', { class: 'h3-book-list' });
-    if (!s.save.lemmas.length) {
+    if (!lemmas.length) {
       list.append(h('p', { class: 'h3-note' }, 'Empty. Prove a law with a Tower and ∀, then save it.'));
     }
-    for (const l of [...s.save.lemmas].sort((a, b) => b.savedAt - a.savedAt)) {
+    for (const l of [...lemmas].sort((a, b) => b.savedAt - a.savedAt)) {
       const ok = l.verified !== false;
       const lv = LEVEL_BY_ID[l.levelId];
       const isCond = l.card.k === 'cond';
@@ -44,7 +45,7 @@ export function mountLemmaBook(layer: HTMLElement, store: Store, opts: { top: ()
       list.append(h('div', { class: `h3-lemma${ok ? '' : ' off'}` },
         h('div', { class: 'h3-lemma-top' }, h('b', {}, l.name), ok ? h('span', { class: 'h3-badge-ok' }, 'verified') : h('span', { class: 'h3-badge-off' }, 'disabled')),
         h('div', { class: 'h3-lemma-stmt math', html: fH(l.card, {}) }),
-        h('div', { class: 'h3-dim' }, `from ${lv ? `${lv.index} · ${lv.title}` : l.levelId}`),
+        h('div', { class: 'h3-dim' }, `from ${lv ? `${displayNo(lv)} · ${lv.title}` : l.levelId}`),
         !ok && l.reason ? h('p', { class: 'h3-reason jammed' }, l.reason) : null,
         h('div', { class: 'h3-lemma-act' }, use, rm)));
     }

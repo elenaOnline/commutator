@@ -109,3 +109,12 @@ equal to `generalize` up to meta renaming, or be its mirror.
   arise. The per-socket whitelist is still enforced.
 - Rooms take only an equation target (F6).
 - The press emits a law card (F5) as a node fact, with deps.
+
+## Book extensions (2026-10-15)
+
+The Book campaign's kernel extensions are specified and recorded as built in
+`../design/pinter/KERNEL-EXT.md`: open docks and multi-desk Assume rooms (phase A), memberships `t ∈ S` with
+subgroup axioms, Subgroup Towers and the earned `e ∈ S` (phase B), sorts, map terms, homomorphisms, actions and
+Hom / group Towers with a many-sorted oracle (phase C). Everything above still holds for single-sorted levels;
+where KERNEL-EXT changes a rule (socket matching up to premise order, per-desk dependencies, sort polymorphism
+of one-group cards, lemma closure) it wins.

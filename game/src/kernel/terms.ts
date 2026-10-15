@@ -6,6 +6,7 @@ import {
 
 /** A kernel error whose message is shown to the player (mathematical language). */
 import { KErr } from './errors';
+import { mapPat } from './members';
 export { KErr };
 
 // ───────────── constructors ─────────────
@@ -38,7 +39,15 @@ export function word(t: Term): Term[] { return t.k === 'mul' ? t.fs : [t]; }
 /** Flatten nested products, collapse singletons; recurse into inv. Never removes e or inverses. */
 export function norm(t: Term): Term {
   switch (t.k) {
-    case 'atom': case 'e': case 'meta': return t;
+    case 'atom': case 'meta': return t;
+    // Book phase C: e carries its group sort; the default group 'G' is written untagged
+    case 'e': return t.s === 'G' ? { k: 'e' } : t;
+    case 'app': {
+      if (typeof t.fn !== 'string' || !Array.isArray(t.args) || !t.args.length) throw new KErr('A map needs a name and arguments.');
+      let changed = false;
+      const args = t.args.map((a) => { const n = norm(a); if (n !== a) changed = true; return n; });
+      return changed ? { k: 'app', fn: t.fn, args } : t;
+    }
     case 'inv': {
       const a = norm(t.arg);
       return a === t.arg ? t : { k: 'inv', arg: a };
@@ -69,7 +78,13 @@ export function same(a: Term, b: Term): boolean {
   if (a === b) return true;
   if (a.k !== b.k) return false;
   switch (a.k) {
-    case 'e': return true;
+    case 'e': return (a.s ?? 'G') === ((b as { s?: string }).s ?? 'G');
+    case 'app': {
+      const q = b as { fn: string; args: Term[] };
+      if (a.fn !== q.fn || a.args.length !== q.args.length) return false;
+      for (let i = 0; i < a.args.length; i++) if (!same(a.args[i]!, q.args[i]!)) return false;
+      return true;
+    }
     case 'atom': return a.id === (b as { id: string }).id;
     case 'meta': return a.id === (b as { id: string }).id;
     case 'inv': return same(a.arg, (b as { arg: Term }).arg);
@@ -92,7 +107,8 @@ export function termKey(t: Term): string {
   switch (t.k) {
     case 'atom': return `a${t.id.length}:${t.id}`;
     case 'meta': return `m${t.id.length}:${t.id}`;
-    case 'e': return 'e';
+    case 'e': return t.s && t.s !== 'G' ? `e${t.s.length}:${t.s}` : 'e';
+    case 'app': return `f${t.fn.length}:${t.fn}(${t.args.map(termKey).join(',')})`;
     case 'inv': return `i(${termKey(t.arg)})`;
     case 'mul': return `[${t.fs.map(termKey).join(',')}]`;
     case 'pow': return `p(${termKey(t.base)})^(${polyKey(t.exp)})`;
@@ -108,6 +124,7 @@ export function isGround(t: Term): boolean {
   switch (t.k) {
     case 'meta': return false;
     case 'atom': case 'e': return true;
+    case 'app': return t.args.every(isGround);
     case 'inv': return isGround(t.arg);
     case 'mul': return t.fs.every(isGround);
     case 'pow': return isGround(t.base) && !polyRefs(t.exp).some((r) => r.k === 'zmeta');
@@ -138,6 +155,7 @@ function walkMetas(t: Term, g: (id: MetaId) => void, z: (id: MetaId) => void): v
     case 'meta': g(t.id); return;
     case 'inv': walkMetas(t.arg, g, z); return;
     case 'mul': t.fs.forEach((f) => walkMetas(f, g, z)); return;
+    case 'app': t.args.forEach((f) => walkMetas(f, g, z)); return;
     case 'pow': walkMetas(t.base, g, z); for (const r of polyRefs(t.exp)) if (r.k === 'zmeta') z(r.id); return;
     case 'int': for (const r of polyRefs(t.val)) if (r.k === 'zmeta') z(r.id); return;
     default: return;
@@ -150,6 +168,7 @@ export function atomsOf(t: Term, acc: Set<string> = new Set()): Set<string> {
     case 'atom': acc.add(t.id); break;
     case 'inv': atomsOf(t.arg, acc); break;
     case 'mul': t.fs.forEach((f) => atomsOf(f, acc)); break;
+    case 'app': t.args.forEach((f) => atomsOf(f, acc)); break;
     case 'pow': atomsOf(t.base, acc); break;
     default: break;
   }
@@ -160,6 +179,7 @@ export function zvarsOf(t: Term, acc: Set<string> = new Set()): Set<string> {
   switch (t.k) {
     case 'inv': zvarsOf(t.arg, acc); break;
     case 'mul': t.fs.forEach((f) => zvarsOf(f, acc)); break;
+    case 'app': t.args.forEach((f) => zvarsOf(f, acc)); break;
     case 'pow': zvarsOf(t.base, acc); for (const r of polyRefs(t.exp)) if (r.k === 'zvar') acc.add(r.id); break;
     case 'int': for (const r of polyRefs(t.val)) if (r.k === 'zvar') acc.add(r.id); break;
     default: break;
@@ -172,6 +192,7 @@ export function refsInOrder(t: Term, out: string[] = []): string[] {
     case 'atom': if (!out.includes(t.id)) out.push(t.id); break;
     case 'inv': refsInOrder(t.arg, out); break;
     case 'mul': t.fs.forEach((f) => refsInOrder(f, out)); break;
+    case 'app': t.args.forEach((f) => refsInOrder(f, out)); break;
     case 'pow': refsInOrder(t.base, out); for (const r of polyRefs(t.exp)) if (r.k === 'zvar' && !out.includes(r.id)) out.push(r.id); break;
     case 'int': for (const r of polyRefs(t.val)) if (r.k === 'zvar' && !out.includes(r.id)) out.push(r.id); break;
     default: break;
@@ -191,11 +212,14 @@ function zsubst(p: Poly, s: Subst, partial: boolean): Poly {
 }
 
 /** Rename metas/refs inside a term (sort-preserving maps). */
-export function renameTerm(t: Term, g: (id: MetaId) => MetaId, z: (r: ZRef) => ZRef, atom?: (id: string) => Term | null): Term {
+export function renameTerm(t: Term, g: (id: MetaId) => MetaId, z: (r: ZRef) => ZRef, atom?: (id: string) => Term | null,
+  fn?: (id: string) => string, srt?: (s: string) => string): Term {
   const go = (u: Term): Term => {
     switch (u.k) {
       case 'meta': return { k: 'meta', id: g(u.id) };
       case 'atom': return (atom && atom(u.id)) || u;
+      case 'app': return { k: 'app', fn: fn ? fn(u.fn) : u.fn, args: u.args.map(go) };
+      case 'e': return srt ? { k: 'e', s: srt(u.s ?? 'G') } : u;
       case 'inv': return { k: 'inv', arg: go(u.arg) };
       case 'mul': return { k: 'mul', fs: u.fs.map(go) };
       case 'pow': return { k: 'pow', base: go(u.base), exp: polyRename(u.exp, z) };
@@ -218,6 +242,7 @@ export function instantiate(t: Term, s: Subst): Term {
       }
       case 'inv': return { k: 'inv', arg: go(u.arg) };
       case 'mul': return { k: 'mul', fs: u.fs.map(go) };
+      case 'app': return { k: 'app', fn: u.fn, args: u.args.map(go) };
       case 'pow': return { k: 'pow', base: go(u.base), exp: zsubst(u.exp, s, false) };
       case 'int': return { k: 'int', val: zsubst(u.val, s, false) };
       default: return u;
@@ -233,6 +258,7 @@ export function instantiatePartial(t: Term, s: Subst): Term {
       case 'meta': { const v = s[u.id]; return v && v.k !== 'int' ? v : u; }
       case 'inv': return { k: 'inv', arg: go(u.arg) };
       case 'mul': return { k: 'mul', fs: u.fs.map(go) };
+      case 'app': return { k: 'app', fn: u.fn, args: u.args.map(go) };
       case 'pow': { let exp = u.exp; try { exp = zsubst(u.exp, s, true); } catch { /* keep */ } return { k: 'pow', base: go(u.base), exp }; }
       default: return u;
     }
@@ -245,16 +271,19 @@ export function mirrorTerm(t: Term): Term {
   switch (t.k) {
     case 'inv': return { k: 'inv', arg: mirrorTerm(t.arg) };
     case 'mul': return { k: 'mul', fs: t.fs.map(mirrorTerm).reverse() };
+    // Book phase C: a homomorphism is one of Gᵒᵖ → Hᵒᵖ too; mirrorability of other maps is decided per card
+    case 'app': return { k: 'app', fn: t.fn, args: t.args.map(mirrorTerm) };
     // integer powers have the same value in G and Gᵒᵖ: mirror the base, keep the exponent
     case 'pow': return { k: 'pow', base: mirrorTerm(t.base), exp: t.exp };
     default: return t;
   }
 }
-const mirrorPat = (p: PatFact): PatFact => ({ k: p.k, l: mirrorTerm(p.l), r: mirrorTerm(p.r) });
+const mirrorPat = (p: PatFact): PatFact => mapPat(p, mirrorTerm);
 export function mirrorCard(c: Card): Card {
+  const b = c.binds ? { binds: c.binds.map((x) => ({ ...x })) } : {};
   return c.k === 'law'
-    ? { k: 'law', metas: [...c.metas], l: mirrorTerm(c.l), r: mirrorTerm(c.r) }
-    : { k: 'cond', metas: [...c.metas], premises: c.premises.map(mirrorPat), concl: mirrorPat(c.concl) };
+    ? { k: 'law', metas: [...c.metas], l: mirrorTerm(c.l), r: mirrorTerm(c.r), ...b }
+    : { k: 'cond', metas: [...c.metas], premises: c.premises.map(mirrorPat), concl: mirrorPat(c.concl), ...b };
 }
 
 /** Bead count of a term: atoms/e count 1, crates count their contents. */
@@ -263,6 +292,7 @@ export function beads(t: Term): number {
     case 'mul': return t.fs.reduce((n, f) => n + beads(f), 0);
     case 'inv': return beads(t.arg);
     case 'pow': return beads(t.base) + 1;
+    case 'app': return 1 + t.args.reduce((n, f) => n + beads(f), 0);
     default: return 1;
   }
 }
@@ -321,7 +351,20 @@ function matchT(p: Term, t: Term, st: St, out: St[]): void {
       return;
     }
     case 'atom': if (t.k === 'atom' && t.id === p.id) out.push(st); return;
-    case 'e': if (t.k === 'e') out.push(st); return;
+    case 'e': if (t.k === 'e' && (p.s ?? 'G') === (t.s ?? 'G')) out.push(st); return;
+    case 'app': {
+      // same map (a hom/action binder was replaced before matching), each argument matched as a whole
+      if (t.k !== 'app' || t.fn !== p.fn || t.args.length !== p.args.length) return;
+      let cur: St[] = [st];
+      for (let i = 0; i < p.args.length; i++) {
+        const nx: St[] = [];
+        for (const c of cur) matchT(p.args[i]!, t.args[i]!, c, nx);
+        cur = nx;
+        if (!cur.length) return;
+      }
+      out.push(...cur);
+      return;
+    }
     case 'inv': if (t.k === 'inv') matchT(p.arg, t.arg, st, out); return;
     case 'mul': matchW(p.fs, 0, word(t), 0, st, out); return;
     case 'pow': {
@@ -421,6 +464,8 @@ export function matchOpen(pattern: Term, target: Term, partial: Subst = {}): Sub
 // ───────────── addresses ─────────────
 
 export function railOf(p: Pallet, side: Side): Term | null {
+  // Book phase B: a membership t ∈ S has one rail, its term t, addressed as 'l'
+  if (p.k === 'mem') return side === 'l' ? p.t : null;
   if (p.k !== 'eq' && p.k !== 'neq') return null;
   if (side !== 'l' && side !== 'r') return null;
   return p[side];
@@ -433,6 +478,7 @@ function descend(t: Term, path: number[]): Term | null {
     if (cur.k === 'mul') { const n = cur.fs[i]; if (!n) return null; cur = n; }
     else if (cur.k === 'inv') { if (i !== 0) return null; cur = cur.arg; }
     else if (cur.k === 'pow') { if (i !== 0) return null; cur = cur.base; }
+    else if (cur.k === 'app') { const n = cur.args[i]; if (!n) return null; cur = n; }
     else return null;
   }
   return cur;
@@ -506,11 +552,13 @@ export function spliceRail(rail: Term, wordPath: number[], s: number, e: number,
     if (t.k === 'mul') { const fs = t.fs.slice(); fs[i] = go(t.fs[i]!, k + 1); return norm({ k: 'mul', fs }); }
     if (t.k === 'inv') return { k: 'inv', arg: go(t.arg, k + 1) };
     if (t.k === 'pow') return { k: 'pow', base: go(t.base, k + 1), exp: t.exp };
+    if (t.k === 'app' && t.args[i]) { const args = t.args.slice(); args[i] = go(t.args[i]!, k + 1); return { k: 'app', fn: t.fn, args }; }
     throw new KErr('That position no longer exists.');
   };
   return go(rail, 0);
 }
 
-export function withRail(p: Pallet & { k: 'eq' | 'neq' }, side: Side, rail: Term): Pallet {
+export function withRail(p: Pallet & { k: 'eq' | 'neq' | 'mem' }, side: Side, rail: Term): Pallet {
+  if (p.k === 'mem') return { k: 'mem', t: rail, sub: p.sub };
   return side === 'l' ? { k: p.k, l: rail, r: p.r } : { k: p.k, l: p.l, r: rail };
 }

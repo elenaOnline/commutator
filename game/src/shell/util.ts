@@ -110,6 +110,7 @@ function typeset(t: Term, L: Record<string, string>, mode: Mode, pen: Pen): stri
       case 'e': return pen.e;
       case 'inv': return simpleT(x.arg) ? one(x.arg) + pen.sup(`${pen.neg}1`) : `(${typeset(x.arg, L, mode, pen)})${pen.sup(`${pen.neg}1`)}`;
       case 'mul': return word(x.fs);
+      case 'app': return pen.atom(L[x.fn] ?? x.fn) + `(${x.args.map((y) => typeset(y, L, mode, pen)).join(', ')})`; // Book phase C
       // v4 Phase B: base with its exponent polynomial as a superscript, e.g. (ab)^{5k₁}
       case 'pow': return (simpleT(x.base) ? one(x.base) : `(${typeset(x.base, L, mode, pen)})`) + pen.sup(K.exponentText(x.exp, L, pen === TEX_PEN));
       case 'int': return K.exponentText(x.val, L, pen === TEX_PEN);
@@ -141,6 +142,7 @@ export function fH(f: Fact | PatFact, L: Record<string, string>, mode: Mode = 's
   switch (f.k) {
     case 'eq': return tH(f.l, L, mode) + rel('=') + tH(f.r, L, mode);
     case 'neq': return tH(f.l, L, mode) + rel('≠') + tH(f.r, L, mode);
+    case 'mem': return tH(f.t, L, mode) + rel('∈') + `<i>${L[f.sub.id] ?? f.sub.id}</i>`; // Book phase B (plain fallback)
     case 'bot': return '<span class="m-rel">⊥</span>';
     case 'size': return `|<i>G</i>|${rel('=')}${f.n}`;
     case 'law': return q(f.metas) + tH(f.l, L, mode) + rel('=') + tH(f.r, L, mode);
@@ -151,6 +153,7 @@ export function factTex(f: Fact | PatFact, L: Record<string, string>, mode: Mode
   switch (f.k) {
     case 'eq': return `${termTex(f.l, L, mode)} = ${termTex(f.r, L, mode)}`;
     case 'neq': return `${termTex(f.l, L, mode)} \\neq ${termTex(f.r, L, mode)}`;
+    case 'mem': return `${termTex(f.t, L, mode)} \\in ${L[f.sub.id] ?? f.sub.id}`; // Book phase B (plain fallback)
     case 'bot': return '\\bot';
     case 'size': return `|G| = ${f.n}`;
     case 'law': return `${f.metas.length ? `\\forall ${f.metas.join(', ')}.\\; ` : ''}${termTex(f.l, L, mode)} = ${termTex(f.r, L, mode)}`;

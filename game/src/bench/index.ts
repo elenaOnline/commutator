@@ -746,7 +746,7 @@ class Bench {
     const groups = new Map(this.groupOffers(offers).map((g) => [g.key, g] as const));
     const take = (key: string) => { const g = groups.get(key); groups.delete(key); return g?.offers ?? []; };
     const slots: Slot[] = [];
-    const premise = (card: { premises: Array<{ k: 'eq' | 'neq'; l: Term; r: Term }> } | null) =>
+    const premise = (card: { premises: Array<K.PatFact> } | null) =>
       card?.premises.map((p) => this.ftxt(p as Fact)).join(' and ') ?? '';
     for (const id of tools.schemas) {
       const sc = s.ctx.registry[id];

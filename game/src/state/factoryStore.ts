@@ -5,17 +5,20 @@
 // recomputed on every edit (new epoch → runtime restarts at tick 0); `run` advances by
 // tick() from the HUD's rAF loop. QED fires when every socket has a delivery in `run`.
 import * as K from '../kernel';
-import type { LevelManifest } from '../kernel/types';
+import type { DeskAssumption as Assumption, LevelManifest } from '../kernel/types';
 import * as F from '../factory';
 import type { Canvas, Compiled, Endpoint, MachineConfig, MachineKind, Rect, Room, Rot, RunState, Tile } from '../factory/types';
-import { LEVELS, LEVEL_BY_ID, REGISTRY } from '../levels/levels';
+import { REGISTRY } from '../levels/levels';
+import { ALL_LEVELS, CAMPAIGNS, CAMPAIGN_LEVELS, LEVEL_BY_ID, campaignOf, type Campaign } from '../levels/campaigns';
+
+export type { Campaign };
 
 export type Tool =
   | { k: 'select' }
   | { k: 'place'; kind: MachineKind; schema?: string; mirror?: boolean; /** [FLOOR, add-only] a preset/earned/Lemma-Book slot or the Q pipette arms a full config (recipe included); placed in ONE undo step. */ config?: MachineConfig }
   | { k: 'belt' }
   /** l/r (HUD, add-only): the assumption to paint with, e.g. the order chip's "Suppose …" preset. */
-  | { k: 'room'; kind: Room['kind']; l?: Room['l']; r?: Room['r']; /** HUD add-only: Assume rooms assume l = r or l ≠ r. */ rel?: Room['rel'] }
+  | { k: 'room'; kind: Room['kind']; l?: Room['l']; r?: Room['r']; /** HUD add-only: Assume rooms assume l = r or l ≠ r. */ rel?: Room['rel']; /** Book phase A: a multi-desk Assume room's 2–3 assumptions (desk order). */ assumes?: Assumption[] }
   | { k: 'erase' };
 
 export interface Camera { x: number; y: number; zoom: number }
@@ -50,9 +53,11 @@ export interface FUI {
   /** Follow-one-proof (HUD, add-only): the socket whose certificate route is being followed; the floor may quiet everything else. */
   follow?: string | null;
   /** [FLOOR, add-only] Pending room assumption for the Room tool (l, r; kind comes from tool.kind). The HUD sets it; the floor paints with it. */
-  roomSpec?: { l: Room['l']; r: Room['r']; rel?: Room['rel'] } | null;
+  roomSpec?: { l: Room['l']; r: Room['r']; rel?: Room['rel']; assumes?: Assumption[] } | null;
   /** [FLOOR, add-only] When the floor opens a lens for a reason (e.g. the ∀ "Ready to save" badge), the field to focus. The HUD clears it. */
   lensFocus?: 'save' | null;
+  /** [HUD, add-only] The Paper view (the proof as numbered lines with reasons) is open. */
+  paperOpen?: boolean;
 }
 
 export interface FLevelProgress {
@@ -76,17 +81,47 @@ export interface SavedLemma {
   reason?: string;
 }
 
-export interface FSave {
-  /** 4 = v4 (Lemma Book, recipe machines). v3 saves are migrated on load. */
-  version: 4;
-  lemmas: SavedLemma[];
-  /** The order the player last opened — a reload returns there. */
-  lastLevel?: string;
+/**
+ * One campaign's part of the save. Progress, earned theorems and the Lemma Book never cross campaigns:
+ * a Book level earns `cancel` into book.earned only, and a lemma saved in the Book is a recipe only there.
+ */
+export interface CampaignSave {
   levels: Record<string, FLevelProgress>;
   earned: string[];
+  lemmas: SavedLemma[];
+  /** The order the player last opened in this campaign — a reload (or the map switch) returns there. */
+  lastLevel?: string;
+}
+
+export interface FSave {
+  /** 5 = campaigns namespaced (The Book, 2026-10-15). v4 and v3 saves are migrated on load: all of it is 'main'. */
+  version: 5;
+  /** The campaign last played (and shown on the map). */
+  campaign: Campaign;
+  campaigns: Record<Campaign, CampaignSave>;
   /** outAsTerms (review 2026-10, default on): lens Out / Expected / ∀ lines render as terms, not TeX text. */
   settings: { speed: number; reducedMotion: boolean; outAsTerms?: boolean };
 }
+
+/** The v4 save shape (one campaign, flat). */
+export interface FSaveV4 {
+  version: 4;
+  lemmas: SavedLemma[];
+  lastLevel?: string;
+  levels: Record<string, FLevelProgress>;
+  earned: string[];
+  settings: FSave['settings'];
+}
+
+export const emptyCampaign = (): CampaignSave => ({ levels: {}, earned: [], lemmas: [] });
+export const freshSave = (): FSave => ({ version: 5, campaign: 'main', campaigns: { main: emptyCampaign(), book: emptyCampaign() }, settings: { speed: 1, reducedMotion: false } });
+/** A campaign's part of the save (never undefined). */
+export const campSave = (save: FSave, c: Campaign): CampaignSave => save.campaigns?.[c] ?? emptyCampaign();
+/** The progress record of a level, in its own campaign. */
+export const progressOf = (save: FSave, id: string): FLevelProgress | undefined => campSave(save, campaignOf(id)).levels[id];
+/** Replace one campaign's part of the save. */
+export const withCamp = (save: FSave, c: Campaign, fn: (cs: CampaignSave) => CampaignSave): FSave =>
+  ({ ...save, campaigns: { ...save.campaigns, [c]: fn(campSave(save, c)) } });
 
 export interface FState {
   save: FSave;
@@ -107,14 +142,19 @@ export type FEvent =
 
 const SAVE_KEY = 'lemma-works/v3';
 
-/** v3 opens every tool from order 1; schemas = everything earned except this order's own unlocks. */
-/** Schema ids some current level unlocks. */
-const AWARDED = new Set(LEVELS.flatMap((l) => l.unlocks));
+/** Schema ids some current level (either campaign) unlocks. Which ones a player HAS is the campaign's earned set. */
+const AWARDED = new Set(ALL_LEVELS.flatMap((l) => l.unlocks));
 
+/**
+ * The kernel context for a level. Campaign-aware: pass the level's own campaign's earned set and Lemma Book
+ * (ctxForSave does it from a save); lemmas proved in the other campaign are dropped here as a backstop.
+ */
 export function ctxFor(level: LevelManifest, earned: string[], lemmas: SavedLemma[] = []): K.KernelCtx {
   const authored: Record<string, K.Schema> = {};
+  const camp = campaignOf(level);
   for (const l of lemmas) {
     if (l.verified === false) continue;
+    if (campaignOf(l.levelId) !== camp && l.levelId !== level.id) continue;
     authored[l.id] = { id: l.id, name: l.name, textbook: l.name, card: l.card, origin: 'authored', mirrorable: true };
   }
   // Imported power laws (Phase B) are listed in the registry for display; the kernel owns their statements.
@@ -129,11 +169,19 @@ export function ctxFor(level: LevelManifest, earned: string[], lemmas: SavedLemm
     ...imports,
     ...Object.keys(authored),
   ];
-  return {
-    level: { ...level, tools: { lift: true, merge: true, suppose: true, classical: true, press: true, conjecture: true, schemas } },
-    registry,
-  };
+  // The main campaign opens every machine from order 1 (v3). The Book keeps its manifest's flags: no tool appears
+  // before the book introduces its idea (SYNTHESIS §1; e.g. no Lagrange press before P13.1).
+  const open = camp === 'book'
+    ? { lift: level.tools.lift, merge: level.tools.merge, suppose: level.tools.suppose, classical: level.tools.classical, press: level.tools.press, conjecture: level.tools.conjecture }
+    : { lift: true, merge: true, suppose: true, classical: true, press: true, conjecture: true };
+  return { level: { ...level, tools: { ...open, schemas } }, registry };
 }
+/** ctxFor with the level's own campaign's earned theorems and Lemma Book. */
+export const ctxForSave = (level: LevelManifest, save: FSave): K.KernelCtx => {
+  const cs = campSave(save, campaignOf(level));
+  return ctxFor(level, cs.earned, cs.lemmas);
+};
+const firstLevel = (c: Campaign): LevelManifest | undefined => CAMPAIGN_LEVELS[c][0];
 
 export class FactoryStore {
   private s: FState;
@@ -144,10 +192,11 @@ export class FactoryStore {
 
   constructor() {
     const save = FactoryStore.verifyLemmas(FactoryStore.load());
-    const level = (save.lastLevel && LEVEL_BY_ID[save.lastLevel]) || LEVELS[0]!;
-    const ctx = ctxFor(level, save.earned, save.lemmas);
+    const last = campSave(save, save.campaign).lastLevel;
+    const level = (last && LEVEL_BY_ID[last]) || firstLevel(save.campaign) || CAMPAIGN_LEVELS.main[0]!;
+    const ctx = ctxForSave(level, save);
     // Docks grew to 2×2 (review 2026-10): migrateDocks is idempotent, so run it on every load.
-    const saved = save.levels[level.id]?.canvas;
+    const saved = progressOf(save, level.id)?.canvas;
     const canvas = saved ? F.migrateDocks(saved, ctx) : F.initialCanvas(level, ctx);
     const compiled = F.compile(canvas, ctx);
     this.s = {
@@ -172,17 +221,39 @@ export class FactoryStore {
   static load(): FSave {
     try {
       const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(SAVE_KEY) : null;
-      if (raw) {
-        const s = JSON.parse(raw) as { version: number } & Record<string, unknown>;
-        if (s.version === 4) return s as unknown as FSave;
-        if (s.version === 3) return FactoryStore.migrateV3(s as unknown as Omit<FSave, 'version' | 'lemmas'>);
-      }
+      if (raw) return FactoryStore.upgrade(JSON.parse(raw));
     } catch { /* fresh */ }
-    return { version: 4, lemmas: [], levels: {}, earned: [], settings: { speed: 1, reducedMotion: false } };
+    return freshSave();
+  }
+  /** Any known save shape → v5. Unknown shapes start fresh. */
+  static upgrade(s: unknown): FSave {
+    const v = (s as { version?: number } | null)?.version;
+    if (v === 5) {
+      const s5 = s as FSave;
+      return { ...s5, campaign: s5.campaign === 'book' ? 'book' : 'main', campaigns: { main: { ...emptyCampaign(), ...s5.campaigns?.main }, book: { ...emptyCampaign(), ...s5.campaigns?.book } } };
+    }
+    if (v === 4) return FactoryStore.migrateV4(s as FSaveV4);
+    if (v === 3) return FactoryStore.migrateV4(FactoryStore.migrateV3(s as Omit<FSaveV4, 'version' | 'lemmas'>));
+    return freshSave();
+  }
+  /**
+   * v4 → v5: the whole v4 save is the main campaign (progress, earned theorems, Lemma Book, last order).
+   * Nothing is dropped. Only a level or lemma whose id is a Book id ('P…', possible on a dev copy while the
+   * Book was being authored) is filed under 'book', since the main campaign could never show it.
+   */
+  static migrateV4(v4: FSaveV4): FSave {
+    const out = freshSave();
+    out.settings = v4.settings ?? out.settings;
+    for (const [id, prog] of Object.entries(v4.levels ?? {})) out.campaigns[campaignOf(id)].levels[id] = prog;
+    for (const l of v4.lemmas ?? []) out.campaigns[campaignOf(l.levelId)].lemmas.push(l);
+    out.campaigns.main.earned = [...(v4.earned ?? [])];
+    if (v4.lastLevel) out.campaigns[campaignOf(v4.lastLevel)].lastLevel = v4.lastLevel;
+    out.campaign = v4.lastLevel ? campaignOf(v4.lastLevel) : 'main';
+    return out;
   }
   /** v3 → v4: keep progress (solved levels, earned machines, metrics); migrate each floor best-effort. */
-  static migrateV3(v3: Omit<FSave, 'version' | 'lemmas'>): FSave {
-    const levels: FSave['levels'] = {};
+  static migrateV3(v3: Omit<FSaveV4, 'version' | 'lemmas'>): FSaveV4 {
+    const levels: FSaveV4['levels'] = {};
     for (const [id, prog] of Object.entries(v3.levels ?? {})) {
       const level = LEVEL_BY_ID[id];
       const migrated = level ? F.migrateCanvas(prog.canvas, ctxFor(level, v3.earned ?? [], [])) : null;
@@ -190,31 +261,53 @@ export class FactoryStore {
     }
     return { version: 4, lemmas: [], levels, earned: v3.earned ?? [], settings: v3.settings ?? { speed: 1, reducedMotion: false } };
   }
+  private write(save: FSave) {
+    try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch { /* ignore */ }
+  }
+  /** The current level's campaign, and its part of the save. */
+  get campaign(): Campaign { return campaignOf(this.s.level); }
+  camp(): CampaignSave { return campSave(this.s.save, this.campaign); }
   private persist() {
     const { save, level, canvas } = this.s;
-    const prog = save.levels[level.id] ?? { canvas, history: [] };
-    const next: FSave = { ...save, levels: { ...save.levels, [level.id]: { ...prog, canvas } } };
+    const next = withCamp(save, this.campaign, (cs) => ({ ...cs, levels: { ...cs.levels, [level.id]: { ...(cs.levels[level.id] ?? { canvas, history: [] }), canvas } } }));
     this.s = { ...this.s, save: next };
-    try { localStorage.setItem(SAVE_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+    this.write(next);
   }
 
   // ───────── navigation ─────────
-  openMap() { this.setUI({ screen: 'map', lens: null, selection: [] }); }
+  /** Open the theorem map, optionally on a campaign (the map's switch). */
+  openMap(campaign?: Campaign) {
+    if (campaign && campaign !== this.s.save.campaign) this.setCampaign(campaign);
+    this.setUI({ screen: 'map', lens: null, selection: [] });
+  }
+  /** The map's campaign switch: which campaign the map shows (remembered in the save). */
+  setCampaign(c: Campaign) {
+    if (!CAMPAIGNS.includes(c) || c === this.s.save.campaign) return;
+    const save: FSave = { ...this.s.save, campaign: c };
+    this.write(save);
+    this.set({ save });
+  }
+  /** Where a campaign resumes: its last opened order, else its first. */
+  resumeLevel(c: Campaign = this.s.save.campaign): string | null {
+    const last = campSave(this.s.save, c).lastLevel;
+    return (last && LEVEL_BY_ID[last] ? last : firstLevel(c)?.id) ?? null;
+  }
   openLevel(id: string) {
     const level = LEVEL_BY_ID[id];
     if (!level) return;
-    if (this.s.save.lastLevel !== id) {
-      this.s = { ...this.s, save: { ...this.s.save, lastLevel: id } };
-      try { localStorage.setItem(SAVE_KEY, JSON.stringify(this.s.save)); } catch { /* ignore */ }
+    const c = campaignOf(level);
+    if (campSave(this.s.save, c).lastLevel !== id || this.s.save.campaign !== c) {
+      this.s = { ...this.s, save: { ...withCamp(this.s.save, c, (cs) => ({ ...cs, lastLevel: id })), campaign: c } };
+      this.write(this.s.save);
     }
-    const ctx = ctxFor(level, this.s.save.earned, this.s.save.lemmas);
-    const saved = this.s.save.levels[id]?.canvas;
+    const ctx = ctxForSave(level, this.s.save);
+    const saved = progressOf(this.s.save, id)?.canvas;
     const canvas = saved ? F.migrateDocks(saved, ctx) : F.initialCanvas(level, ctx);
     const compiled = F.compile(canvas, ctx);
     this.undoStack = []; this.redoStack = [];
     this.set({ level, ctx, canvas, compiled, run: F.initRun(canvas, compiled) });
     this.setUI({ screen: 'floor', levelId: id, tool: { k: 'select' }, rot: 0, selection: [], hover: null, lens: null, ceremony: null,
-      hint: this.s.save.levels[id]?.solvedAt ? null : 0, toast: null, cards: { open: !this.s.save.levels[id]?.solvedAt, page: 0 }, playing: true });
+      hint: progressOf(this.s.save, id)?.solvedAt ? null : 0, toast: null, cards: { open: !progressOf(this.s.save, id)?.solvedAt, page: 0 }, playing: true });
     this.emit({ type: 'level-opened', levelId: id });
   }
   resetLevel() { this.commit(F.initialCanvas(this.s.level, this.s.ctx)); }
@@ -253,7 +346,10 @@ export class FactoryStore {
   connectVia(from: Endpoint, to: Endpoint, via: Tile[]) { return this.apply(F.connectVia(this.s.canvas, from, to, via, this.s.ctx)); }
   /** Branch from the exact belt cell the player dragged off. */
   branchAt(belt: string, i: number, to: Endpoint) { return this.apply(F.branchAt(this.s.canvas, belt, i, to, this.s.ctx)); }
-  paintRoom(rect: Rect, kind: Room['kind'], l: Room['l'], r: Room['r'], rel?: Room['rel']) { return this.apply(F.paintRoom(this.s.canvas, rect, kind, l, r, this.s.ctx, rel)); }
+  /** Book phase A: `assumes` (2–3 assumptions) paints a multi-desk Assume room, one numbered desk each. */
+  paintRoom(rect: Rect, kind: Room['kind'], l: Room['l'], r: Room['r'], rel?: Room['rel'], assumes?: Assumption[]) { return this.apply(F.paintRoom(this.s.canvas, rect, kind, l, r, this.s.ctx, rel, assumes && assumes.length > 1 ? (assumes as Parameters<typeof F.paintRoom>[7]) : undefined)); }
+  /** Book phase A: change an Assume room's assumptions (1–3); desks are added or removed to match. */
+  setRoomAssumptions(id: string, assumes: Assumption[]) { return this.apply(F.setRoomAssumptions(this.s.canvas, id, assumes as Parameters<typeof F.setRoomAssumptions>[2], this.s.ctx)); }
   resizeRoom(id: string, rect: Rect) { return this.apply(F.resizeRoom(this.s.canvas, id, rect, this.s.ctx)); }
   paste(bp: F.Blueprint, at: Tile) { return this.apply(F.paste(this.s.canvas, bp, at, this.s.ctx)); }
 
@@ -277,7 +373,7 @@ export class FactoryStore {
   setOutAsTerms(on: boolean) { this.set({ save: { ...this.s.save, settings: { ...this.s.save.settings, outAsTerms: on } } }); this.persist(); }
   setSpeed(speed: number) { this.setUI({ speed }); this.s = { ...this.s, save: { ...this.s.save, settings: { ...this.s.save.settings, speed } } }; }
   /** [FLOOR, add-only] Set the Room tool's pending assumption (l, r). */
-  setRoomSpec(spec: { l: Room['l']; r: Room['r']; rel?: Room['rel'] } | null) { this.setUI({ roomSpec: spec }); }
+  setRoomSpec(spec: { l: Room['l']; r: Room['r']; rel?: Room['rel']; assumes?: Assumption[] } | null) { this.setUI({ roomSpec: spec }); }
   clearToast() { if (this.s.ui.toast) this.setUI({ toast: null }); }
   clearCeremony() { this.setUI({ ceremony: null }); }
   nextHint() { const h = this.s.ui.hint; this.setUI({ hint: h === null ? null : h + 1 }); }
@@ -288,17 +384,26 @@ export class FactoryStore {
   setCardPage(page: number) { this.setUI({ cards: { ...this.s.ui.cards, page } }); }
   toggleLemmaBook(open?: boolean) { this.setUI({ lemmaBookOpen: open ?? !this.s.ui.lemmaBookOpen }); }
 
-  /** Re-verify every saved lemma in save order (each may use earlier ones). Unverifiable lemmas are disabled, with a reason. */
-  static verifyLemmas(save: FSave): FSave {
-    const ordered = [...save.lemmas].sort((x, y) => x.savedAt - y.savedAt);
-    const done: SavedLemma[] = [];
-    for (const l of ordered) {
-      const level = LEVEL_BY_ID[l.levelId];
-      const earlier = done.filter((d) => d.verified !== false);
-      const r = level ? F.verifyLemma(l, ctxFor(level, save.earned, earlier), earlier.map((d) => d.id)) : { ok: false as const, reason: 'its floor no longer exists' };
-      done.push({ ...l, verified: r.ok, reason: r.ok ? undefined : r.reason });
+  /**
+   * Re-verify every saved lemma, per campaign, in save order (each may use earlier ones of its own campaign,
+   * under that campaign's earned theorems). Unverifiable lemmas are disabled, with a reason. Accepts older
+   * save shapes (upgrades first).
+   */
+  static verifyLemmas(save0: FSave | FSaveV4): FSave {
+    let save = save0.version === 5 ? save0 : FactoryStore.upgrade(save0);
+    for (const c of CAMPAIGNS) {
+      const cs = campSave(save, c);
+      const ordered = [...cs.lemmas].sort((x, y) => x.savedAt - y.savedAt);
+      const done: SavedLemma[] = [];
+      for (const l of ordered) {
+        const level = LEVEL_BY_ID[l.levelId];
+        const earlier = done.filter((d) => d.verified !== false);
+        const r = level ? F.verifyLemma(l, ctxFor(level, cs.earned, earlier), earlier.map((d) => d.id)) : { ok: false as const, reason: 'its floor no longer exists' };
+        done.push({ ...l, verified: r.ok, reason: r.ok ? undefined : r.reason });
+      }
+      save = withCamp(save, c, (x) => ({ ...x, lemmas: done }));
     }
-    return { ...save, lemmas: done };
+    return save;
   }
 
   /** Save the card produced by a ∀ machine (or Assume gate) on this floor to the Lemma Book. */
@@ -306,19 +411,23 @@ export class FactoryStore {
     const r = F.lemmaFrom(this.s.compiled, this.s.canvas, machineId, this.s.ctx);
     if (!r.ok) { this.setUI({ toast: { text: r.reason, kind: 'refused', t: Date.now() } }); return { ok: false, reason: r.reason }; }
     const slug = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'lemma';
-    const id = `lemma:${slug}-${this.s.save.lemmas.length + 1}`;
+    // numbered across both campaigns, so a lemma id is unique in the whole save
+    const taken = new Set(CAMPAIGNS.flatMap((c) => campSave(this.s.save, c).lemmas.map((l) => l.id)));
+    let n = CAMPAIGNS.reduce((k, c) => k + campSave(this.s.save, c).lemmas.length, 0) + 1;
+    while (taken.has(`lemma:${slug}-${n}`)) n++;
+    const id = `lemma:${slug}-${n}`;
     const lemma: SavedLemma = { id, name: name.trim() || 'Lemma', card: r.card, levelId: this.s.level.id, canvas: this.s.canvas, machine: machineId, savedAt: Date.now(), verified: true };
-    const save: FSave = { ...this.s.save, lemmas: [...this.s.save.lemmas, lemma] };
-    this.s = { ...this.s, save, ctx: ctxFor(this.s.level, save.earned, save.lemmas) };
-    try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch { /* ignore */ }
+    const save = withCamp(this.s.save, this.campaign, (cs) => ({ ...cs, lemmas: [...cs.lemmas, lemma] }));
+    this.s = { ...this.s, save, ctx: ctxForSave(this.s.level, save) };
+    this.write(save);
     this.commit(this.s.canvas, false);
     this.setUI({ toast: { text: `Saved to the Lemma Book: ${lemma.name}`, kind: 'note', t: Date.now() } });
     return { ok: true, id };
   }
   removeLemma(id: string) {
-    const save: FSave = { ...this.s.save, lemmas: this.s.save.lemmas.filter((l) => l.id !== id) };
-    this.s = { ...this.s, save, ctx: ctxFor(this.s.level, save.earned, save.lemmas) };
-    try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch { /* ignore */ }
+    const save = withCamp(this.s.save, this.campaign, (cs) => ({ ...cs, lemmas: cs.lemmas.filter((l) => l.id !== id) }));
+    this.s = { ...this.s, save, ctx: ctxForSave(this.s.level, save) };
+    this.write(save);
     this.commit(this.s.canvas, false);
   }
 
@@ -340,19 +449,20 @@ export class FactoryStore {
   private markSolved() {
     const { save, level, canvas } = this.s;
     const m = this.metrics();
-    const prog: FLevelProgress = save.levels[level.id] ?? { canvas, history: [] };
+    const cs = this.camp();
+    const prog: FLevelProgress = cs.levels[level.id] ?? { canvas, history: [] };
     const first = !prog.solvedAt;
-    const unlocked = first ? level.unlocks.filter((u) => !save.earned.includes(u)) : [];
+    const unlocked = first ? level.unlocks.filter((u) => !cs.earned.includes(u)) : [];
     const best = prog.best
       ? { machines: Math.min(prog.best.machines, m.machines), area: Math.min(prog.best.area, m.area), cycles: Math.min(prog.best.cycles ?? Infinity, m.cycles ?? Infinity) }
       : m;
     const dup = prog.history.some((h) => h.machines === m.machines && h.area === m.area && h.cycles === m.cycles);
-    const next: FSave = {
-      ...save, earned: [...save.earned, ...unlocked],
-      levels: { ...save.levels, [level.id]: { ...prog, canvas, solvedAt: prog.solvedAt ?? Date.now(), best: best as F.FactoryMetrics, history: dup ? prog.history : [...prog.history, m] } },
-    };
+    const next = withCamp(save, this.campaign, (c) => ({
+      ...c, earned: [...c.earned, ...unlocked],
+      levels: { ...c.levels, [level.id]: { ...prog, canvas, solvedAt: prog.solvedAt ?? Date.now(), best: best as F.FactoryMetrics, history: dup ? prog.history : [...prog.history, m] } },
+    }));
     this.s = { ...this.s, save: next };
-    try { localStorage.setItem(SAVE_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+    this.write(next);
     // The full ceremony plays once per level (first solve). Later distinct solutions are
     // recorded quietly with a short note — editing a solved factory must never re-open a modal.
     if (first) {
@@ -364,4 +474,4 @@ export class FactoryStore {
   }
 }
 
-export const LEVEL_LIST = LEVELS;
+export const LEVEL_LIST = CAMPAIGN_LEVELS.main;

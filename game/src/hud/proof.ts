@@ -3,7 +3,7 @@
 // Assume rooms (implication intro). Renders to HTML and to compile-ready LaTeX.
 import { sideName } from './merge';
 import * as K from '../kernel';
-import type { CheckResult, Fact, Family, LevelManifest, NodeId, Pallet, ProofGraph, ProofNode, Room, ScopeId, Term } from '../kernel/types';
+import type { CheckResult, Fact, Family, LevelManifest, NodeId, Pallet, ProofGraph, ProofNode, Room, ScopeId, Subst, Term } from '../kernel/types';
 import { beltsOf, stationsOf, type Belt } from '../state/belts';
 import { tU, texName, factTex as factTex0, labels as labels0, richHTML, richTex, schemaLemmaNo as lemmaNo0, schemaNames as names0, termTex as termTex0, texText, esc, nameHTML } from '../shell/util';
 
@@ -14,6 +14,9 @@ type Kind = 'earned' | 'authored' | 'import';
 export function schemaInfo(id: string, mirror = false, ctx: K.KernelCtx | null = CTX): { name: string; textbook: string; kind: Kind } {
   const pw = id.startsWith('power.') ? safe(() => K.powerSchema(id), null) : null;
   if (pw) return { name: `${pw.name} (imported)`, textbook: `${pw.name} (imported)`, kind: 'import' };
+  // Book phase B: the subgroup axioms and cards ("closed under products") are named in words, never by id
+  const sub = safe(() => K.subSchema(id), null);
+  if (sub) return { name: sub.name, textbook: sub.name, kind: sub.origin === 'import' ? 'import' : 'earned' };
   const sc = ctx?.registry[id];
   if (sc?.origin === 'authored') return { name: `Lemma Book: ${sc.name}`, textbook: `Lemma Book: ${sc.name}`, kind: 'authored' };
   const n = names0(id, mirror);
@@ -21,8 +24,9 @@ export function schemaInfo(id: string, mirror = false, ctx: K.KernelCtx | null =
 }
 const schemaNames = (id: string, mirror = false) => schemaInfo(id, mirror);
 /** "Lemma n" only for theorems earned in a level; authored and imported ones are cited by name. */
-const schemaLemmaNo = (id: string): number | null => (id.startsWith('power.') || CTX?.registry[id]?.origin === 'authored' ? null : lemmaNo0(id));
-import { fH, tH, safe, statementOf } from './util';
+/** In The Book, "Lemma n" would point into the other campaign's numbering: there every theorem is cited by name. */
+const schemaLemmaNo = (id: string): number | null => (id.startsWith('power.') || CTX?.registry[id]?.origin === 'authored' || CTX?.level.campaign === 'book' ? null : lemmaNo0(id));
+import { deskFact, displayNo, givenPrefixHTML, fH, factTeX, openView, tH, safe, statementOf } from './util';
 
 /** What the transcript reads: the compiled graph and its check, the level, the kernel context. */
 export interface State { graph: ProofGraph; check: CheckResult; level: LevelManifest; ctx: K.KernelCtx }
@@ -30,7 +34,9 @@ export interface State { graph: ProofGraph; check: CheckResult; level: LevelMani
 const labelsOf = (s: State): Record<string, string> => ({ ...labels0(s.level), ...Object.fromEntries((s.graph.vars ?? []).map((v) => [v.id, v.label])) });
 const subTex = (x: string) => x.replace(/([A-Za-z])([₀₁₂₃₄₅₆₇₈₉]+)/g, (_m, a: string, d: string) => `${a}_{${[...d].map((c) => c.charCodeAt(0) - 0x2080).join('')}}`);
 const termTex = (t: Term, L: Record<string, string>, mode?: 'stmt' | 'proof') => subTex(termTex0(t, L, mode));
-const factTex = (f: Parameters<typeof factTex0>[0], L: Record<string, string>, mode?: 'stmt' | 'proof') => subTex(factTex0(f, L, mode));
+/** LaTeX for a statement: `\\implies` for implication (NORMS ⟹), memberships `t \\in H`. */
+const factTex = (f: Parameters<typeof factTeX>[0], L: Record<string, string>, mode?: 'stmt' | 'proof') => subTex(factTeX(f, L, mode ?? 'proof'));
+void factTex0;
 
 export interface EqLine {
   t: 'eq';
@@ -50,7 +56,7 @@ export interface EqLine {
   /** fuller justification for the LaTeX export */
   texJust?: string;
 }
-export interface ProseLine { t: 'prose'; parts: Prose[]; nodes: NodeId[]; family: Family; classical: boolean; qed?: boolean }
+export interface ProseLine { t: 'prose'; parts: Prose[]; nodes: NodeId[]; family: Family; classical: boolean; qed?: boolean; /** Book phase B: a membership step (t ∈ H) — the fact, and why. */ mem?: { fact: Fact; just: string } }
 export type Prose = { text: string } | { fact: Fact } | { ref: NodeId } | { given: string };
 export interface RoomBlock { t: 'room'; room: Room; items: Item[] }
 export type Item = EqLine | ProseLine | RoomBlock;
@@ -75,6 +81,7 @@ function fallbackFamily(n: ProofNode): Family {
       if (op.k === 'invert') return 'inverse';
       if (op.k === 'lift') return 'structure';
       if (op.k === 'insertE') return 'identity';
+      if (op.k === 'applyMap') return 'structure';
       const r = op.rule;
       if (r.k === 'axiom') return r.id.startsWith('unit') ? 'identity' : 'inverse';
       return r.k === 'node' ? 'given' : 'lemma';
@@ -220,7 +227,7 @@ export function buildTranscript(s: State): Transcript {
           out.push({ t: 'eq', lhs: hf.l, rel: hf.k === 'eq' ? '=' : '≠', rhs: hf.r, just: justify(head), nodes: [head.id], family: fam(head), classical: classicalOf(head.id), ...refsField(inputRefs(head)), ...extra([head]) });
           mode = 'chain';
         } else if (hf) {
-          out.push({ t: 'prose', parts: [{ text: 'By ' + justify(head) + ', ' }, { fact: hf }, { text: '.' }], nodes: [head.id], family: fam(head), classical: classicalOf(head.id) });
+          out.push({ t: 'prose', parts: [{ text: 'By ' + justify(head) + ', ' }, { fact: hf }, { text: '.' }], nodes: [head.id], family: fam(head), classical: classicalOf(head.id), ...(hf.k === 'mem' ? { mem: { fact: hf, just: justify(head) } } : {}) });
           mode = 'none';
         }
         break;
@@ -234,6 +241,11 @@ export function buildTranscript(s: State): Transcript {
       const last = st.nodes[st.nodes.length - 1]!;
       const after = factOf(last.id);
       const before = prevFact;
+      // Book phase B: a Rewriter on a membership's one rail (t ∈ H ⟹ t′ ∈ H): one line, the new membership and why
+      if (after?.k === 'mem') {
+        out.push({ t: 'prose', parts: [{ fact: after }], nodes: st.nodes.map((n) => n.id), family: fam(st.nodes[0]!), classical: classicalOf(last.id), mem: { fact: after, just: joinJust(st.nodes.map(justify)) } });
+        prevFact = after; continue;
+      }
       if (!after || (after.k !== 'eq' && after.k !== 'neq') || !before || (before.k !== 'eq' && before.k !== 'neq')) { prevFact = after; continue; }
       const just = joinJust(st.nodes.map(justify));
       const refs = st.nodes.flatMap(inputRefs);
@@ -318,7 +330,7 @@ export function buildTranscript(s: State): Transcript {
   const walkP = (its: Item[]) => its.forEach((it) => (it.t === 'room' ? walkP(it.items) : it.t === 'prose' ? it.nodes.forEach((id) => proseOf.set(id, it)) : undefined));
   walkP(items);
   for (const sk of s.check.sockets) if (sk.ok && sk.filledBy) { const l = lineOf.get(sk.filledBy) ?? proseOf.get(sk.filledBy); if (l) l.qed = true; }
-  const goals = level.sockets.filter((d) => !s.check.sockets.find((x) => x.id === d.id)?.ok).map((d) => d.target)
+  const goals = level.sockets.filter((d) => !d.holes?.length && !s.check.sockets.find((x) => x.id === d.id)?.ok).map((d) => d.target)
     .filter((t): t is Pallet => t.k !== 'law' && t.k !== 'cond');
   return { items, goals, solved: s.check.solved, tags };
 
@@ -353,6 +365,7 @@ function fallbackJust(n: ProofNode, s: State): string {
       if (op.k === 'insertE') return 'unit';
       if (op.k === 'lift') return `multiply on the ${op.side} by ${tt(op.term)}`;
       if (op.k === 'invert') return 'invert both sides';
+      if (op.k === 'applyMap') return `apply ${op.fn} to both sides`;
       if (op.rule.k === 'axiom') return op.rule.id.startsWith('unit') ? 'unit' : 'inverse';
       if (op.rule.k === 'node') { const id = op.rule.id; return s.level.givens.find((g) => `g:${g.id}` === id)?.name ?? 'above'; }
       return 'lemma';
@@ -389,7 +402,7 @@ export function transcriptHTML(tr: Transcript, s: State): string {
   const prose = (p: ProseLine) => p.parts.map((x) => {
     if ('text' in x) return esc(x.text);
     if ('fact' in x) return `<span class="math">${fH(x.fact, L, 'proof')}</span>`;
-    if ('given' in x) { const g = s.level.givens.find((y) => y.id === x.given)!; return `<span class="math"><i>${nameHTML(g.name)}</i>:&thinsp;${fH(g.fact, L, 'proof')}</span>`; }
+    if ('given' in x) { const g = s.level.givens.find((y) => y.id === x.given)!; return `<span class="math">${givenPrefixHTML(g.name)}${fH(g.fact, L, 'proof')}</span>`; }
     const t = tr.tags.get(x.ref); return t ? ` (${t})` : '';
   }).join('');
   const refsText = (l: EqLine & { refs?: NodeId[] }) => {
@@ -405,11 +418,13 @@ export function transcriptHTML(tr: Transcript, s: State): string {
         flush();
         const r = it.room;
         const assume: Fact = r.kind === 'suppose' || (r.kind === 'assume' && r.rel !== 'neq') ? { k: 'eq', l: r.l, r: r.r } : { k: 'neq', l: r.l, r: r.r };
+        // Book phase A: a multi-desk room assumes P₁ and P₂ (and P₃)
+        const many = (r.assumes?.length ?? 0) > 1 ? r.assumes!.map((a) => fH(deskFact(a), L, 'proof')).join('</span> and <span class="math">') : null;
         const assumeNode = s.graph.nodes.find((n) => n.k === 'assume' && n.room === r.id);
         const intro = r.kind === 'assume' ? 'Assume ' : r.kind === 'suppose' ? 'Suppose, for contradiction, that ' : 'Suppose, towards a contradiction, that ';
         html += `<section class="t-room${r.kind === 'classical' ? ' classical' : ''}${r.kind === 'assume' ? ' assume' : ''}" data-room="${r.id}">
           <div class="t-room-tag">${r.kind === 'assume' ? 'Assume' : r.kind === 'suppose' ? 'Suppose' : 'Suppose (classical)'}</div>
-          <p class="t-prose" data-nodes="${assumeNode?.id ?? ''}">${intro}<span class="math">${fH(assume, L, 'proof')}</span>.${r.kind === 'classical' ? ' <span class="t-classical" title="This step uses excluded middle">classical</span>' : ''}</p>
+          <p class="t-prose" data-nodes="${assumeNode?.id ?? ''}">${intro}<span class="math">${many ?? fH(assume, L, 'proof')}</span>.${r.kind === 'classical' ? ' <span class="t-classical" title="This step uses excluded middle">classical</span>' : ''}</p>
           ${render(it.items, depth + 1)}
         </section>`;
         continue;
@@ -448,10 +463,13 @@ export function transcriptHTML(tr: Transcript, s: State): string {
 // ───────────────────────────── rendering: LaTeX ─────────────────────────────
 
 /** A compile-ready LaTeX fragment (needs amsmath + amsthm). */
-export function transcriptTeX(tr: Transcript, s: State): string {
+export function transcriptTeX(tr: Transcript, s: State, answers: Record<string, Subst | null> = {}): string {
   CTX = s.ctx;
   const level = s.level, L = labelsOf(s);
-  const st = statementOf(level);
+  // open docks: the statement shows `?` until the dock has accepted its answer, then the answer
+  const ov = openView(level, answers);
+  const st0 = statementOf(ov.level);
+  const st = { ...st0, tex: ov.texChips(st0.tex) };
   const refsText = (l: EqLine & { refs?: NodeId[] }) => {
     const ts = [...new Set((l.refs ?? []).map((id) => tr.tags.get(id)).filter((t): t is number => !!t))];
     return ts.length ? `${l.just ? ' on' : 'by'} ${ts.map((t) => `(${t})`).join(', ')}` : '';
@@ -475,7 +493,8 @@ export function transcriptTeX(tr: Transcript, s: State): string {
         flush();
         const r = it.room;
         const f: Fact = r.kind === 'suppose' || (r.kind === 'assume' && r.rel !== 'neq') ? { k: 'eq', l: r.l, r: r.r } : { k: 'neq', l: r.l, r: r.r };
-        blocks.push(r.kind === 'assume' ? `Assume $${factTex(f, L)}$. Then`
+        const manyT = (r.assumes?.length ?? 0) > 1 ? r.assumes!.map((a) => `$${factTex(deskFact(a), L)}$`).join(' and ') : null;
+        blocks.push(r.kind === 'assume' ? `Assume ${manyT ?? `$${factTex(f, L)}$`}. Then`
           : r.kind === 'suppose' ? `Suppose, for contradiction, that $${factTex(f, L)}$. Then`
           : `Suppose, towards a contradiction, that $${factTex(f, L)}$ (a classical argument). Then`);
         emit(it.items);
@@ -498,7 +517,7 @@ export function transcriptTeX(tr: Transcript, s: State): string {
     blocks[lastIdx] = blocks[lastIdx]!.replace(/\n\\end\{align\*\}$/, ' \\qedhere\n\\end{align*}');
   }
   const head = `% Lemma Works: ${level.id} ${level.title}. Requires \\usepackage{amsmath,amsthm}.`;
-  const lemma = `\\noindent\\textbf{Lemma ${level.index}} (${texText(level.title)})\\textbf{.} \\emph{${st.tex}}`;
+  const lemma = `\\noindent\\textbf{Lemma ${level.campaign === 'book' ? displayNo(level) : level.index}} (${texText(level.title)})\\textbf{.} \\emph{${st.tex}}`;
   const status = tr.solved ? '' : '% (proof in progress: the goal is not delivered yet)\n';
   return `${head}\n${status}${lemma}\n\\begin{proof}\n${blocks.join('\n') || '% (empty)'}\n\\end{proof}\n`;
 }

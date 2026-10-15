@@ -5,7 +5,7 @@ import type { Pallet, Term } from '../kernel/types';
 import type { ItemValue, MachineResult } from '../factory/types';
 import { rectToScreen } from '../floor/project';
 import { FAMILY } from '../ui/tokens';
-import { fH, h, labels, machineName, machineRect, spec, tH, type S, type Store } from './util';
+import { dockAnswers, openView, fH, h, labels, machineName, machineRect, spec, tH, type S, type Store } from './util';
 
 const SVGNS = 'http://www.w3.org/2000/svg';
 const wordOf = (t: Term): Term[] => (t.k === 'mul' ? t.fs : [t]);
@@ -89,11 +89,12 @@ export function mountFollow(layer: HTMLElement, store: Store) {
         h('div', { html: body })));
     }
     const sockId = (s.canvas.machines.find((x) => x.id === sockMachine)?.config as { socketId?: string }).socketId;
-    const goal = s.level.sockets.find((k) => k.id === sockId)?.target;
+    const ov = openView(s.level, dockAnswers(s));
+    const goal = ov.level.sockets.find((k) => k.id === sockId)?.target;
     ribbon.innerHTML = '';
     const out = h('button', { class: 'lw-key small' }, 'Leave (Esc)');
     out.addEventListener('click', leave);
-    ribbon.append(h('span', { class: 'h3-label' }, 'Following'), h('span', { class: 'math', html: goal ? fH(goal, L) : '' }), h('span', { class: 'h3-dim' }, `${n} step${n === 1 ? '' : 's'}, in the order the certificate was made`), out);
+    ribbon.append(h('span', { class: 'h3-label' }, 'Following'), h('span', { class: 'math', html: goal ? ov.chips(fH(goal, { ...L, ...Object.fromEntries(ov.level.atoms.map((a) => [a.id, a.label])) })) : '' }), h('span', { class: 'h3-dim' }, `${n} step${n === 1 ? '' : 's'}, in the order the certificate was made`), out);
   };
 
   const render = (s: S) => {

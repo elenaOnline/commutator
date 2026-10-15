@@ -3,9 +3,10 @@
 // numbered notes, the looping Spool "gif", ℤₙ clocks, group tables and element orders. Body text comes before
 // the figures; a figure never widens the card. Reopened from the order chip's "?" or from a lens / jam.
 import './cards.css';
-import { CARDS, type AtomSpec, type ConceptCard, type Figure } from '../levels/cards';
+import type { AtomSpec, ConceptCard, Figure } from '../levels/cards';
+import { ALL_CARDS as CARDS } from '../levels/campaigns';
 import { reducedMotion } from '../ui/tokens';
-import { h, safe, type S, type Store } from './util';
+import { campaignOf, displayNo, h, safe, type S, type Store } from './util';
 import { mdHTML } from './figures/tex';
 import { lettersOf } from './figures/terms';
 import { mathFigure } from './figures/math';
@@ -74,7 +75,7 @@ export function mountConcepts(layer: HTMLElement, store: Store) {
     el.scrollTop = 0;
     const close = h('button', { class: 'cc-x', 'aria-label': 'Close the cards (Esc)' }, '×');
     close.addEventListener('click', () => store.closeCards());
-    el.append(h('header', { class: 'cc-head' }, h('span', { class: 'cc-label' }, `${s.level.index} · ${s.level.title}`), h('span', { class: 'cc-flex' }), h('span', { class: 'cc-count' }, `${page + 1} / ${cs.length}`), close));
+    el.append(h('header', { class: 'cc-head' }, h('span', { class: 'cc-label' }, `${campaignOf(s.level) === 'book' ? displayNo(s.level) : s.level.index} · ${s.level.title}`), h('span', { class: 'cc-flex' }), h('span', { class: 'cc-count' }, `${page + 1} / ${cs.length}`), close));
     el.append(h('h2', { class: 'cc-title' }, c.title));
     if (c.body) el.append(h('div', { class: `cc-body${c.long ? ' long' : ''}`, html: mdHTML(c.body) }));
     const figs = (c.figures ?? []).map((f) => safe(() => figureEl(s, f), null)).filter((x): x is HTMLElement => !!x);

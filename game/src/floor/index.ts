@@ -9,6 +9,7 @@ import type { Belt, Endpoint, ItemKind, ItemValue, Machine, Packet, Rect, Rot, R
 import { itemKindOf } from '../factory/types';
 import { TICKS_PER_SECOND } from '../factory';
 import * as F from '../factory';
+import * as K from '../kernel';
 import { queued } from '../factory/runtime';
 import type * as FF from '../factory';
 import { FONT, INK, VAR, reducedMotion } from '../ui/tokens';
@@ -23,7 +24,7 @@ import { lookOf, termAtoms } from './look';
 import { buildGeo, centre, portEdge, portEnd, tkey, type BGeo, type Geo, type MGeo, type PortGeo } from './geo';
 import {
   beltBody, beltSVG, bridgeSVG, heightOf, labelsOf, openEndSVG, liveStatusOf, machineLabelSVG, machineName, machineSVG, pipSVG, portSVG, roomHandles, roomSVG,
-  socketLabelSVG, socketTarget, towerBulb, type Ctx,
+  dockMathSVG, socketLabelSVG, socketTarget, towerBulb, type Ctx,
 } from './scene';
 import { packetGrid, packetSVG, prevAt, type Axis } from './items';
 import { JAM, OK, VIOLET, defsSVG, esc, groundRect, polyD as polyLine } from './svg';
@@ -282,7 +283,7 @@ class Floor {
         const sid = g.m.config.kind === 'socket' ? g.m.config.socketId : '';
         const filled = delivered[sid] !== undefined;
         mach += machineSVG(g, this.cx).replace('fl-sock"', `fl-sock${filled ? ' is-sealed' : ''}"`);
-        labs += socketLabelSVG(g, this.cx, filled);
+        labs += socketLabelSVG(g, this.cx, filled, filled && s.compiled && s.run ? F.dockAnswer(s.compiled, s.run, sid)?.holes : null);
       } else {
         mach += machineSVG(g, this.cx);
         labs += machineLabelSVG(g, this.cx);
@@ -430,6 +431,7 @@ class Floor {
         el.classList.remove('is-sealed');
         const tag = this.L.labels!.querySelector(`[data-sock="${CSS.escape(id)}"] .fl-socktag`);
         if (tag) tag.textContent = 'DELIVER';
+        this.dockMath(id, m.config.socketId, false);
       }
     }
     if (reducedMotion() || !prev || run.tick < prev.tick) return;
@@ -458,6 +460,15 @@ class Floor {
     inset?.animate([{ opacity: 0.6 }, { opacity: 0.16 }], { duration: 300, easing: 'ease-out' });
   }
 
+  /** An open dock's chip: `?` while waiting, the delivered answer once sealed (Book phase A). */
+  private dockMath(machineId: string, socketId: string, filled: boolean) {
+    const sk = this.s.level.sockets.find((x) => x.id === socketId);
+    if (!sk?.holes?.length) return;
+    const el = this.L.labels!.querySelector(`[data-sock="${CSS.escape(machineId)}"] .fl-dockmath`);
+    const s = this.s;
+    if (el) el.innerHTML = dockMathSVG(sk, this.cx.L, filled && s.compiled && s.run ? F.dockAnswer(s.compiled, s.run, socketId)?.holes : null);
+  }
+
   private seal(socketId: string) {
     for (const [id, el] of this.elByM) {
       const m = this.geo?.ms.get(id)?.m;
@@ -465,6 +476,7 @@ class Floor {
         el.classList.add('is-sealed');
         const tag = this.L.labels!.querySelector(`[data-sock="${CSS.escape(id)}"] .fl-socktag`);
         if (tag) tag.textContent = 'DELIVERED';
+        this.dockMath(id, socketId, true);
         if (!reducedMotion()) {
           (el.querySelector('.fl-seal') as SVGGElement | null)?.animate([{ transform: 'scale(1.9)', opacity: 0 }, { transform: 'scale(1)', opacity: 1 }], { duration: 420, easing: 'cubic-bezier(.34,1.56,.64,1)' });
           (el.querySelector('.fl-ripple') as SVGEllipseElement | null)?.animate([{ transform: 'scale(1)', opacity: 0.9 }, { transform: 'scale(2.4)', opacity: 0 }], { duration: 900, easing: 'cubic-bezier(.2,.8,.2,1)' });
@@ -1184,7 +1196,7 @@ class Floor {
       const tool = this.s.ui.tool;
       const kind = tool.k === 'room' ? tool.kind : 'suppose';
       const spec = this.roomSpec();
-      this.L.ghost!.innerHTML = roomSVG({ id: '__ghost', kind, rel: spec?.rel, l: spec?.l ?? null, r: spec?.r ?? null, rect }, this.labels, true);
+      this.L.ghost!.innerHTML = roomSVG({ id: '__ghost', kind, rel: spec?.rel, l: spec?.l ?? null, r: spec?.r ?? null, rect, assumes: spec?.assumes }, this.labels, true);
       this.L.under!.innerHTML = '';
     } else if (g.k === 'resize') {
       const room = this.s.canvas.rooms.find((r) => r.id === g.id); if (!room) return;
@@ -1193,10 +1205,10 @@ class Floor {
     }
   }
 
-  private roomSpec(): { l: import('../kernel/types').Term; r: import('../kernel/types').Term; rel?: 'eq' | 'neq' } | null {
+  private roomSpec(): { l: import('../kernel/types').Term; r: import('../kernel/types').Term; rel?: 'eq' | 'neq'; assumes?: import('../kernel/types').DeskAssumption[] } | null {
     const ui = this.s.ui as FUI;
-    const tl = ui.tool as { k: string; l?: import('../kernel/types').Term; r?: import('../kernel/types').Term; rel?: 'eq' | 'neq' };
-    if (tl.k === 'room' && tl.l && tl.r) return { l: tl.l, r: tl.r, rel: tl.rel ?? ui.roomSpec?.rel };
+    const tl = ui.tool as { k: string; l?: import('../kernel/types').Term; r?: import('../kernel/types').Term; rel?: 'eq' | 'neq'; assumes?: import('../kernel/types').DeskAssumption[] };
+    if (tl.k === 'room' && tl.l && tl.r) return { l: tl.l, r: tl.r, rel: tl.rel ?? ui.roomSpec?.rel, assumes: tl.assumes ?? ui.roomSpec?.assumes };
     if (ui.roomSpec) return ui.roomSpec;
     // the goal chip's preset: a suppose room for a ≠ target, a classical room for an = target
     const tool = ui.tool;
@@ -1275,7 +1287,12 @@ class Floor {
         const ins = comp?.machines[g.m.id]?.inputs ?? {};
         const arriving = ins.q ?? ins.qn ?? ins.qe ?? ins.qs; // any of the dock's four inlets
         return `<div class="fl-tip-h">Dock${done ? ' <span class="fl-tip-st is-working">delivered</span>' : ''}</div>` +
-          (target ? `<div class="fl-tip-row"><span class="fl-tip-k">wants</span><span class="math">${factHTML(target, this.labels)}</span></div>` : '') +
+          (target ? `<div class="fl-tip-row"><span class="fl-tip-k">wants</span><span class="math">${(() => {
+            const sk = this.s.level.sockets.find((x) => x.id === sid);
+            // an open dock wants its shape (`d = ?`); once delivered, it shows the answer it accepted
+            if (sk?.holes?.length) return esc(K.dockText(sk, this.labels, done && comp && run ? F.dockAnswer(comp, run, sid)?.holes : undefined));
+            return factHTML(target, this.labels);
+          })()}</span></div>` : '') +
           (arriving ? `<div class="fl-tip-row"><span class="fl-tip-k">arriving</span><span class="math">${this.valueHTML(arriving)}</span></div>` : '') +
           (so && !so.ok && so.reason ? `<div class="fl-tip-why is-jam">${esc(so.reason)}</div>` : '');
       }
@@ -1319,7 +1336,7 @@ class Floor {
       const L0 = subHTML(termHTML(r.l, this.labels)), R0 = subHTML(termHTML(r.r, this.labels));
       const eqs = `${L0} = ${R0}`, neqs = `${L0} ≠ ${R0}`;
       const a = r.kind === 'assume' ? (r.rel === 'neq' ? neqs : eqs) : r.kind === 'suppose' ? eqs : neqs;
-      const x = r.kind === 'assume' ? `${a} ⇒ <i>Q</i>` : r.kind === 'suppose' ? neqs : eqs;
+      const x = r.kind === 'assume' ? `${a} ⟹ <i>Q</i>` : r.kind === 'suppose' ? neqs : eqs;
       return `<div class="fl-tip-h">${r.kind === 'assume' ? 'Assume room' : 'Room'}</div><div class="fl-tip-row"><span class="fl-tip-k">assumes</span><span class="math">${a}</span></div><div class="fl-tip-row"><span class="fl-tip-k">exports</span><span class="math">${x}</span></div><div class="fl-tip-foot">Facts leave only by the gate.</div>`;
     }
     return '';
@@ -1609,7 +1626,7 @@ class Floor {
         const tool = this.s.ui.tool;
         const spec = this.roomSpec();
         if (!spec) { this.say("Pick the room's assumption first."); return; }
-        this.timed('room', e, () => this.store.paintRoom(rect, tool.k === 'room' ? tool.kind : 'suppose', spec.l, spec.r, spec.rel));
+        this.timed('room', e, () => this.store.paintRoom(rect, tool.k === 'room' ? tool.kind : 'suppose', spec.l, spec.r, spec.rel, spec.assumes));
         return;
       }
       case 'resize': {
@@ -1851,7 +1868,7 @@ function subHTML(html: string): string {
 }
 
 function kindWord(ks: ItemKind[], cap = false): string {
-  const w = (k: ItemKind) => ({ term: 'a term', eq: 'an equation', neq: 'an inequation', bot: 'a contradiction', size: 'a group order', law: 'a law card', cond: 'a theorem card' }[k]);
+  const w = (k: ItemKind) => ({ term: 'a term', eq: 'an equation', neq: 'an inequation', bot: 'a contradiction', size: 'a group order', law: 'a law card', cond: 'a theorem card', mem: 'a membership' } as Record<string, string>)[k] ?? k;
   const s = ks.length ? ks.map(w).join(' or ') : 'anything';
   if (!cap) return s;
   const bare = s.replace(/^(a|an) /, '');

@@ -3,10 +3,10 @@
 // Hover a line → its machine lights on the floor; Copy as LaTeX.
 import type { NodeId, ProofGraph } from '../kernel/types';
 import { buildTranscript, standaloneTeX, transcriptHTML, transcriptTeX, type State } from './proof';
-import { copyText, h, safe, towerVars, type S, type Store } from './util';
+import { copyText, dockAnswers, h, safe, towerVars, type S, type Store } from './util';
 
 /** The v2 transcript reads {graph, check, level, ctx}; one machine = one station (rewrite + tidy is one line). */
-function adapt(s: S): { st: State; nodeToMachine: Map<NodeId, string> } {
+export function adapt(s: S): { st: State; nodeToMachine: Map<NodeId, string> } {
   const nodeToMachine = new Map<NodeId, string>();
   for (const [mid, r] of Object.entries(s.compiled?.machines ?? {})) for (const n of r.nodes ?? []) nodeToMachine.set(n, mid);
   const g0: ProofGraph = s.compiled?.graph ?? { nodes: [], rooms: [] };
@@ -28,13 +28,15 @@ export function mountTranscript(layer: HTMLElement, store: Store, opts: { top: (
   const copy = h('button', { class: 'lw-key small', title: 'Copy the proof as LaTeX (amsmath + amsthm)' }, 'Copy as LaTeX');
   const tex = h('button', { class: 'lw-key small ghost', title: 'Download a standalone .tex file' }, '.tex');
   const close = h('button', { class: 'h3-x', 'aria-label': 'Close the transcript (T)' }, '×');
+  const paper = h('button', { class: 'lw-key small', title: 'The proof as numbered lines with reasons, the way you would write it' }, 'On paper');
+  paper.addEventListener('click', () => store.setUI({ paperOpen: !store.get().ui.paperOpen }));
   const body = h('div', { class: 'proof-body h3-proof-body' });
-  el.append(h('header', { class: 'h3-drawer-head' }, h('span', { class: 'h3-label', title: 'margin wire = rule family' }, 'Proof'), h('span', { class: 'h3-flex' }), copy, tex, close), body);
+  el.append(h('header', { class: 'h3-drawer-head' }, h('span', { class: 'h3-label', title: 'margin wire = rule family' }, 'Proof'), h('span', { class: 'h3-flex' }), paper, copy, tex, close), body);
   layer.append(el);
   close.addEventListener('click', () => store.setUI({ transcriptOpen: false }));
 
   let map = new Map<NodeId, string>();
-  const currentTeX = () => { const { st } = adapt(store.get()); return transcriptTeX(buildTranscript(st), st); };
+  const currentTeX = () => { const s = store.get(); const { st } = adapt(s); return transcriptTeX(buildTranscript(st), st, dockAnswers(s)); };
   copy.addEventListener('click', async () => {
     const ok = await copyText(safe(currentTeX, '% transcript unavailable'));
     copy.textContent = ok ? 'Copied ✓' : 'Copy failed';

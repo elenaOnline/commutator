@@ -32,7 +32,7 @@ export function rotFacing(f: Face): Rot { return FACES.indexOf(f) as Rot; }
 export function frontOf(p: Pick<Port, 'tile' | 'face'>): Tile { return addTile(p.tile, FACE_DELTA[p.face]); }
 export const inRect = (t: Tile, r: Rect): boolean => t.x >= r.x && t.x < r.x + r.w && t.y >= r.y && t.y < r.y + r.h;
 
-const ALL_KINDS: ItemKind[] = ['term', 'eq', 'neq', 'bot', 'size', 'law', 'cond'];
+const ALL_KINDS: ItemKind[] = ['term', 'eq', 'neq', 'bot', 'size', 'law', 'cond', 'mem'];
 const SUB = '₀₁₂₃₄₅₆₇₈₉';
 const sub = (n: number): string => String(n).split('').map((d) => SUB[+d]).join('');
 
@@ -82,16 +82,19 @@ export function layoutOf(config: MachineConfig, ctx: KernelCtx): Layout {
         ...metaIds(config.values),
       ];
       const w = Math.max(2, ps.length);
-      work(['eq']); out(['eq'], w);
+      // Book phase B: a Rewriter also works on the single rail of a membership t ∈ H (Leibniz)
+      work(['eq', 'mem']); out(['eq', 'mem'], w);
       if (r?.k === 'routed') P('rule', 'in', 'rule', ['eq', 'law'], 'rule', 0, 0, 'N');
       params(ps, 1);
       return { w, h: 1, ports };
     }
     case 'operator': {
       const r = config.recipe;
-      const k: ItemKind[] = r?.k === 'multiply' || r?.k === 'invert' ? ['eq'] : ['eq', 'neq'];
+      const k: ItemKind[] = r?.k === 'multiply' || r?.k === 'invert' || r?.k === 'apply' ? ['eq'] : ['eq', 'neq'];
       work(k); out(k, 2);
       if (r?.k === 'multiply' && isPort(r.t)) params([{ id: 't', label: 't' }], 1);
+      // Book phase C: the other arguments of a two-argument map, as term ports when not knobs
+      if (r?.k === 'apply') params((r.others ?? []).map((p, i) => ({ p, i })).filter((x) => isPort(x.p)).map((x) => ({ id: `arg:${x.i}`, label: `arg ${x.i + 1}` })), 1);
       return { w: 2, h: 1, ports };
     }
     case 'joiner': {
@@ -108,8 +111,8 @@ export function layoutOf(config: MachineConfig, ctx: KernelCtx): Layout {
       const p = r?.k === 'library' ? libPremises(ctx, r.ref) : 1;
       const ps = metaIds(config.values);
       const w = Math.max(2, ps.length), h = Math.max(1, p);
-      let premKinds: ItemKind[][] = Array.from({ length: p }, () => ['eq', 'neq']);
-      let outKinds: ItemKind[] = ['eq', 'neq'];
+      let premKinds: ItemKind[][] = Array.from({ length: p }, () => ['eq', 'neq', 'mem']);
+      let outKinds: ItemKind[] = ['eq', 'neq', 'mem'];
       if (card?.k === 'cond') { premKinds = card.premises.map((q) => [q.k]); outKinds = [card.concl.k]; }
       else if (card?.k === 'law') outKinds = ['eq'];
       if (r?.k === 'routed') P('card', 'in', 'rule', ['cond', 'law'], 'card', 0, 0, 'N');
@@ -119,7 +122,7 @@ export function layoutOf(config: MachineConfig, ctx: KernelCtx): Layout {
       return { w, h, ports };
     }
     case 'forall':
-      work(['eq', 'neq', 'law', 'cond'], 'fact'); out(['law', 'cond'], 2);
+      work(['eq', 'neq', 'mem', 'law', 'cond'], 'fact'); out(['law', 'cond'], 2);
       return { w: 2, h: 1, ports };
     case 'hopper':
       out(['term'], 1);
@@ -144,12 +147,12 @@ export function layoutOf(config: MachineConfig, ctx: KernelCtx): Layout {
       return { w: 2, h: 2, ports };
     }
     case 'desk':
-      out(['eq', 'neq'], 1);
+      out(['eq', 'neq', 'mem'], 1);
       return { w: 1, h: 1, ports };
     case 'gate':
       // On the room's boundary ring, rotated so `out` faces out of the room and `q` faces in.
       // Suppose/classical take ⊥ and export ¬P / P; an Assume room takes any Q and exports P ⇒ Q.
-      P('q', 'in', 'work', ['bot', 'eq', 'neq'], '⊥', 0, 0, 'W'); out(['eq', 'neq', 'cond'], 1);
+      P('q', 'in', 'work', ['bot', 'eq', 'neq', 'mem'], '⊥', 0, 0, 'W'); out(['eq', 'neq', 'cond'], 1);
       return { w: 1, h: 1, ports };
     default:
       // An unknown (legacy / corrupt) config: a bare 1×1 with no ports, so nothing downstream crashes.

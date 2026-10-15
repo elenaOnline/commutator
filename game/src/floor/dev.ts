@@ -28,7 +28,7 @@ const idOf = (e: { ok: boolean; ids?: string[] }, what: string) => { if (!e.ok |
 
 async function realStore(): Promise<Store | null> {
   try {
-    localStorage.setItem('lemma-works/v3', JSON.stringify({ version: 4, levels: {}, earned: ['witness', 'cancel', 'socks', 'nofix', 'dbl'], lemmas: [], settings: { speed: 1, reducedMotion: false } }));
+    localStorage.setItem('lemma-works/v3', JSON.stringify({ version: 5, campaign: 'main', campaigns: { main: { levels: {}, earned: ['witness', 'cancel', 'socks', 'nofix', 'dbl'], lemmas: [] }, book: { levels: {}, earned: [], lemmas: [] } }, settings: { speed: 1, reducedMotion: false } }));
     const { FactoryStore } = await import('../state/factoryStore');
     return new FactoryStore() as unknown as Store;
   } catch (e) { console.warn('[dev] real store unavailable — using the fixture', e); return null; }

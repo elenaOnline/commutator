@@ -47,6 +47,7 @@ function fallbackFamily(n: ProofNode): Family {
       if (op.k === 'swap') return 'equation';
       if (op.k === 'lift' || op.k === 'invert') return 'structure';
       if (op.k === 'insertE') return 'identity';
+      if (op.k === 'applyMap') return 'structure'; // Book phase C
       const r = op.rule;
       if (r.k === 'axiom') return r.id.startsWith('unit') ? 'identity' : 'inverse';
       return r.k === 'node' ? 'given' : 'lemma';
@@ -307,6 +308,7 @@ function fallbackJust(n: ProofNode, s: State): string {
       if (op.k === 'insertE') return 'unit';
       if (op.k === 'lift') return `multiply on the ${op.side} by ${tt(op.term)}`;
       if (op.k === 'invert') return 'invert both sides';
+      if (op.k === 'applyMap') return `apply ${op.fn} to both sides`; // Book phase C
       if (op.rule.k === 'axiom') return op.rule.id.startsWith('unit') ? 'unit' : 'inverse';
       if (op.rule.k === 'node') { const id = op.rule.id; return s.level.givens.find((g) => `g:${g.id}` === id)?.name ?? 'above'; }
       return 'lemma';

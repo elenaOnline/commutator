@@ -2,7 +2,7 @@
 // Also the simulation clock: rAF → store.tick() at TICKS_PER_SECOND × speed while playing; pauses when hidden.
 import * as F from '../factory';
 import type { FactoryMetrics } from '../factory/types';
-import { h, safe, type S, type Store } from './util';
+import { camp, h, safe, type S, type Store } from './util';
 
 export interface RunApi { render: (s: S) => void; el: HTMLElement; frame: (now: number) => void }
 
@@ -54,7 +54,7 @@ export function mountRun(layer: HTMLElement, store: Store, hooks: { toggleTransc
   const render = (s: S) => {
     const u = s.ui;
     const ot = s.save.settings.outAsTerms !== false;
-    const key = JSON.stringify([u.playing, u.speed, u.alt, ot, u.transcriptOpen, hooks.isLabOpen(), u.lemmaBookOpen, s.save.lemmas.length, s.level.id]);
+    const key = JSON.stringify([u.playing, u.speed, u.alt, ot, u.transcriptOpen, hooks.isLabOpen(), u.lemmaBookOpen, camp(s).lemmas.length, s.level.id]);
     if (key !== lastKey) {
       lastKey = key;
       play.classList.toggle('on', u.playing);
@@ -62,8 +62,8 @@ export function mountRun(layer: HTMLElement, store: Store, hooks: { toggleTransc
       play.setAttribute('aria-label', u.playing ? 'Pause' : 'Play');
       speeds.forEach((b) => b.classList.toggle('on', +b.dataset.v! === u.speed));
       for (const [b, on] of [[alt, u.alt], [terms, ot], [proof, u.transcriptOpen], [lab, hooks.isLabOpen()], [book, !!u.lemmaBookOpen]] as const) { b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); }
-      book.dataset.count = String(s.save.lemmas.length);
-      lab.classList.toggle('has-predict', !!s.level.predict?.length && !s.save.levels[s.level.id]?.solvedAt);
+      book.dataset.count = String(camp(s).lemmas.length);
+      lab.classList.toggle('has-predict', !!s.level.predict?.length && !camp(s).levels[s.level.id]?.solvedAt);
     }
     if (s.run !== lastRun) {
       lastRun = s.run;
@@ -74,7 +74,7 @@ export function mountRun(layer: HTMLElement, store: Store, hooks: { toggleTransc
     if (s.compiled !== lastComp || nDel !== lastDel || s.save !== lastSave) {
       lastComp = s.compiled; lastDel = nDel; lastSave = s.save;
       const m: FactoryMetrics | null = safe(() => store.metrics(), null);
-      const b = s.save.levels[s.level.id]?.best;
+      const b = camp(s).levels[s.level.id]?.best;
       mx.machines.textContent = fmt(m?.machines); mx.area.textContent = fmt(m?.area); mx.cycles.textContent = fmt(m?.cycles);
       best.machines.textContent = b ? `best ${fmt(b.machines)}` : '';
       best.area.textContent = b ? `best ${fmt(b.area)}` : '';

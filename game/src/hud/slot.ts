@@ -3,6 +3,7 @@
 // caret, plus chips for quick entry (a b a⁻¹ b⁻¹ e ⌫, and = LHS / = RHS when an equation arrives).
 // An empty slot has a dashed outline in the family accent and a grey placeholder letter; text that does not
 // read shows in red with "That doesn't read as a term." Parsing lives in slotparse.ts (shared with the tests).
+import { eulerBlobHTML } from '../ui/euler';
 import * as K from '../kernel';
 import type { AtomDecl, Term } from '../kernel/types';
 import { beads } from './beads';
@@ -162,6 +163,8 @@ export interface NameSlotOpts {
   label: string;
   varId: string;
   sort: 'G' | 'Z';
+  /** Book phase B: a Subgroup Tower's name (H₁, N₁), drawn as its Euler set. */
+  sub?: 'sub' | 'normal';
   hue: number;
   /** Commit a new label (the lens makes it unique on the floor). */
   commit: (label: string) => void;
@@ -170,7 +173,7 @@ export interface NameSlotOpts {
 
 /** The Tower's name: a slot drawn as the variable itself (violet ∈G, teal ∈ℤ), with letter and subscript chips. */
 export function nameSlot(o: NameSlotOpts): { slot: HTMLElement; chips: HTMLElement } {
-  const letters = o.sort === 'Z' ? ['n', 'm', 'k'] : ['x', 'y', 'z', 'u'];
+  const letters = o.sub ? (o.sub === 'normal' ? ['N', 'M'] : ['H', 'K', 'L']) : o.sort === 'Z' ? ['n', 'm', 'k'] : ['x', 'y', 'z', 'u'];
   const input = h('input', { class: 'h3-slot-in', value: o.label, 'aria-label': 'variable name', autocomplete: 'off', spellcheck: 'false', autocapitalize: 'off' });
   const boxes = h('span', { class: 'h3-slotboxes' });
   const slots = h('span', { class: 'h3-slots', 'data-slot': o.key }, boxes, input);
@@ -179,7 +182,8 @@ export function nameSlot(o: NameSlotOpts): { slot: HTMLElement; chips: HTMLEleme
     const r = readVarName(input.value);
     boxes.innerHTML = '';
     const b = h('span', { class: `h3-slotbox ${r.k}` });
-    if (r.k === 'ok') {
+    if (r.k === 'ok' && o.sub) b.append(h('span', { class: 'h3-blob', html: eulerBlobHTML(r.label, 20, { normal: o.sub === 'normal' }) }));
+    else if (r.k === 'ok') {
       const id = o.varId;
       b.append(markVarBeads(beads({ k: 'atom', id }, { [id]: r.label }, { [id]: o.hue }), new Map([[id, o.sort]])));
     } else if (r.k === 'bad') b.append(h('i', { class: 'h3-slot-raw math' }, r.text));

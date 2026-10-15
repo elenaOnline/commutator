@@ -5,6 +5,7 @@
 import type { Term } from '../kernel/types';
 import type { ItemValue, Packet, RunState } from '../factory/types';
 import { FAMILY, FONT, INK, VAR } from '../ui/tokens';
+import { eulerBlobSVG } from '../ui/euler';
 import { P, f1, shade, type G2, type S2 } from '../board/geom';
 import { beadPath, beadShape } from '../bench/shapes';
 import type { Labels } from '../board/mathsvg';
@@ -35,6 +36,8 @@ function toks(t: Term, L: Labels, S: Record<string, number>): Tok[] {
       // a stack: base^exponent (symbolic exponents) — a crate with its exponent printed on its corner
       case 'pow': return { k: 'crate', inv: false, inner: toks(f.base, L, S), exp: polyText(f.exp, L) };
       case 'int': return { k: 'atom', label: polyText(f.val, L), slot: 0 };
+      // Book phase C: f(x) rides as a crate labelled by its map (plain until the Maps visuals land)
+      case 'app': return { k: 'crate', inv: false, inner: f.args.flatMap((a) => toks(a, L, S)), exp: L[f.fn] ?? f.fn };
     }
   });
 }
@@ -170,6 +173,21 @@ export function packetSVG(v: ItemValue, axis: Axis, L: Labels, S: Record<string,
       `<circle cx="${f1(ra[0])}" cy="${f1(ra[1])}" r="2.5" fill="${INK.navy}"/><circle cx="${f1(rb[0])}" cy="${f1(rb[1])}" r="2.5" fill="${INK.navy}"/>`;
     if (v.fact.k === 'neq') { const m: S2 = [(ra[0] + rb[0]) / 2, (ra[1] + rb[1]) / 2]; rung += `<line x1="${f1(m[0] - 5)}" y1="${f1(m[1] + 6)}" x2="${f1(m[0] + 5)}" y2="${f1(m[1] - 6)}" stroke="${ORANGE}" stroke-width="2.4" stroke-linecap="round"/>`; }
     o = rung + a.svg + b.svg;
+  } else if (v.k === 'fact' && v.fact.k === 'mem') {
+    // Book phase B: a membership t ∈ H. ONE rail (its term, navy beads on the centre line), then ∈, then the
+    // subgroup as an Euler blob in the subgroup ink: "this term sits in that set". No rung: it is not an equation.
+    const tt = compress(toks(v.fact.t, L, S), MAX - 1.4);
+    const wl = wordUnits(tt) * PITCH;
+    const label = L[v.fact.sub.id] ?? v.fact.sub.id;
+    const bw = 30 * 0.88 * (1 + (/[₀-₉]+$/.exec(label)?.[0].length ?? 0) * 0.16);
+    const total = wl + 20 + bw;
+    const along = (u: number): S2 => [A.d[0] * u, A.d[1] * u];
+    const w = word(tt, along(wl / 2 - total / 2), A.d, A.angle);
+    const ep = along(wl - total / 2 + 10), bp = along(total / 2 - bw / 2);
+    o = w.svg +
+      `<text x="${f1(ep[0])}" y="${f1(ep[1] + 4.2)}" text-anchor="middle" font-family="${FONT.math}" font-size="16" fill="${INK.navy}" paint-order="stroke" stroke="#fff" stroke-width="3.2">∈</text>` +
+      eulerBlobSVG(label, bp[0], bp[1], 0.88);
+    len = total + 6;
   } else if (v.k === 'fact' && v.fact.k === 'bot') {
     const pts: string[] = []; for (let i = 0; i < 6; i++) { const t = i * Math.PI / 3 + Math.PI / 6; pts.push(`${f1(9 * Math.cos(t))},${f1(9 * Math.sin(t) - 1)}`); }
     o = `<polygon points="${pts.join(' ')}" fill="${ORANGE}" stroke="#fff" stroke-width="1.5"/><text y="3.6" text-anchor="middle" font-family="${FONT.math}" font-size="12.5" fill="${INK.navy}">⊥</text>`;
@@ -191,7 +209,7 @@ export function packetSVG(v: ItemValue, axis: Axis, L: Labels, S: Record<string,
     const pp = (a: S2[]) => a.map((p) => `${f1(p[0])},${f1(p[1])}`).join(' ');
     const edge = earned ? INK.gold : shade(fam.ink, 0.26);
     o = `<polygon points="${pp(side)}" fill="${edge}"/><polygon points="${pp(side2)}" fill="${edge}"/><polygon points="${pp(card)}" fill="${fill}" stroke="#fff" stroke-width="1" stroke-linejoin="round"/>` +
-      `<text y="${f1(P(0, 0, 0.08)[1] + 3.6)}" text-anchor="middle" font-family="${FONT.math}" font-size="11" fill="${earned ? '#fff' : INK.navy}">${v.card.k === 'cond' ? '⇒' : '∀'}</text>`;
+      `<text y="${f1(P(0, 0, 0.08)[1] + 3.6)}" text-anchor="middle" font-family="${FONT.math}" font-size="11" fill="${earned ? '#fff' : INK.navy}">${v.card.k === 'cond' ? '⟹' : '∀'}</text>`;
   }
   const out = { svg: `<g transform="translate(0,-3)">${o}</g>`, len };
   if (cache.size > 2000) cache.clear();

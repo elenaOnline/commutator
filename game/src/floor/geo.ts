@@ -75,7 +75,15 @@ export function buildGeo(c: Canvas, comp: Compiled | null, ctx: KernelCtx): Geo 
     const s = spec(m.kind);
     const tiles = footprint(m, ctx);
     const xs = tiles.map((t) => t.x), ys = tiles.map((t) => t.y);
-    const look = lookOf(m, ctx);
+    let look = lookOf(m, ctx);
+    // Book phase A: a multi-desk Assume room numbers its desks ⊢₁ ⊢₂ ⊢₃ (desk i emits assumption Pᵢ)
+    if (m.config.kind === 'desk') {
+      const room = c.rooms.find((r) => r.id === (m.config as { room: string }).room);
+      if ((room?.assumes?.length ?? 0) > 1) {
+        const i = ((m.config as { slot?: number }).slot ?? 0) + 1;
+        look = { ...look, glyph: `⊢${'₀₁₂₃₄₅₆₇₈₉'[i]}`, label: `${look.label} ${i}` };
+      }
+    }
     const g: MGeo = { m, spec: s, fam: look.fam, look, tiles, x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs) + 1, y1: Math.max(...ys) + 1, ports: portsOf(m, ctx) };
     ms.set(m.id, g);
     for (const t of tiles) occ.set(tkey(t), m.id);

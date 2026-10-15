@@ -32,7 +32,7 @@ const FALLBACK: Record<MachineKind, FB> = {
   rewriter: { name: 'Rewriter', family: 'equation', glyph: '⥲', placeable: true },
   operator: { name: 'Operator', family: 'structure', glyph: '✣', placeable: true },
   joiner: { name: 'Joiner', family: 'equation', glyph: '⋈', placeable: true },
-  theorem: { name: 'Theorem', family: 'lemma', glyph: '⇒', placeable: true },
+  theorem: { name: 'Theorem', family: 'lemma', glyph: '⟹', placeable: true },
   forall: { name: '∀ Generalizer', family: 'scope', glyph: '∀', placeable: true },
   carddock: { name: 'Card Dock', family: 'lemma', glyph: '∀=', placeable: true },
   hopper: { name: 'Hopper', family: 'structure', glyph: 't', placeable: true },

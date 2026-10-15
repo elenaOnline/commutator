@@ -11,7 +11,7 @@ import type { Family } from '../kernel/types';
 import type { MachineKind } from '../factory/types';
 import { FAMILY, VAR, reducedMotion } from '../ui/tokens';
 import { MATH_CSS } from '../ui/math';
-import { VERBS, floorModule, h, hotbarKinds, pointer, spec, towerVars, varRegistry, type S } from './util';
+import { VERBS, campaignOf, displayNo, floorModule, h, hotbarKinds, pointer, spec, towerVars, varRegistry, type S } from './util';
 import { mountHotbar } from './hotbar';
 import { mountLens } from './lens';
 import { mountOrder } from './order';
@@ -24,6 +24,7 @@ import { mountLab } from './lab';
 import { mountFollow } from './follow';
 import { mountConcepts } from './concept';
 import { mountLemmaBook } from './lemmabook';
+import { mountPaper } from './paper';
 import { pending, withRecipe } from './presets';
 import { rectToScreen } from '../floor/project';
 
@@ -117,6 +118,7 @@ export function mountApp(root: HTMLElement, store: FactoryStore, opts: AppOpts =
   const transcript = mountTranscript(layer, store, { top: () => below(order.el, 120) });
   const book = mountLemmaBook(layer, store, { top: () => below(run.el, 140) });
   const concepts = mountConcepts(layer, store);
+  const paper = mountPaper(layer, store);
   const lens = mountLens(layer, store, { dockTop: () => below(run.el, 120), keepClear: () => [order.el, run.el] });
   lensRef = lens.el;
   const hints = mountHints(layer, store, { slotRect: (k: MachineKind) => hotbar.slotRect(k), avoid: () => [lens.el, transcript.el, labEl] });
@@ -133,11 +135,11 @@ export function mountApp(root: HTMLElement, store: FactoryStore, opts: AppOpts =
       mapEl.hidden = s.ui.screen !== 'map';
       floorEl.hidden = layer.hidden = s.ui.screen === 'map';
     }
-    document.title = s.ui.screen === 'map' ? 'Commutator · theorem map' : `Commutator · ${s.level.index} ${s.level.title}`;
+    document.title = s.ui.screen === 'map' ? 'Commutator · theorem map' : `Commutator · ${campaignOf(s.level) === 'book' ? displayNo(s.level) : s.level.index} ${s.level.title}`;
     if (s.ui.screen === 'map') { try { renderMap(s); } catch (err) { console.warn('[hud] map', err); } return; }
     labEl.style.top = `${below(run.el, 140)}px`;
     for (const [name, fn] of [['hotbar', hotbar.render], ['order', order.render], ['run', run.render], ['lens', lens.render], ['transcript', transcript.render],
-      ['hints', hints.render], ['lab', lab.render], ['ceremony', renderCeremony], ['follow', follow.render], ['lemma book', book.render], ['cards', concepts.render]] as const) {
+      ['hints', hints.render], ['lab', lab.render], ['ceremony', renderCeremony], ['follow', follow.render], ['lemma book', book.render], ['cards', concepts.render], ['paper', paper.render]] as const) {
       try { fn(s); } catch (err) { console.warn(`[hud] ${name} render failed`, err); }
     }
     if (s.ui.toast && s.ui.toast !== lastToast) { toastEl.dataset.kind = s.ui.toast.kind ?? 'refused'; toast(s.ui.toast.text); }
@@ -207,6 +209,7 @@ export function mountApp(root: HTMLElement, store: FactoryStore, opts: AppOpts =
       if (s.ui.follow) { follow.leave(); return; }
       if (s.ui.lens) { store.openLens(null); return; }
       if (s.ui.tool.k !== 'select') { store.setTool({ k: 'select' }); return; }
+      if (s.ui.paperOpen) { store.setUI({ paperOpen: false }); return; }
       if (s.ui.transcriptOpen) { store.setUI({ transcriptOpen: false }); return; }
       if (labOpen) { lab.toggle(false); return; }
       if (s.ui.lemmaBookOpen) { store.toggleLemmaBook(false); return; }

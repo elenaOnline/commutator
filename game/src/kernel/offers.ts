@@ -5,7 +5,7 @@
 // the kernel would reject. Offers with `needs` are completed by fillOffer.
 import type { Sort } from './types';
 import type {
-  Addr, CheckResult, Fact, Family, GapAddr, MetaId, NodeId, Offer, OfferKind, Pallet, ProofGraph,
+  Addr, Card, CheckResult, Fact, Family, GapAddr, MetaId, NodeId, Offer, OfferKind, Pallet, PatFact, ProofGraph,
   ProofNode, Room, RuleRef, ScopeId, StepOp, Subst, Term,
 } from './types';
 import type { KernelCtx } from './index';
@@ -120,6 +120,7 @@ const factKey = (f: Fact): string => {
     case 'size': return `size:${f.n}`;
     case 'law': return `law:${termKey(norm(f.l))}|${termKey(norm(f.r))}`;
     case 'cond': return `cond:${f.premises.map((p) => factKey(p)).join(';')}=>${factKey(f.concl)}`;
+    case 'mem': return `mem:${termKey(norm(f.t))}|${f.sub.k}:${f.sub.id}`;
   }
 };
 
@@ -261,6 +262,7 @@ function describeSteps(env: Env, ops: StepOp[]): Desc {
     return { label: `insert ${T(dst)} (${by}${atText(op1.subst, metas)})`, why: info.nameTex.startsWith('\\text{') ? info.nameTex : `\\text{by } ${info.nameTex}`, family: info.family };
   }
   if (op0.k === 'invert') return { label: 'invert both sides', why: '\\text{invert both sides}', family: 'structure' };
+  if (op0.k === 'applyMap') return { label: `apply ${env.L[op0.fn] ?? op0.fn} to both sides`, why: '\\text{apply a map to both sides}', family: 'structure' };
   // rewrite
   const info = ruleInfo(env, op0.rule);
   const loc = locate(env.fact, op0.at);
@@ -424,7 +426,7 @@ function condCards(env: Env): CardE[] {
     for (const mirror of [false, true]) {
       let c;
       try { c = schemaCard(id, mirror, env.ctx); } catch { continue; }
-      if (c.k !== 'cond') continue;
+      if (c.k !== 'cond' || !benchCard(c)) continue;
       if (mirror && sameCardUpToRenaming(c, schemaCard(id, false, env.ctx))) continue;
       const ref: RuleRef = mirror ? { k: 'schema', id, mirror: true } : { k: 'schema', id };
       const sc = schemaInfo(id, env.ctx)!;
@@ -434,7 +436,7 @@ function condCards(env: Env): CardE[] {
   }
   const seen = new Set<string>();
   for (const c of env.cands) {
-    if (c.fact.k !== 'cond') continue;
+    if (c.fact.k !== 'cond' || !benchCard(c.fact)) continue;
     const k = factKey(c.fact);
     if (seen.has(k)) continue;
     seen.add(k);
@@ -444,8 +446,11 @@ function condCards(env: Env): CardE[] {
   return out;
 }
 
-function matchFact(p: { k: 'eq' | 'neq'; l: Term; r: Term }, f: Fact, s0: Subst): Subst[] {
-  if (f.k !== p.k) return [];
+/** The bench (v2/v3 API) works on (in)equations only: Book phase B memberships live on the factory floor. */
+const benchCard = (c: Card): boolean => !c.binds?.length && [...(c.k === 'cond' ? [...c.premises, c.concl] : [])].every((p) => p.k !== 'mem');
+
+function matchFact(p: PatFact, f: Fact, s0: Subst): Subst[] {
+  if (f.k !== p.k || p.k === 'mem' || (f.k !== 'eq' && f.k !== 'neq')) return [];
   const out: Subst[] = [];
   for (const s1 of match(p.l, f.l, s0)) out.push(...match(p.r, f.r, s1));
   return out;
@@ -454,7 +459,8 @@ function matchFact(p: { k: 'eq' | 'neq'; l: Term; r: Term }, f: Fact, s0: Subst)
 const MAX_APPLY_PER_CARD = 48;
 
 function applyLabel(env: Env, ce: CardE, s: Subst, preview: Pallet | undefined): Desc {
-  const concl = preview ?? { k: ce.card.concl.k, l: instantiatePartial(ce.card.concl.l, s), r: instantiatePartial(ce.card.concl.r, s) };
+  const c0 = ce.card.concl;
+  const concl: Fact = preview ?? (c0.k === 'mem' ? { k: 'mem', t: instantiatePartial(c0.t, s), sub: c0.sub } : { k: c0.k, l: instantiatePartial(c0.l, s), r: instantiatePartial(c0.r, s) });
   const isNode = ce.ref.k === 'node';
   const shown: Subst = {};
   if (isNode) for (const m of ce.card.metas) if (s[m]) shown[m] = s[m]!;
@@ -519,7 +525,7 @@ function applyOffers(env: Env): Ranked[] {
           seen.add(key);
           count++;
           const d = applyLabel(env, ce, s, preview);
-          const bindings = bindingsFor(act, prem[i]!, s)
+          const bindings = bindingsFor(act, prem[i]! as { l: Term; r: Term }, s)
             .map((bd) => (preSwap ? { meta: bd.meta, addr: { ...bd.addr, side: bd.addr.side === 'l' ? 'r' as const : 'l' as const } } : bd));
           out.push({
             offer: {

@@ -9,11 +9,11 @@
 //     belts from the same output share only a common prefix (a copy tree); an input has at most one belt.
 // Type mismatches between ports are allowed (the compiler jams them with a reason).
 import type { KernelCtx } from '../kernel';
-import type { LevelManifest } from '../kernel/types';
+import type { DeskAssumption, LevelManifest } from '../kernel/types';
 import type { Belt, Canvas, Endpoint, Face, LibRef, Machine, MachineConfig, MachineKind, Port, Rect, Room, Rot, Tile } from './types';
 import type { Blueprint, Edit } from './index';
 import { SORT_SEQ, SPECS, defaultConfig, libName, schemaOf, sortBase, splitLabel, subscript, varLabel } from './catalog';
-import { POWER_LITERAL_FAMILY } from '../kernel';
+import { MAX_DESKS, POWER_LITERAL_FAMILY } from '../kernel';
 import { LEVEL_BY_ID, REGISTRY } from '../levels/levels';
 import { FACE_DELTA, FACES, OPPOSITE, addTile, footprint, frontOf, inRect, portsOf, rectOf, sizeOf, tileEq, tileKey } from './geometry';
 
@@ -132,6 +132,10 @@ function roomReason(m: Machine, cells: Tile[], rooms: Room[], ctx: KernelCtx): s
   for (const r of rooms) {
     const n = cells.filter((t) => inRect(t, r.rect)).length;
     if (n !== 0 && n !== cells.length) return `The ${nameOf(m)} would straddle a room wall — put it wholly inside or outside.`;
+    // docks and given inlets belong to the order, outside every room: a dock takes only root facts, and a
+    // given is a hypothesis of the whole floor
+    if (n !== 0 && m.config.kind === 'socket') return 'A room can’t hold the dock. Keep the dock outside every room.';
+    if (n !== 0 && m.config.kind === 'given') return 'A room can’t hold a given. Keep the givens outside every room.';
   }
   const inner = (t: Tile) => { let best: Room | null = null; for (const r of rooms) if (inRect(t, r.rect) && (!best || area(r.rect) < area(best.rect))) best = r; return best; };
   if (m.config.kind === 'desk') {
@@ -1193,7 +1197,7 @@ function referencedAtoms(c: Canvas, skip?: Set<string>): Set<string> {
     for (const k of Object.keys(o)) walk(o[k]);
   };
   for (const m of c.machines) if (!skip?.has(m.id) && m.config.kind !== 'tower') walk(m.config);
-  for (const r of c.rooms) { walk(r.l); walk(r.r); }
+  for (const r of c.rooms) { walk(r.l); walk(r.r); walk(r.assumes); }
   return out;
 }
 
@@ -1209,6 +1213,11 @@ function uniqueTowers(c: Canvas, ms: Machine[], ctx: KernelCtx): Machine[] {
   const used = referencedAtoms(c, mine);
   const labels = new Set<string>();
   const ids = new Set<string>([...consts, ...used]);
+  // Book phase B: a Subgroup Tower never takes a level subgroup's name (and no Tower does)
+  for (const sg of ctx.level.subgroups ?? []) { ids.add(sg.id); labels.add(sg.label); }
+  // Book phase C: nor a level sort's or map's name; G is always the default group
+  for (const x of [...(ctx.level.sorts ?? []), ...(ctx.level.maps ?? [])]) { ids.add(x.id); labels.add(x.label); }
+  ids.add('G'); labels.add('G');
   const towerIds = new Set<string>();
   for (const m of c.machines) if (m.config.kind === 'tower') {
     towerIds.add(m.config.varId);
@@ -1515,19 +1524,29 @@ function roomSetReason(rooms: Room[]): string | null {
   return null;
 }
 
+/** How many desks a room has: one per declared assumption of a multi-desk Assume room, else one. */
+export function deskCount(room: Room): number {
+  return room.kind === 'assume' && Array.isArray(room.assumes) && room.assumes.length ? room.assumes.length : 1;
+}
+const deskSlot = (m: Machine): number => (m.config.kind === 'desk' ? m.config.slot ?? 0 : -1);
+const deskConfig = (room: string, slot: number): MachineConfig => (slot ? { kind: 'desk', room, slot } : { kind: 'desk', room });
+
 /**
- * Find spots for a room's desk and gate, each with a clear doorstep, never on the same row/approach:
- * the gate centred on the east wall facing out (then south, north, west walls), the desk on the inner west
- * side facing east, on a row next to — not on — the gate's row. Cells avoid machines, belts, other ports'
- * doorsteps and child rooms. Valid kept desk/gate (resize) stay where they are.
+ * Find spots for a room's desks and gate, each with a clear doorstep, never on the same row/approach:
+ * the gate centred on the east wall facing out (then south, north, west walls), desks on the inner west
+ * side facing east, on rows next to — not on — the gate's row. Cells avoid machines, belts, other ports'
+ * doorsteps, child rooms and each other's doorsteps. Valid kept desks (by slot) and gate (resize) stay put.
  */
-function seatRoom(c: Canvas, room: Room, rooms: Room[], ctx: KernelCtx, skip: Set<string>, keepDesk?: Machine, keepGate?: Machine):
-  { desk: Machine; gate: Machine } | string {
+function seatRoom(c: Canvas, room: Room, rooms: Room[], ctx: KernelCtx, skip: Set<string>, keepDesks: (Machine | undefined)[] = [], keepGate?: Machine):
+  { desks: Machine[]; gate: Machine } | string {
   const r = room.rect;
+  const k = deskCount(room);
+  const kept = keepDesks.slice(0, k).filter((d): d is Machine => !!d);
+  const keptIds = new Set([...kept.map((d) => d.id), ...(keepGate ? [keepGate.id] : [])]);
   const occ = occupancy(c.machines, ctx, skip);
   const beltCells = new Set(c.belts.filter((b) => !b.broken).flatMap((b) => b.path.map(tileKey)));
   const doorsteps = new Set<string>();
-  for (const m of c.machines) if (!skip.has(m.id) && m.id !== keepDesk?.id && m.id !== keepGate?.id) for (const p of portsOf(m, ctx)) doorsteps.add(tileKey(frontOf(p)));
+  for (const m of c.machines) if (!skip.has(m.id) && !keptIds.has(m.id)) for (const p of portsOf(m, ctx)) doorsteps.add(tileKey(frontOf(p)));
   const children = rooms.filter((x) => x.id !== room.id && rectInside(x.rect, r));
   const inOwn = (t: Tile) => inRect(t, r) && !children.some((ch) => inRect(t, ch.rect));
   const clear = (t: Tile) => !occ.has(tileKey(t)) && !beltCells.has(tileKey(t));
@@ -1535,6 +1554,9 @@ function seatRoom(c: Canvas, room: Room, rooms: Room[], ctx: KernelCtx, skip: Se
   const byMid = (lo: number, n: number, mid: number) => Array.from({ length: n }, (_, i) => lo + i).sort((p, q) => Math.abs(p - mid) - Math.abs(q - mid) || p - q);
   const midY = r.y + Math.floor((r.h - 1) / 2), midX = r.x + Math.floor((r.w - 1) / 2);
   const inner = (g: Machine) => addTile(g.at, FACE_DELTA[OPPOSITE[FACES[g.rot]!]]);
+  // kept desks' cells and doorsteps are taken
+  const used = new Set<string>();
+  for (const d of kept) { used.add(tileKey(d.at)); used.add(tileKey(frontOf(portsOf(d, ctx)[0]!))); }
 
   let gate: Machine | null = null;
   if (keepGate && gateRot(keepGate.at, r, keepGate.rot) !== null && inOwn(keepGate.at)) {
@@ -1550,54 +1572,93 @@ function seatRoom(c: Canvas, room: Room, rooms: Room[], ctx: KernelCtx, skip: Se
     outer: for (const strict of [true, false]) for (const w of walls) for (const t of w.cells) {
       const g: Machine = { id, kind: 'gate', at: t, rot: w.rot, config: { kind: 'gate', room: room.id }, locked: true };
       const outside = addTile(t, FACE_DELTA[FACES[w.rot]!]);
-      if (!free(t) || !clear(outside) || (keepDesk && (tileEq(keepDesk.at, t) || tileEq(frontOf(portsOf(keepDesk, ctx)[0]!), t)))) continue;
-      if (strict && (!free(inner(g)) || (keepDesk && tileEq(inner(g), frontOf(portsOf(keepDesk, ctx)[0]!))))) continue;
+      if (!free(t) || !clear(outside) || used.has(tileKey(t))) continue;
+      if (strict && (!free(inner(g)) || used.has(tileKey(inner(g))))) continue;
       gate = g; break outer;
     }
   }
   if (!gate) return 'No free spot on the room’s wall for its Exit Gate.';
   const g = gate;
   const gIn = inner(g);
-  let desk: Machine | null = keepDesk ?? null;
-  if (!desk) {
+  used.add(tileKey(g.at)); used.add(tileKey(gIn));
+  const desks: Machine[] = [];
+  for (let slot = 0; slot < k; slot++) {
+    const keep = keepDesks[slot];
+    if (keep) { desks.push({ ...keep, config: deskConfig(room.id, slot) }); continue; }
     // Rows nearest the gate's, never the gate's own row (when there is another).
     const rowPref = g.rot === 0 || g.rot === 2 ? g.at.y - 1 : midY;
     const rows = byMid(r.y, r.h, rowPref).filter((y) => r.h === 1 || !(g.rot % 2 === 0 && y === g.at.y));
-    const ok = (t: Tile) => free(t) && !tileEq(t, g.at) && !tileEq(t, gIn);
+    const ok = (t: Tile) => free(t) && !used.has(tileKey(t));
+    let desk: Machine | null = null;
     outer2: for (const strict of [true, false]) for (let x = r.x; x < r.x + r.w; x++) for (const y of rows) {
       const t = { x, y };
       if (!ok(t)) continue;
       const rot = ([0, 1, 3, 2] as Rot[]).find((q) => {
         const f = addTile(t, FACE_DELTA[FACES[q]!]);
-        return (strict ? free(f) : inOwn(f) && clear(f)) && !tileEq(f, g.at) && !tileEq(f, gIn);
+        return (strict ? free(f) : inOwn(f) && clear(f)) && !used.has(tileKey(f));
       });
       if (rot === undefined) continue;
-      desk = { id: `desk:${room.id}`, kind: 'desk', at: t, rot, config: { kind: 'desk', room: room.id }, locked: true };
+      const id = slot ? `desk:${room.id}/${slot}` : `desk:${room.id}`;
+      desk = { id, kind: 'desk', at: t, rot, config: deskConfig(room.id, slot), locked: true };
+      used.add(tileKey(t)); used.add(tileKey(addTile(t, FACE_DELTA[FACES[rot]!])));
       break outer2;
     }
+    if (!desk) return k > 1 ? 'No free spot inside the room for all its Assumption Desks. Make the room bigger.' : 'No free spot inside the room for its Assumption Desk.';
+    desks.push(desk);
   }
-  if (!desk) return 'No free spot inside the room for its Assumption Desk.';
-  return { desk, gate: g };
+  return { desks, gate: g };
 }
 
-/** Paint a room rectangle; creates its desk (inside) and gate (on the boundary). Rooms nest, never partially overlap. */
-export function paintRoom(c: Canvas, rect: Rect, kind: Room['kind'], l: Room['l'], r: Room['r'], ctx: KernelCtx, rel?: Room['rel']): Edit {
+/** Normalize a multi-desk declaration: null = none (single desk), a string = why it is refused. */
+function assumesOf(kind: Room['kind'], assumes: DeskAssumption[] | undefined): DeskAssumption[] | null | string {
+  if (assumes === undefined) return null;
+  if (kind !== 'assume') return assumes?.some((a) => a?.rel === 'mem') ? 'A membership can only be assumed in an Assume room.' : 'Only an Assume room holds several assumptions.';
+  if (!Array.isArray(assumes) || assumes.length < 1) return 'An Assume room needs an assumption.';
+  if (assumes.length > MAX_DESKS) return `An Assume room holds at most ${MAX_DESKS} assumptions.`;
+  for (const a of assumes) {
+    if (a?.rel === 'mem') { if (!a.t || !a.sub) return 'A membership needs an element and a subgroup.'; continue; }
+    if (!a || (a.rel !== 'eq' && a.rel !== 'neq') || !a.l || !a.r) return 'An assumption must be an equation, inequation or membership.';
+  }
+  return assumes.map((a) => (a.rel === 'mem' ? { rel: 'mem' as const, t: clone(a.t), sub: clone(a.sub) } : { rel: a.rel, l: clone(a.l), r: clone(a.r) }));
+}
+/**
+ * The room's statement fields: l/r/rel mirror the first assumption; `assumes` kept only for k ≥ 2 or when a desk
+ * assumes a membership (old shape otherwise). For a membership first desk, l = r = its element (a placeholder).
+ */
+function withAssumes(room: Room, as: DeskAssumption[]): Room {
+  const { assumes: _drop, rel: _rel, ...rest } = room;
+  void _drop; void _rel;
+  const a0 = as[0]!;
+  const keep = as.length > 1 || as.some((a) => a.rel === 'mem');
+  if (a0.rel === 'mem') return { ...rest, l: clone(a0.t), r: clone(a0.t), assumes: as };
+  return { ...rest, l: clone(a0.l), r: clone(a0.r), rel: a0.rel, ...(keep ? { assumes: as } : {}) };
+}
+
+/**
+ * Paint a room rectangle; creates its desk(s) (inside) and gate (on the boundary). Rooms nest, never partially
+ * overlap. Book phase A: an Assume room may pass `assumes` (1–3 assumptions, desk order); it gets one desk per
+ * assumption (config slot i). Without `assumes` it is exactly the single-desk room of before.
+ */
+export function paintRoom(c: Canvas, rect: Rect, kind: Room['kind'], l: Room['l'], r: Room['r'], ctx: KernelCtx, rel?: Room['rel'], assumes?: DeskAssumption[]): Edit {
   rememberCtx(ctx);
   const R = normRect(rect);
   if (R.w < MIN_ROOM.w || R.h < MIN_ROOM.h) return no(`A room needs at least ${MIN_ROOM.w}×${MIN_ROOM.h} tiles.`);
+  const as = assumesOf(kind, assumes);
+  if (typeof as === 'string') return no(as);
   const taken = allIds(c);
   const id = freshId(taken, 'room');
-  const room: Room = { id, kind, l: clone(l), r: clone(r), rect: R, ...(kind === 'assume' ? { rel: rel ?? 'eq' } : {}) };
+  let room: Room = { id, kind, l: clone(l), r: clone(r), rect: R, ...(kind === 'assume' ? { rel: rel ?? 'eq' } : {}) };
+  if (as) room = withAssumes(room, as);
   const rooms = [...c.rooms, room];
   const rr = roomSetReason(rooms);
   if (rr) return no(rr);
   for (const m of c.machines) { const why = roomReason(m, footprint(m, ctx), rooms, ctx); if (why) return no(why); }
   const seat = seatRoom(c, room, rooms, ctx, new Set());
   if (typeof seat === 'string') return no(seat);
-  const desk = { ...seat.desk, id: taken.has(seat.desk.id) ? freshId(taken, 'desk') : seat.desk.id };
+  const desks = seat.desks.map((d) => ({ ...d, id: taken.has(d.id) ? freshId(taken, 'desk') : (taken.add(d.id), d.id) }));
   const gate = { ...seat.gate, id: taken.has(seat.gate.id) ? freshId(taken, 'gate') : seat.gate.id };
-  const next = { ...c, rooms, machines: [...c.machines, desk, gate] };
-  return retryBroken(next, ctx, [id, desk.id, gate.id]);
+  const next = { ...c, rooms, machines: [...c.machines, ...desks, gate] };
+  return retryBroken(next, ctx, [id, ...desks.map((d) => d.id), gate.id]);
 }
 
 function normRect(r: Rect): Rect {
@@ -1605,7 +1666,27 @@ function normRect(r: Rect): Rect {
   return { x: x0, y: y0, w: Math.abs(r.w), h: Math.abs(r.h) };
 }
 
-/** Resize/move a room's rectangle. Its desk and gate stay if still valid, else are re-seated (belts re-routed). */
+/** Re-seat a room's desks and gate on `next` (rooms already updated): valid ones stay, others move, missing ones appear. */
+function reseat(c: Canvas, base: Canvas, nroom: Room, rooms: Room[], ctx: KernelCtx, room: string): { machines: Machine[]; skip: Set<string> } | string {
+  const own = (m: Machine) => (m.config.kind === 'desk' || m.config.kind === 'gate') && m.config.room === room;
+  const k = deskCount(nroom);
+  const desks = base.machines.filter((m) => own(m) && m.kind === 'desk');
+  const gate = base.machines.find((m) => own(m) && m.kind === 'gate');
+  const bySlot: (Machine | undefined)[] = [];
+  for (const d of desks) { const sl = deskSlot(d); if (sl >= 0 && sl < k && !bySlot[sl]) bySlot[sl] = d; }
+  const keep = bySlot.map((d) => (d && !roomReason(d, footprint(d, ctx), rooms, ctx) ? d : undefined));
+  const gateKeep = gate && !roomReason(gate, footprint(gate, ctx), rooms, ctx) ? gate : undefined;
+  const skip = new Set([...desks.map((d) => d.id), ...(gate ? [gate.id] : [])]);
+  const seat = seatRoom({ ...base, machines: base.machines.filter((m) => !skip.has(m.id)) }, nroom, rooms, ctx, new Set(), keep, gateKeep ?? gate);
+  if (typeof seat === 'string') return seat;
+  const taken = allIds(c);
+  const seated = seat.desks.map((d, slot) => ({ ...d, id: bySlot[slot]?.id ?? (taken.has(d.id) ? freshId(taken, 'desk') : (taken.add(d.id), d.id)) }));
+  const g = { ...seat.gate, id: gate?.id ?? seat.gate.id };
+  const machines = [...base.machines.filter((m) => !skip.has(m.id)), ...seated, g];
+  return { machines, skip };
+}
+
+/** Resize/move a room's rectangle. Its desks and gate stay if still valid, else are re-seated (belts re-routed). */
 export function resizeRoom(c: Canvas, room: string, rect: Rect, ctx: KernelCtx): Edit {
   rememberCtx(ctx);
   const old = c.rooms.find((r) => r.id === room);
@@ -1622,20 +1703,40 @@ export function resizeRoom(c: Canvas, room: string, rect: Rect, ctx: KernelCtx):
     const why = roomReason(m, footprint(m, ctx), rooms, ctx);
     if (why) return no(why);
   }
-  const desk = c.machines.find((m) => own(m) && m.kind === 'desk');
-  const gate = c.machines.find((m) => own(m) && m.kind === 'gate');
-  const deskOk = desk && !roomReason(desk, footprint(desk, ctx), rooms, ctx) ? desk : undefined;
-  const gateKeep = gate && !roomReason(gate, footprint(gate, ctx), rooms, ctx) ? gate : undefined;
-  const skip = new Set([desk?.id, gate?.id].filter((x): x is string => !!x));
-  const base = { ...c, machines: c.machines.filter((m) => !skip.has(m.id)) };
-  const seat = seatRoom(base, nroom, rooms, ctx, new Set(), deskOk, gateKeep ?? gate);
-  if (typeof seat === 'string') return no(seat);
-  const d = { ...seat.desk, id: desk?.id ?? seat.desk.id }, g = { ...seat.gate, id: gate?.id ?? seat.gate.id };
-  const machines = c.machines.map((m) => (m.id === d.id ? d : m.id === g.id ? g : m));
-  if (!desk) machines.push(d);
-  if (!gate) machines.push(g);
+  const rs = reseat(c, c, nroom, rooms, ctx, room);
+  if (typeof rs === 'string') return no(rs);
+  // machine order: keep each surviving machine where it was in the list (stable saves)
+  const byId = new Map(rs.machines.map((m) => [m.id, m]));
+  const machines = c.machines.filter((m) => byId.has(m.id)).map((m) => byId.get(m.id)!);
+  for (const m of rs.machines) if (!c.machines.some((x) => x.id === m.id)) machines.push(m);
   const next = { ...c, rooms, machines };
-  return settled(next, ctx, attached(c, skip), [room]);
+  return settled(next, ctx, attached(c, rs.skip), [room]);
+}
+
+/**
+ * Book phase A: replace an Assume room's assumptions (1–3, desk order). Desks are added for new slots and
+ * removed (with their belts) for dropped ones; kept desks stay where they are and now emit the new statement.
+ */
+export function setRoomAssumptions(c: Canvas, room: string, assumes: DeskAssumption[], ctx: KernelCtx): Edit {
+  rememberCtx(ctx);
+  const old = c.rooms.find((r) => r.id === room);
+  if (!old) return no('That room is gone.');
+  const as = assumesOf(old.kind, assumes);
+  if (typeof as === 'string') return no(as);
+  if (!as) return no('An Assume room needs an assumption.');
+  const nroom = withAssumes(old, as);
+  const rooms = c.rooms.map((r) => (r.id === room ? nroom : r));
+  // desks of dropped slots go, with their belts
+  const k = as.length;
+  const dropped = new Set(c.machines.filter((m) => m.config.kind === 'desk' && m.config.room === room && deskSlot(m) >= k).map((m) => m.id));
+  const base: Canvas = { ...c, rooms, machines: c.machines.filter((m) => !dropped.has(m.id)), belts: c.belts.filter((b) => !dropped.has(b.from.m) && !(b.to && dropped.has(b.to.m))) };
+  const rs = reseat(c, base, nroom, rooms, ctx, room);
+  if (typeof rs === 'string') return no(rs);
+  const byId = new Map(rs.machines.map((m) => [m.id, m]));
+  const machines = base.machines.filter((m) => byId.has(m.id)).map((m) => byId.get(m.id)!);
+  for (const m of rs.machines) if (!base.machines.some((x) => x.id === m.id)) machines.push(m);
+  const next = { ...base, rooms, machines };
+  return settled(next, ctx, attached(base, rs.skip), [room, ...machines.filter((m) => !c.machines.some((x) => x.id === m.id)).map((m) => m.id)]);
 }
 
 // ───────────────────────────── picking ─────────────────────────────

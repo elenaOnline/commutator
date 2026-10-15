@@ -3,7 +3,7 @@
 // A slot is always a thing to place, never an instruction. Sorted by family, never by "legal right now".
 import * as F from '../factory';
 import * as K from '../kernel';
-import type { Family, Term } from '../kernel/types';
+import type { Assumption, Family, Term } from '../kernel/types';
 import type { MachineKind } from '../factory/types';
 import type { Tool } from '../state/factoryStore';
 import { FAMILY } from '../ui/tokens';
@@ -211,46 +211,101 @@ export function mountHotbar(layer: HTMLElement, store: Store): HotbarApi {
   let assumeRel: 'eq' | 'neq' = 'eq';
   // the assumption's LHS and RHS are term slots (review 2026-10: every input that takes a term), one chip row
   let slotL: BareSlot | null = null, slotR: BareSlot | null = null, lastSlot: 'l' | 'r' = 'l';
+  // Book phase A: an Assume room may hold a 2nd and 3rd assumption, each on its own numbered desk (⊢₁ ⊢₂ ⊢₃)
+  type Extra = { l: BareSlot; r: BareSlot; rel: 'eq' | 'neq'; el: HTMLElement };
+  let extras: Extra[] = [];
+  let lastFocus: BareSlot | null = null;
+  const MAXA = 3;
+  const SUBN = '₀₁₂₃₄₅₆₇₈₉';
   const roomRow = h('div', { class: 'h3-roomrow' });
+  const extraRows = h('div', { class: 'h3-roomextras' });
+  const addA = h('button', { class: 'lw-key small ghost h3-addassume', title: 'Assume one more statement: it gets its own desk in the room' }, '+ Another assumption');
   const roomChips = h('div', { class: 'h3-roomchips' });
   const rel = h('button', { class: 'h3-rel math', title: 'For an Assume room: assume = or ≠' }, '=');
   const kSup = h('button', { class: 'h3-seg on', title: 'A clash proves the opposite.' }, 'Suppose');
   const kCls = h('button', { class: 'h3-seg', title: 'A clash proves P (classical).' }, 'Classical');
-  const kAsm = h('button', { class: 'h3-seg', title: 'Exports P ⇒ Q.' }, 'Assume');
+  const kAsm = h('button', { class: 'h3-seg', title: 'Exports P ⟹ Q.' }, 'Assume');
   const roomMsg = h('div', { class: 'h3-roommsg' });
   const arm = h('button', { class: 'lw-key primary small' }, 'Paint the room');
   const presetRow = h('div', { class: 'h3-presets' });
   roomPop.append(
     h('div', { class: 'h3-drawer-head' }, h('span', { class: 'h3-label', style: 'color:var(--scope)' }, 'Room'), h('span', { class: 'h3-dim' }, 'an assumption, a desk, a gate')),
     h('div', { class: 'h3-segs' }, kSup, kCls, kAsm),
-    roomRow, roomChips,
+    roomRow, extraRows, addA, roomChips,
     roomMsg, presetRow, h('div', { class: 'h3-roomfoot' }, arm, h('span', { class: 'h3-dim' }, 'then drag a rectangle')));
   const termOf = (sl: BareSlot | null): Term | null => { const r = sl?.read(); return r && r.k === 'ok' ? r.term : null; };
+  const mkSlot = (side: 'l' | 'r', value: string, label: string, onFocus: () => void) => {
+    const s = store.get();
+    const sl = bareSlot({
+      name: side, atoms: atomsAll(s), L: labelsAll(s), H: huesAll(s), vars: varSortsOf(s), value, towerLabels: () => towerLabelSet(store.get()), onChange: () => updateRoom(),
+      onFocus: () => { lastFocus = sl; onFocus(); }, onKey: (ev) => { if (ev.key === 'Enter') arm.click(); if (ev.key === 'Escape') closePopovers(); },
+    });
+    sl.input.setAttribute('aria-label', label);
+    return sl;
+  };
+  const pLabel = (i: number) => h('span', { class: 'h3-dim math', html: `<i>P</i><sub class="m-sub">${i + 1}</sub>` }); // Latin Modern has no ₁ glyph
+  void SUBN;
   const buildSlots = (lv: string, rv: string) => {
     const s = store.get();
-    const atoms = atomsAll(s), L = labelsAll(s), H = huesAll(s), vars = varSortsOf(s);
-    const mk = (name: 'LHS' | 'RHS', side: 'l' | 'r', value: string) => bareSlot({
-      name: side, atoms, L, H, vars, value, towerLabels: () => towerLabelSet(store.get()), onChange: () => updateRoom(),
-      onFocus: () => { lastSlot = side; }, onKey: (ev) => { if (ev.key === 'Enter') arm.click(); if (ev.key === 'Escape') closePopovers(); },
-    });
-    slotL = mk('LHS', 'l', lv); slotR = mk('RHS', 'r', rv);
-    slotL.input.setAttribute('aria-label', 'LHS of the assumption'); slotR.input.setAttribute('aria-label', 'RHS of the assumption');
-    roomRow.replaceChildren(h('span', { class: 'h3-dim' }, 'assume'), slotL.el, rel, slotR.el);
+    const L = labelsAll(s), H = huesAll(s), vars = varSortsOf(s);
+    slotL = mkSlot('l', lv, 'LHS of the assumption', () => { lastSlot = 'l'; });
+    slotR = mkSlot('r', rv, 'RHS of the assumption', () => { lastSlot = 'r'; });
+    extras = []; extraRows.replaceChildren();
+    layoutRows();
     const els = s.level.atoms;
     const chips: Term[] = [...els.map((a) => ({ k: 'atom', id: a.id } as Term)), ...els.map((a) => ({ k: 'inv', arg: { k: 'atom', id: a.id } } as Term)), { k: 'e' }];
-    roomChips.replaceChildren(slotChips(() => (lastSlot === 'l' ? slotL! : slotR!), chips, L, H, vars));
+    roomChips.replaceChildren(slotChips(() => lastFocus ?? (lastSlot === 'l' ? slotL! : slotR!), chips, L, H, vars));
+  };
+  const multi = () => roomKind === 'assume' && extras.length > 0;
+  const layoutRows = () => {
+    if (!slotL || !slotR) return;
+    roomRow.replaceChildren(multi() ? pLabel(0) : h('span', { class: 'h3-dim' }, 'assume'), slotL.el, rel, slotR.el);
+    extraRows.hidden = !multi();
+    addA.hidden = roomKind !== 'assume' || extras.length >= MAXA - 1;
+  };
+  const addAssumption = (lv = '', rv = '', relv: 'eq' | 'neq' = 'eq') => {
+    if (extras.length >= MAXA - 1) return;
+    const i = extras.length + 1;
+    const ex: Extra = { l: mkSlot('l', lv, `LHS of assumption ${i + 1}`, () => undefined), r: mkSlot('r', rv, `RHS of assumption ${i + 1}`, () => undefined), rel: relv, el: h('div', { class: 'h3-roomrow' }) };
+    const rb = h('button', { class: 'h3-rel math live', title: 'Assume = or ≠' }, relv === 'eq' ? '=' : '≠');
+    rb.addEventListener('click', () => { ex.rel = ex.rel === 'eq' ? 'neq' : 'eq'; rb.textContent = ex.rel === 'eq' ? '=' : '≠'; updateRoom(); });
+    const rm = h('button', { class: 'h3-x', 'aria-label': `Remove assumption ${i + 1}`, title: 'Remove this assumption' }, '×');
+    rm.addEventListener('click', () => { extras = extras.filter((x) => x !== ex); ex.el.remove(); renumber(); layoutRows(); updateRoom(); });
+    ex.el.append(pLabel(i), ex.l.el, rb, ex.r.el, rm);
+    extras.push(ex); extraRows.append(ex.el);
+    layoutRows(); updateRoom();
+    ex.l.input.focus({ preventScroll: true });
+  };
+  const renumber = () => extras.forEach((ex, j) => { const lab = ex.el.firstElementChild; if (lab) lab.replaceWith(pLabel(j + 1)); });
+  addA.addEventListener('click', () => addAssumption());
+  /** The Assume room's assumptions in desk order, when every slot reads; null while one is incomplete. */
+  const assumptions = (): Assumption[] | null => {
+    const l = termOf(slotL), r = termOf(slotR);
+    if (!l || !r) return null;
+    const out: Assumption[] = [{ rel: assumeRel, l, r }];
+    for (const ex of extras) { const a = termOf(ex.l), b = termOf(ex.r); if (!a || !b) return null; out.push({ rel: ex.rel, l: a, r: b }); }
+    return out;
   };
   const assumedRel = () => (roomKind === 'suppose' ? 'eq' : roomKind === 'classical' ? 'neq' : assumeRel);
   const updateRoom = () => {
     rel.textContent = assumedRel() === 'eq' ? '=' : '≠';
     rel.classList.toggle('live', roomKind === 'assume');
     kSup.classList.toggle('on', roomKind === 'suppose'); kCls.classList.toggle('on', roomKind === 'classical'); kAsm.classList.toggle('on', roomKind === 'assume');
+    layoutRows();
     const l = termOf(slotL), r = termOf(slotR);
     const L = labelsAll(store.get());
+    const as = multi() ? assumptions() : null;
+    if (multi()) {
+      roomMsg.innerHTML = as
+        ? `exports <span class="math">${as.map((a) => `${tH(a.l, L)} <span class="m-rel">${a.rel === 'eq' ? '=' : '≠'}</span> ${tH(a.r, L)}`).join(', ')} <span class="m-rel">⟹</span> <i>Q</i></span>`
+        : '';
+      arm.disabled = !as;
+      return;
+    }
     if (l && r) {
       const P = `${tH(l, L)} <span class="m-rel">${assumedRel() === 'eq' ? '=' : '≠'}</span> ${tH(r, L)}`;
       roomMsg.innerHTML = roomKind === 'assume'
-        ? `exports <span class="math">${P} <span class="m-rel">⇒</span> <i>Q</i></span>`
+        ? `exports <span class="math">${P} <span class="m-rel">⟹</span> <i>Q</i></span>`
         : `a clash exports <span class="math">${tH(l, L)} <span class="m-rel">${roomKind === 'suppose' ? '≠' : '='}</span> ${tH(r, L)}</span>${roomKind === 'classical' ? ' <span class="t-classical">classical</span>' : ''}`;
     } else roomMsg.innerHTML = '';
     arm.disabled = !(l && r);
@@ -262,13 +317,15 @@ export function mountHotbar(layer: HTMLElement, store: Store): HotbarApi {
   arm.addEventListener('click', () => {
     const l = termOf(slotL), r = termOf(slotR);
     if (!l || !r) return;
+    if (multi()) { const as = assumptions(); if (as) armRoom('assume', l, r, assumeRel, as); return; }
     armRoom(roomKind, l, r, roomKind === 'assume' ? assumeRel : undefined);
   });
-  const armRoom = (kind: RK, l: Term, r: Term, relv?: 'eq' | 'neq') => {
+  const armRoom = (kind: RK, l: Term, r: Term, relv?: 'eq' | 'neq', assumes?: Assumption[]) => {
     roomPop.hidden = true;
-    store.setTool({ k: 'room', kind, l, r, ...(relv ? { rel: relv } : {}) });
-    const st = store as unknown as { setRoomSpec?: (x: { l: Term; r: Term; rel?: 'eq' | 'neq' } | null) => void };
-    st.setRoomSpec?.({ l, r, ...(relv ? { rel: relv } : {}) });
+    const many = assumes && assumes.length > 1 ? { assumes } : {};
+    store.setTool({ k: 'room', kind, l, r, ...(relv ? { rel: relv } : {}), ...many });
+    const st = store as unknown as { setRoomSpec?: (x: { l: Term; r: Term; rel?: 'eq' | 'neq'; assumes?: Assumption[] } | null) => void };
+    st.setRoomSpec?.({ l, r, ...(relv ? { rel: relv } : {}), ...many });
   };
   const openRoomPopover = () => {
     const s = store.get();
@@ -277,7 +334,13 @@ export function mountHotbar(layer: HTMLElement, store: Store): HotbarApi {
     const t = s.ui.tool;
     const keep = t.k === 'room' && t.l && t.r;
     if (keep) roomKind = t.kind;
+    const kept = extras.map((ex) => ({ l: ex.l.input.value, r: ex.r.input.value, rel: ex.rel }));
     buildSlots(keep ? safe(() => K.termText(t.l!, L), '') : slotL?.input.value ?? '', keep ? safe(() => K.termText(t.r!, L), '') : slotR?.input.value ?? '');
+    const again = keep && t.k === 'room' && t.assumes && t.assumes.length > 1
+      ? t.assumes.slice(1).flatMap((a) => (a.rel === 'mem' ? [] : [{ l: safe(() => K.termText(a.l, L), ''), r: safe(() => K.termText(a.r, L), ''), rel: a.rel }]))
+      : kept;
+    for (const x of again) addAssumption(x.l, x.r, x.rel);
+    lastFocus = null;
     presetRow.innerHTML = '';
     for (const sk of s.level.sockets) {
       const g = sk.target;

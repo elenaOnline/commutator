@@ -28,6 +28,7 @@ function fallbackFamily(n: ProofNode, g: ProofGraph): Family {
         const pair = st && g.nodes.some((m) => m.meta?.station === st && m.k === 'step' && m.op.k === 'rewrite' && m.op.rule.k === 'axiom' && (m.op.rule.id === 'invL' || m.op.rule.id === 'invR'));
         return pair ? 'inverse' : 'identity';
       }
+      if (op.k === 'applyMap') return 'structure'; // Book phase C
       const r = op.rule;
       if (r.k === 'axiom') return r.id === 'unitL' || r.id === 'unitR' ? 'identity' : 'inverse';
       if (r.k === 'schema') return 'lemma';

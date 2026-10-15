@@ -38,6 +38,7 @@ function leafSig(t: Term): string {
     case 'mul': return 'mul';
     case 'pow': return `p:${sig(t.base)}^${JSON.stringify(t.exp)}`;
     case 'int': return `z:${JSON.stringify(t.val)}`;
+    case 'app': return `f:${t.fn}(${t.args.map(sig).join(',')})`; // Book phase C (legacy bench: compile-only fallback)
   }
 }
 

@@ -32,6 +32,7 @@
 // `queued(run)[id]` (RunStateX.queued) = items held back at a blocked output: show "×n waiting" there
 // instead of drawing a belt full of bead strings.
 import type { Canvas, Compiled, FactoryMetrics, LiveStatus, Packet, RunState } from './types';
+import type { Card, Pallet, Subst } from '../kernel/types';
 import { LK, type CompiledX, type RunPlan } from './compile';
 
 /** Sources re-emit every EMIT_PERIOD ticks. */
@@ -39,8 +40,9 @@ export const EMIT_PERIOD = 6;
 /** At most this many packets ride one belt at once (no packet flood). */
 export const MAX_IN_FLIGHT = 2;
 
-/** RunState plus per-output queue counts (machine id → items waiting at its blocked output). */
-export interface RunStateX extends RunState { queued: Record<string, number> }
+/** RunState plus per-output queue counts (machine id → items waiting at its blocked output), and (Book phase A)
+ *  the inlet each dock accepted its first delivery at (socket id → port id), for open docks' answers. */
+export interface RunStateX extends RunState { queued: Record<string, number>; via?: Record<string, string> }
 /** Items waiting at each machine's blocked output ("×n waiting"); absent = nothing waiting. */
 export const queued = (s: RunState): Record<string, number> => (s as Partial<RunStateX>).queued ?? {};
 
@@ -99,7 +101,7 @@ export function initRun(c: Canvas, comp: Compiled): RunStateX {
     packets.push({ id: nid++, value: v, at: { k: 'port', m: id, port: 'out' } });
     nextEmit[id] = EMIT_PERIOD;
   }
-  const s: RunStateX = { tick: 0, packets, jobs: {}, latched: {}, delivered: {}, live: {}, nextEmit, nextPacketId: nid, queued: {} };
+  const s: RunStateX = { tick: 0, packets, jobs: {}, latched: {}, delivered: {}, live: {}, nextEmit, nextPacketId: nid, queued: {}, via: {} };
   s.live = activity(s, c, comp, new Set());
   return s;
 }
@@ -178,6 +180,7 @@ export function stepRun(s: RunState, c: Canvas, comp: Compiled): RunStateX {
 
   // 4. docks accept certified shipments
   const delivered = { ...s.delivered };
+  const via = { ...((s as Partial<RunStateX>).via ?? {}) };
   for (const m of Object.keys(plan.machines).sort(cmp)) {
     const pm = plan.machines[m]!;
     if (pm.socket === undefined) continue;
@@ -187,7 +190,7 @@ export function stepRun(s: RunState, c: Canvas, comp: Compiled): RunStateX {
       const k = LK.in(m, port);
       if (!next.has(k)) continue;
       next.delete(k);
-      if (delivered[pm.socket] === undefined) delivered[pm.socket] = t1;
+      if (delivered[pm.socket] === undefined) { delivered[pm.socket] = t1; via[pm.socket] = port; }
     }
   }
 
@@ -209,7 +212,7 @@ export function stepRun(s: RunState, c: Canvas, comp: Compiled): RunStateX {
     if (!next.has(LK.out(m))) continue;
     q[m] = 1 + (jobs[m]?.blocked ? 1 : 0) + (backlog[m] ?? 0);
   }
-  const out: RunStateX = { tick: t1, packets, jobs, latched, delivered, live: {}, nextEmit, nextPacketId: nid, queued: q };
+  const out: RunStateX = { tick: t1, packets, jobs, latched, delivered, live: {}, nextEmit, nextPacketId: nid, queued: q, via };
   out.live = activity(out, c, comp, stuck);
   return out;
 }
@@ -233,6 +236,21 @@ function activity(s: RunState, c: Canvas, comp: Compiled, stuck: Set<string>): R
     live[m.id] = 'idle';
   }
   return live;
+}
+
+/**
+ * Book phase A — an open dock's answer, for the dock to show IN PLACE once it has accepted a delivery:
+ * the hole values (kernel SocketResult.holes shape) and the closed instance (`d = a⁶` for `d = ?`).
+ * null until the runtime delivers (so the floor never shows an answer the factory has not shipped), and
+ * for closed docks. Render with factText/factTex(instance, L) or kernel dockText(sock, L, holes).
+ */
+export function dockAnswer(comp: Compiled, s: RunState, socketId: string): { holes: Subst; instance: Pallet | Card } | null {
+  if (s.delivered[socketId] === undefined) return null;
+  const d = comp.sockets[socketId];
+  if (!d?.ok || !d.holes || !d.instance) return null;
+  const port = (s as Partial<RunStateX>).via?.[socketId];
+  const a = port ? d.answers?.[port] : undefined;
+  return a ?? { holes: d.holes, instance: d.instance };
 }
 
 const SYSTEM = new Set(['given', 'socket', 'desk', 'gate']);

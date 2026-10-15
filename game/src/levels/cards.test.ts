@@ -56,7 +56,7 @@ function targetPairs(t: Pallet | Card): Pair[] {
   switch (t.k) {
     case 'eq': case 'neq': return [P(t.l, t.k, t.r)];
     case 'law': return [P(t.l, 'eq', t.r)];
-    case 'cond': return [P(t.concl.l, t.concl.k === 'neq' ? 'neq' : 'eq', t.concl.r)];
+    case 'cond': return t.concl.k === 'mem' ? [] : [P(t.concl.l, t.concl.k === 'neq' ? 'neq' : 'eq', t.concl.r)];
     default: return [];
   }
 }
@@ -336,7 +336,7 @@ describe('Chapter IV (Powers) manifests', () => {
   it('socket targets are written in kernel normal form (hand-built polynomials are canonical)', () => {
     const terms = (t: Pallet | Card): Term[] =>
       t.k === 'eq' || t.k === 'neq' || t.k === 'law' ? [t.l, t.r]
-        : t.k === 'cond' ? [...t.premises.flatMap((p) => [p.l, p.r]), t.concl.l, t.concl.r] : [];
+        : t.k === 'cond' ? [...t.premises, t.concl].flatMap((p) => (p.k === 'mem' ? [p.t] : [p.l, p.r])) : t.k === 'mem' ? [t.t] : [];
     for (const id of B) for (const sk of LEVEL_BY_ID[id]!.sockets) for (const t of terms(sk.target)) expect(norm(t), id).toEqual(t);
   });
 });

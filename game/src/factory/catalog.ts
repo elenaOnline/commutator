@@ -2,9 +2,9 @@
 // Four verbs with recipes (Rewriter · Operator · Joiner · Theorem), sources (Spool, Card Dock, Hopper),
 // Tower (declares x₁ ∈ G) and ∀ (Generalizer). Decisions: design/v4/DESIGN.md §1–§2.
 import type { KernelCtx } from '../kernel';
-import { mirrorCard, pressCard, powerSchema, sameCardUpToRenaming, POWER_SCHEMAS, POWER_LITERAL_FAMILY } from '../kernel';
-import type { Card, Schema } from '../kernel/types';
-import type { LibRef, MachineConfig, MachineKind, MachineSpec } from './types';
+import { mirrorCard, pressCard, powerSchema, sameCardUpToRenaming, POWER_SCHEMAS, POWER_LITERAL_FAMILY, SUB_SCHEMAS, subAllowed, subSchema, subsIn, MAP_SCHEMAS, mapAllowed, mapSchema } from '../kernel';
+import type { Card, MapDecl, MetaId, Schema, SubgroupDecl } from '../kernel/types';
+import type { Canvas, LibRef, MachineConfig, MachineKind, MachineSpec } from './types';
 import { SIDE_PAIRS } from '../levels/levels';
 
 const spec = (s: MachineSpec): MachineSpec => s;
@@ -60,6 +60,8 @@ export function usableSchemas(ctx: KernelCtx, k?: 'law' | 'cond'): Schema[] {
  * 'power.literal:<r>'). The bare family id 'power.literal' has no card until r is chosen (null).
  */
 export function schemaOf(ctx: KernelCtx, id: string): Schema | null {
+  const sb = subSchema(id) ?? mapSchema(id);
+  if (sb) return sb;
   if (ctx.registry[id]) return ctx.registry[id]!;
   if (!id.startsWith('power.') || id === POWER_LITERAL_FAMILY) return null;
   try { return powerSchema(id); } catch { return null; }
@@ -108,7 +110,12 @@ export function libPremises(ctx: KernelCtx, ref: LibRef | null | undefined): num
 export function libName(ctx: KernelCtx, ref: LibRef | null | undefined): string {
   if (!ref) return 'no recipe';
   switch (ref.k) {
-    case 'schema': return schemaMachineName(ctx, ref.id, ref.mirror);
+    case 'schema': {
+      const base = schemaMachineName(ctx, ref.id, ref.mirror);
+      // Book phase B: the subgroup(s) chosen for its parameters, e.g. 'closed under products (H)'
+      const st = ref.structs ? Object.values(ref.structs).map((id) => subsIn(ctx.level).find((x) => x.id === id)?.label ?? (ctx.level.maps ?? []).find((x) => x.id === id)?.label ?? varLabel(id)) : [];
+      return st.length ? `${base} (${st.join(', ')})` : base;
+    }
     case 'given': return ctx.level.givens.find((g) => g.id === ref.givenId)?.name ?? ref.givenId;
     case 'lagrange': return 'Lagrange (imported)';
     case 'axiom': return { unitL: 'e x = x', unitR: 'x e = x', invL: 'x⁻¹x = e', invR: 'x x⁻¹ = e' }[ref.id];
@@ -125,8 +132,15 @@ export function hasDistinctMirror(card: Card): boolean {
  * givens as rules, Lagrange); kind 'theorem' = conditional cards for a Theorem machine; kind 'card' = any card
  * a Card Dock may emit. Mirrors are listed for mirrorable schemas. Order: givens, earned/authored, imported.
  */
-export function libraryRefs(ctx: KernelCtx, kind: 'rule' | 'theorem' | 'card'): LibRef[] {
+export function libraryRefs(ctx: KernelCtx, kind: 'rule' | 'theorem' | 'card', canvas?: Canvas): LibRef[] {
   const out: LibRef[] = [];
+  const scope = subgroupsInScope(ctx, canvas);
+  const mscope = mapsInScope(ctx, canvas);
+  /** A schema ref, once per choice of subgroups / homs / actions for its parameters (Book phase B, C). */
+  const pushSchema = (id: string, card: Card, mirror?: boolean) => {
+    const choices = structChoices(card, scope, 24, mscope);
+    for (const st of choices) out.push({ k: 'schema', id, ...(mirror ? { mirror: true } : {}), ...(Object.keys(st).length ? { structs: st } : {}) });
+  };
   for (const g of ctx.level.givens) {
     const k = g.fact.k;
     if (kind === 'rule' && (k === 'eq' || k === 'law')) out.push({ k: 'given', givenId: g.id });
@@ -137,8 +151,18 @@ export function libraryRefs(ctx: KernelCtx, kind: 'rule' | 'theorem' | 'card'): 
     const k = s.card.k;
     const want = kind === 'card' || (kind === 'rule' ? k === 'law' : k === 'cond');
     if (!want) continue;
-    out.push({ k: 'schema', id: s.id });
-    if (s.mirrorable && hasDistinctMirror(s.card)) out.push({ k: 'schema', id: s.id, mirror: true });
+    pushSchema(s.id, s.card);
+    if (s.mirrorable && hasDistinctMirror(s.card)) pushSchema(s.id, mirrorCard(s.card), true);
+  }
+  // Book phase B: the subgroup kind's axioms (wherever a subgroup is in scope), the earned e ∈ S, the imported powers
+  if (kind === 'theorem' || kind === 'card') {
+    const lv = { ...ctx.level, subgroups: scope };
+    for (const id of Object.keys(SUB_SCHEMAS)) if (subAllowed(id, lv)) pushSchema(id, SUB_SCHEMAS[id]!.card);
+  }
+  // Book phase C: the map kinds' laws (hom law, action laws; hom.pow when listed) — laws, so Rewriter recipes and cards
+  if (kind === 'rule' || kind === 'card') {
+    const lv = { ...ctx.level, maps: mscope };
+    for (const id of Object.keys(MAP_SCHEMAS)) if (mapAllowed(id, lv)) pushSchema(id, MAP_SCHEMAS[id]!.card);
   }
   if ((kind === 'rule' || kind === 'card') && ctx.level.givens.some((g) => g.fact.k === 'size')) out.push({ k: 'lagrange' });
   // Imported power laws the order lists (all laws); 'power.literal' is one family entry with an r knob —
@@ -147,6 +171,42 @@ export function libraryRefs(ctx: KernelCtx, kind: 'rule' | 'theorem' | 'card'): 
     const listed = new Set(out.map((r) => (r.k === 'schema' ? r.id : '')));
     for (const id of Object.keys(POWER_SCHEMAS)) if (ctx.level.tools.schemas.includes(id) && !listed.has(id)) out.push({ k: 'schema', id });
     if (ctx.level.tools.schemas.includes(POWER_LITERAL_FAMILY)) out.push({ k: 'schema', id: POWER_LITERAL_FAMILY });
+  }
+  return out;
+}
+
+/**
+ * Book phase B: the subgroups a recipe may use — the level's, plus the Subgroup Towers standing on `canvas`
+ * (towers whose config has `sub`). This is the reuse lens's option list.
+ */
+export function subgroupsInScope(ctx: KernelCtx, canvas?: Canvas): SubgroupDecl[] {
+  const out = [...subsIn(ctx.level)];
+  for (const m of canvas?.machines ?? []) {
+    const c = m.config;
+    if (c.kind === 'tower' && (c.sub === 'sub' || c.sub === 'normal') && !out.some((x) => x.id === c.varId)) out.push({ id: c.varId, label: c.label, normal: c.sub === 'normal', variable: true });
+  }
+  return out;
+}
+/** Every way to choose subgroups for a card's subgroup parameters (normal ones need normal subgroups); [{}] when it has none. */
+export function structChoices(card: Card, scope: SubgroupDecl[], cap = 24, maps: MapDecl[] = []): Record<MetaId, string>[] {
+  let acc: Record<MetaId, string>[] = [{}];
+  for (const b of card.binds ?? []) {
+    // group / set parameters are solved from the homs, actions and subgroups chosen (the kernel unifies them)
+    const opts = b.k === 'sub' ? scope.filter((x) => !b.normal || x.normal).map((x) => x.id)
+      : b.k === 'hom' ? maps.filter((m) => (m.kind ?? 'map') === 'hom').map((m) => m.id)
+      : b.k === 'act' ? maps.filter((m) => (m.kind ?? 'map') === 'action').map((m) => m.id) : null;
+    if (!opts) continue;
+    acc = acc.flatMap((a) => opts.map((o) => ({ ...a, [b.id]: o }))).slice(0, cap);
+  }
+  return acc;
+}
+
+/** Book phase C: the maps a recipe may use — the level's, plus the Hom Towers standing on `canvas`. */
+export function mapsInScope(ctx: KernelCtx, canvas?: Canvas): MapDecl[] {
+  const out: MapDecl[] = [...(ctx.level.maps ?? [])];
+  for (const m of canvas?.machines ?? []) {
+    const c = m.config;
+    if (c.kind === 'tower' && c.hom && !out.some((x) => x.id === c.varId)) out.push({ id: c.varId, label: c.label, args: [c.hom.dom], res: c.hom.cod, kind: 'hom' });
   }
   return out;
 }
@@ -184,6 +244,12 @@ export function sortBase(label: string, sort: 'G' | 'Z'): string {
 export interface DefaultOpts {
   /** Tower sort: 'G' elements (x₁, y₁ …) or 'Z' integers (n₁, k₁ …). */
   sort?: 'G' | 'Z';
+  /** Book phase B: a Subgroup Tower ('sub': H ≤ G, 'normal': N ⊴ G) instead of an element Tower. */
+  sub?: 'sub' | 'normal';
+  /** Book phase C: an element Tower in this group or set; a group Tower (G₁); a Hom Tower (f₁ : dom → cod). */
+  carrier?: string;
+  group?: boolean;
+  hom?: { dom: string; cod: string };
   schema?: string;
   mirror?: boolean;
   /** Preset recipe for the verb machines (hotbar presets); must match the kind. */
@@ -206,7 +272,12 @@ export function defaultConfig(kind: MachineKind, ctx: KernelCtx, opts?: DefaultO
   };
   switch (kind) {
     case 'spool': return { kind, t: { k: 'knob', term: null } };
-    case 'tower': return opts?.sort === 'Z' ? { kind, varId: 'n', label: 'n', sort: 'Z' } : { kind, varId: 'x', label: 'x', sort: 'G' };
+    case 'tower':
+      if (opts?.group) return { kind, varId: 'G1', label: 'G₁', sort: 'G', group: true };
+      if (opts?.hom) return { kind, varId: 'f1', label: 'f₁', sort: 'G', hom: { ...opts.hom } };
+      if (opts?.carrier && opts.sort !== 'Z') return { kind, varId: 'x', label: 'x', sort: 'G', carrier: opts.carrier };
+      if (opts?.sub) return { kind, varId: opts.sub === 'normal' ? 'N' : 'H', label: opts.sub === 'normal' ? 'N' : 'H', sort: 'G', sub: opts.sub };
+      return opts?.sort === 'Z' ? { kind, varId: 'n', label: 'n', sort: 'Z' } : { kind, varId: 'x', label: 'x', sort: 'G' };
     case 'rewriter': return {
       kind, recipe: (opts?.recipe as never) ?? null, dir: 'fwd', target: { k: 'first' }, gap: { k: 'first' }, values: {}, tidy: true,
     };

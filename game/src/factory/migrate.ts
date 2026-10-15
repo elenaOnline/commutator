@@ -63,6 +63,8 @@ function migrateUnsafe(raw: unknown, ctx: KernelCtx): Canvas | null {
       kind: r.kind === 'classical' || r.kind === 'assume' ? r.kind : 'suppose',
       ...(r.kind === 'assume' ? { rel: r.rel === 'neq' ? 'neq' as const : 'eq' as const } : {}),
       l: r.l as Term, r: r.r as Term, rect: r.rect as unknown as Room['rect'],
+      // Book phase A: a multi-desk Assume room keeps its assumptions (the kernel validates them)
+      ...(r.kind === 'assume' && Array.isArray(r.assumes) ? { assumes: structuredClone(r.assumes) as Room['assumes'] } : {}),
     }));
   const v4 = isV4(rawMs);
 
@@ -102,7 +104,7 @@ function migrateUnsafe(raw: unknown, ctx: KernelCtx): Canvas | null {
       case 'hopper': add('hopper', { kind: 'hopper', t: (c.t as Term | null) ?? null }); break;
       case 'given': add('given', { kind: 'given', givenId: String(c.givenId ?? '') }); break;
       case 'socket': add('socket', { kind: 'socket', socketId: String(c.socketId ?? '') }); break;
-      case 'desk': add('desk', { kind: 'desk', room: String(c.room ?? '') }); break;
+      case 'desk': add('desk', { kind: 'desk', room: String(c.room ?? ''), ...(Number.isInteger(c.slot) && (c.slot as number) > 0 ? { slot: c.slot as number } : {}) }); break;
       case 'gate': add('gate', { kind: 'gate', room: String(c.room ?? '') }); break;
       case 'canceller': rw({ k: 'cancel' }, { target: span(c.target), tidy: c.tidy !== false }); break;
       case 'popper': rw({ k: 'pop' }, { target: span(c.target) }); break;

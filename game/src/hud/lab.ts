@@ -5,7 +5,7 @@ import * as K from '../kernel';
 import type { Fact, Pallet, ScopeId } from '../kernel/types';
 import { catalogue, evalTerm, holds, testClaim, type FiniteGroup } from '../groups';
 import { reducedMotion } from '../ui/tokens';
-import { esc, h, isSolved, labels, safe, fH, tH, nameHTML, type S as State, type Store } from './util';
+import { givenPrefixHTML, esc, h, isSolved, labels, safe, fH, tH, nameHTML, type S as State, type Store } from './util';
 
 export interface LabHooks { pin: (p: Pallet) => void; pinned: () => Pallet[] }
 const activeScopeOf = (s: State): ScopeId => (s.ui.lens ? s.compiled?.scopeOf?.[s.ui.lens] : undefined) ?? K.ROOT;
@@ -15,7 +15,7 @@ interface RowResult { G: FiniteGroup; cases: number; fail: Record<string, string
 function assumptionsFor(s: State, scope: ScopeId): { facts: Fact[]; names: string[] } {
   const L = labels(s.level);
   const facts: Fact[] = s.level.givens.map((g) => g.fact);
-  const names = s.level.givens.map((g) => `<span class="math">${g.name === '|G|' ? '' : `<i>${nameHTML(g.name)}</i>: `}${fH(g.fact, L)}</span>`);
+  const names = s.level.givens.map((g) => `<span class="math">${givenPrefixHTML(g.name)}${fH(g.fact, L)}</span>`);
   let cur: ScopeId | undefined = scope;
   while (cur && cur !== K.ROOT) {
     const r = s.compiled?.graph?.rooms?.find((x) => x.id === cur);

@@ -2,9 +2,10 @@
 // beat, ∎ stamps in, the specific statement retypesets as "Lemma n. For all …", and any earned machine
 // card flies into the hotbar. Then: Next work order. Click or Esc skips to the end state.
 import { reducedMotion } from '../ui/tokens';
+import { paperOf } from './paper';
 import * as F from '../factory';
 import type { Card, LevelManifest } from '../kernel/types';
-import { LEVELS, LEVEL_BY_ID, REGISTRY, fH, h, isSolved, labels, nextLevel, safe, schemaNames, statementOf, tH, towerVars, type S, type Store } from './util';
+import { dockAnswers, openView, CAMPAIGN_LEVELS, CAMPAIGN_NAMES, LEVEL_BY_ID, REGISTRY, camp, campaignOf, displayNo, fH, h, isSolved, labels, nextLevel, progressOf, safe, schemaNames, statementOf, tH, towerVars, type S, type Store } from './util';
 
 const HOLD_MS = 650;
 /** Names the content expects the player to save under (T01 cites "the lemma you saved"). */
@@ -69,19 +70,28 @@ export function mountCeremony(layer: HTMLElement, store: Store, hooks: { dest: (
   const play = (levelId: string, unlocked: string[]) => {
     clear();
     capturing = true;
-    const lv = LEVEL_BY_ID[levelId]!;
-    const st = statementOf(lv, { any: true });
+    const lv0 = LEVEL_BY_ID[levelId]!;
+    const no = campaignOf(lv0) === 'book' ? displayNo(lv0) : String(lv0.index);
+    // open docks: the statement shows each found answer as a filled chip (d = a⁶)
+    const ov = openView(lv0, dockAnswers(store.get()));
+    const lv = ov.level;
+    const st0 = statementOf(lv, { any: true });
+    const st = { ...st0, html: ov.chips(st0.html), plainHTML: ov.chips(st0.plainHTML) };
     const reduced = reducedMotion() || store.get().save.settings.reducedMotion;
     el.innerHTML = '';
     el.classList.remove('done');
     const seal = h('div', { class: 'qed-seal', 'aria-hidden': 'true' });
     const cardGoal = hasCardGoal(lv);
-    const cond = conditionalHTML(lv);
+    const cond = ov.chips(conditionalHTML(lv));
     const specific = h('div', { class: 'qed-specific', html: cardGoal ? `<span class="math">${st.plainHTML}</span>` : cond });
-    const lemma = h('div', { class: 'qed-lemma' }, h('span', { class: 'qed-lemma-no' }, `Lemma ${lv.index}.`), ' ', h('span', { class: 'qed-lemma-st', html: cardGoal ? st.html : cond }));
+    const lemma = h('div', { class: 'qed-lemma' }, h('span', { class: 'qed-lemma-no' }, `Lemma ${no}.`), ' ', h('span', { class: 'qed-lemma-st', html: cardGoal ? st.html : cond }));
     // "arbitrary" is said only of Tower variables; level constants a, b are particular elements
     const s0 = store.get();
     const tv = towerVars(s0).map((v) => tH({ k: 'atom', id: v.id }, Object.fromEntries(towerVars(s0).map((w) => [w.id, w.label]))));
+    // The Book: the proof, written out as on paper (numbered lines, reasons), headed by the method it trains.
+    const onPaper = campaignOf(lv) === 'book'
+      ? h('div', { class: 'qed-paper pp-page', html: paperOf(s0, { head: false }) })
+      : null;
     const note = h('div', { class: 'qed-note', html: cardGoal
       ? (tv.length ? `<span class="math">${tv.join(', ')}</span> could be anything. So it holds for all.` : 'It holds in every group.')
       : 'Proven for these elements. Towers and ∀ make laws.' });
@@ -89,7 +99,7 @@ export function mountCeremony(layer: HTMLElement, store: Store, hooks: { dest: (
     const sv = savableOf(s0);
     let saveRow: HTMLElement | null = null;
     if (sv) {
-      const already = s0.save.lemmas.some((l) => JSON.stringify(l.card) === JSON.stringify(sv.card));
+      const already = camp(s0).lemmas.some((l) => JSON.stringify(l.card) === JSON.stringify(sv.card));
       const suggested = SUGGESTED[lv.id] ?? (lv.unlocks.map((u) => REGISTRY[u]?.name).find(Boolean)) ?? lv.title;
       const plate = h('div', { class: 'qed-plate' }, h('span', { class: 'machine-band' }), h('span', { class: 'qed-m-kicker' }, already ? 'In your Lemma Book' : 'Your own theorem'), h('span', { class: 'machine-stmt math', html: fH(sv.card, {}) }));
       if (already) saveRow = h('div', { class: 'qed-save' }, plate);
@@ -117,17 +127,18 @@ export function mountCeremony(layer: HTMLElement, store: Store, hooks: { dest: (
         h('span', { class: 'machine-band' }),
         h('span', { class: 'qed-m-kicker' }, 'New machine'),
         h('span', { class: 'machine-name' }, nm.name),
-        h('span', { class: 'machine-tb' }, `Lemma ${lv.index} · ${nm.textbook}`),
+        h('span', { class: 'machine-tb' }, `Lemma ${no} · ${nm.textbook}`),
         h('span', { class: 'machine-stmt math', html: fH(sc.card, {}).replace(/^∀[^.]*\.&ensp;/, '') }),
         h('span', { class: 'qed-m-mirror' }, sc.mirrorable ? 'both sides · on your hotbar from the next work order' : 'on your hotbar from the next work order')));
     }
     const save = store.get().save;
-    const mainLeft = LEVELS.filter((l) => !l.side && !isSolved(save, l.id)).length;
+    const campLevels = CAMPAIGN_LEVELS[campaignOf(lv)];
+    const mainLeft = campLevels.filter((l) => !l.side && !isSolved(save, l.id)).length;
     const ending = !lv.side && mainLeft === 0
-      ? h('div', { class: 'qed-ending' }, `Campaign complete: ${LEVELS.filter((l) => isSolved(save, l.id)).length} theorems, all checked.`)
+      ? h('div', { class: 'qed-ending' }, `${campaignOf(lv) === 'book' ? `${CAMPAIGN_NAMES.book} complete` : 'Campaign complete'}: ${campLevels.filter((l) => isSolved(save, l.id)).length} theorems, all checked.`)
       : null;
     // the factory as it stood when the dock sealed (not the best ever, not after later edits)
-    const m = safe(() => store.metrics(), null) ?? store.get().save.levels[levelId]?.best ?? null;
+    const m = safe(() => store.metrics(), null) ?? progressOf(store.get().save, levelId)?.best ?? null;
     const receipt = m ? h('div', { class: 'h3-receipt' }, `${m.machines} machine${m.machines === 1 ? '' : 's'} · area ${m.area} · ${m.cycles ?? '—'} cycles`) : null;
     const actions = h('div', { class: 'qed-actions' });
     const nx = nextLevel(save, levelId);
@@ -143,7 +154,7 @@ export function mountCeremony(layer: HTMLElement, store: Store, hooks: { dest: (
     follow.addEventListener('click', () => { close(); store.setUI({ follow: lv.sockets[0]?.id ?? null, transcriptOpen: false }); });
     actions.append(nextBtn, follow, proof, stay);
     const skip = h('div', { class: 'qed-skip' }, 'Esc skips');
-    const card = h('div', { class: 'qed-card', role: 'dialog', 'aria-modal': 'true', tabindex: -1, 'aria-label': `Proven: Lemma ${lv.index}` }, seal, specific, lemma, note, receipt, machines, saveRow, ending, actions);
+    const card = h('div', { class: 'qed-card', role: 'dialog', 'aria-modal': 'true', tabindex: -1, 'aria-label': `Proven: Lemma ${no}` }, seal, specific, lemma, onPaper ?? note, receipt, machines, saveRow, ending, actions);
 
     let flown = false;
     const fly = (instant: boolean) => {

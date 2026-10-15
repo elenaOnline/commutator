@@ -41,7 +41,7 @@ export { initialCanvas, INITIAL_GAP } from './editor';
 /** Machine/belt at a tile (top-most), for picking. */
 export {
   place, moveMachines, rotateMachine, remove, setConfig, setConfigCtx, route, routeOrWhy, connect, connectVia, extendTo, routeOpenOrWhy, branch, branchAt, autoLinks, spliceCandidates,
-  paintRoom, resizeRoom, hit, portFacing, roomAt, roomOfMachine, freshId, copySelection, paste, repairBelts, placementWhy,
+  paintRoom, resizeRoom, setRoomAssumptions, deskCount, hit, portFacing, roomAt, roomOfMachine, freshId, copySelection, paste, repairBelts, placementWhy,
 } from './editor';
 
 export type { Splice, Why } from './editor';
@@ -63,7 +63,7 @@ export type { SpanLoc, GapLoc, Resolved } from './targeting';
 // ───────────── runtime.ts  (owner: COMPILER builder) ─────────────
 
 /** initRun(c, comp) · stepRun(s, c, comp) (Sol §9 phases, pure) · factoryMetrics(c, s, comp). */
-export { initRun, stepRun, factoryMetrics, queued, EMIT_PERIOD, MAX_IN_FLIGHT } from './runtime';
+export { initRun, stepRun, factoryMetrics, queued, dockAnswer, EMIT_PERIOD, MAX_IN_FLIGHT } from './runtime';
 export type { RunStateX } from './runtime';
 
 /** Ticks per second at 1× speed (rendering interpolates between ticks). */

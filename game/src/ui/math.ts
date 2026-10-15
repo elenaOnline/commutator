@@ -28,6 +28,7 @@ export function termHTML(t: Term, L: Labels, opts: { minRun?: number } = {}): st
         return simple ? `${atomHTML(a)}${sup(MINUS + '1')}` : `(${termHTML(a, L, opts)})${sup(MINUS + '1')}`;
       }
       case 'mul': return termHTML(t, L, opts);
+      case 'app': return `<i class="m-atom">${esc(L[t.fn] ?? t.fn)}</i>(${t.args.map((x) => termHTML(x, L, opts)).join(', ')})`; // Book phase C
       case 'pow': {
         const b = t.base;
         const simple = b.k === 'atom' || b.k === 'meta' || b.k === 'e';
@@ -60,8 +61,9 @@ export function factHTML(f: Fact, L: Labels): string {
     case 'law': return `${f.metas.length ? `∀${f.metas.map((m) => `<i>${m}</i>`).join(', ')}.&ensp;` : ''}${termHTML(f.l, L)} <span class="m-rel">=</span> ${termHTML(f.r, L)}`;
     case 'cond': {
       const prem = f.premises.map((p) => factHTML(p, L)).join(', ');
-      return `${f.metas.length ? `∀${f.metas.map((m) => `<i>${m}</i>`).join(', ')}.&ensp;` : ''}${prem} <span class="m-rel">⇒</span> ${factHTML(f.concl, L)}`;
+      return `${f.metas.length ? `∀${f.metas.map((m) => `<i>${m}</i>`).join(', ')}.&ensp;` : ''}${prem} <span class="m-rel">⟹</span> ${factHTML(f.concl, L)}`;
     }
+    case 'mem': return `${termHTML(f.t, L)} <span class="m-rel">∈</span> <i class="m-subg">${L[f.sub.id] ?? f.sub.id}</i>`;
   }
 }
 

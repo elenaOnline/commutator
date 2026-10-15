@@ -61,7 +61,7 @@ export class Player {
     this.res = K.check(this.graph, ctx);
   }
   fact(id: NodeId) { return this.res.nodes[id]?.fact; }
-  text(id: NodeId) { const f = this.fact(id); return f ? K.factText(f, K.labelsOf(K.withVars(this.ctx, this.graph).ctx.level.atoms)) : '(none)'; }
+  text(id: NodeId) { const f = this.fact(id); return f ? K.factText(f, K.levelLabels(K.withVars(this.ctx, this.graph).ctx.level)) : '(none)'; }
   private commit(g: ProofGraph): CheckResult {
     const r = K.check(g, this.ctx);
     const bad = Object.values(r.nodes).find((n) => !n.ok);
@@ -109,6 +109,20 @@ export class Player {
     this.commit({ ...this.graph, nodes: [...this.graph.nodes, assume], rooms: [...this.graph.rooms, room] });
     return { room: room.id, assume: assume.id };
   }
+  /** Book phase A: a multi-desk Assume room. Each assumption is [rel, l, r]; returns the room and one desk node per slot. */
+  openDesks(assumes: (['eq' | 'neq', Term | string, Term | string] | ['mem', Term | string, string])[], parent: ScopeId = ROOT): { room: ScopeId; desks: NodeId[] } {
+    const T = (t: Term | string) => (typeof t === 'string' ? this.parse(t) : K.norm(t));
+    const as: K.DeskAssumption[] = assumes.map((x) => (x[0] === 'mem' ? { rel: 'mem' as const, t: T(x[1]), sub: { k: 'sub' as const, id: x[2] } } : { rel: x[0], l: T(x[1]), r: T(x[2] as Term | string) }));
+    const a0 = as[0]!;
+    const room: Room = { id: fresh('room'), parent, kind: 'assume', l: a0.rel === 'mem' ? a0.t : a0.l, r: a0.rel === 'mem' ? a0.t : a0.r, ...(a0.rel !== 'mem' ? { rel: a0.rel } : {}), assumes: as };
+    const desks: ProofNode[] = as.map((_, i) => ({ id: fresh('d'), scope: room.id, k: 'assume', room: room.id, ...(i ? { slot: i } : {}), meta: { station: fresh('st'), gesture: 'assume' } }));
+    this.commit({ ...this.graph, nodes: [...this.graph.nodes, ...desks], rooms: [...this.graph.rooms, room] });
+    return { room: room.id, desks: desks.map((d) => d.id) };
+  }
+  merge(a: NodeId, b: NodeId, scope?: ScopeId): NodeId {
+    const sc = scope ?? this.graph.nodes.find((n) => n.id === a)!.scope;
+    return this.addNode({ id: fresh('M'), scope: sc, k: 'merge', inputs: [a, b] });
+  }
   // ───── v4 moves (what the factory compiles to) ─────
   /** Declare a Tower variable (Let x₁ ∈ G). Returns its id. */
   declareVar(label: string): string {
@@ -116,6 +130,17 @@ export class Player {
     const vars = [...(this.graph.vars ?? []), { id, label, hue: 5, variable: true }];
     this.commit({ ...this.graph, vars });
     return id;
+  }
+  /** Book phase B: declare a Subgroup Tower (H₁ ≤ G, or N₁ ⊴ G). Returns its id. */
+  declareSub(label: string, normal = false): string {
+    const id = `s:${label}`;
+    this.commit({ ...this.graph, structs: [...(this.graph.structs ?? []), { k: 'sub', id, label, normal }] });
+    return id;
+  }
+  /** Add an apply node (Theorem machine), possibly instantiating subgroup parameters. Throws if the kernel refuses. */
+  apply(rule: K.RuleRef, inputs: NodeId[], subst: Subst, structs?: Record<string, string>, scope?: ScopeId): NodeId {
+    const sc = scope ?? (inputs.length ? this.graph.nodes.find((n) => n.id === inputs[0])!.scope : ROOT);
+    return this.addNode({ id: fresh('A'), scope: sc, k: 'apply', rule, inputs, subst, ...(structs ? { structs } : {}) });
   }
   /** Declare a ℤ Tower (Let n₁ ∈ ℤ). Returns its id. */
   declareInt(label: string): string {

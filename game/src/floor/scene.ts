@@ -1,10 +1,12 @@
 // LEMMA WORKS v3 floor — the static scene for one epoch (rooms, belts, ports,
 // machines, sockets, labels) as SVG strings. Hover/selection/status are toggled
 // by class afterwards, so this only re-runs on edits.
-import type { Card, Fact, Pallet } from '../kernel/types';
+import type { DeskAssumption, Card, Fact, Pallet, SocketDecl, Subst } from '../kernel/types';
+import * as K from '../kernel';
 import type { Compiled, LiveStatus, Machine, Room, RunState } from '../factory/types';
 import type { LevelManifest } from '../kernel/types';
 import { FAMILY, FONT, INK } from '../ui/tokens';
+import { eulerBlobSVG } from '../ui/euler';
 import { P, f1, isoEllipse, roundGrid, gridRect, pts, shade, type G2 } from '../board/geom';
 import { factSVG, termSVG, type Labels } from './math';
 import type { Look } from './look';
@@ -15,7 +17,7 @@ import {
   polyD, railOpacity, roundOpen,
 } from './svg';
 
-export const labelsOf = (lv: LevelManifest): Labels => Object.fromEntries(lv.atoms.map((a) => [a.id, a.label]));
+export const labelsOf = (lv: LevelManifest): Labels => ({ ...Object.fromEntries(lv.atoms.map((a) => [a.id, a.label])), ...Object.fromEntries((lv.subgroups ?? []).map((g) => [g.id, g.label])) });
 
 export function heightOf(m: Machine): number {
   switch (m.kind) {
@@ -37,13 +39,17 @@ export function roomPoly(r: Room['rect']): G2[] {
   return roundGrid(gridRect(r.x + 0.06, r.y + 0.06, r.x + r.w - 0.06, r.y + r.h - 0.06), Math.min(0.9, r.w / 2.4, r.h / 2.4), 8);
 }
 
-export function roomHeading(kind: Room['kind'], l: Room['l'] | null, r: Room['r'] | null, L: Labels, rel?: Room['rel'], q?: Fact): { tag: string; math: string } {
+export function roomHeading(kind: Room['kind'], l: Room['l'] | null, r: Room['r'] | null, L: Labels, rel?: Room['rel'], q?: Fact, assumes?: DeskAssumption[]): { tag: string; math: string } {
   const exportsWord = `<tspan font-family="${FONT.ui}" font-size="10" font-weight="600" letter-spacing=".1em" dx="10" fill-opacity=".72">EXPORTS </tspan>`;
   if (kind === 'assume') {
     if (!l || !r) return { tag: 'ASSUME', math: `<tspan font-style="italic" fill-opacity=".6">choose P</tspan>` };
-    const P0: Pallet = rel === 'neq' ? { k: 'neq', l, r } : { k: 'eq', l, r };
     const Q = q ? factSVG(q, L) : `<tspan font-style="italic" fill-opacity=".55">Q</tspan>`;
-    return { tag: 'ASSUME', math: `${factSVG(P0, L)}${exportsWord}${factSVG(P0, L)}<tspan> ⇒ </tspan>${Q}` };
+    // Book phase A: a multi-desk room assumes P₁, P₂ (, P₃), one per numbered desk ⊢₁ ⊢₂ …, and exports P₁, P₂ ⟹ Q
+    const ps: Pallet[] = assumes && assumes.length > 1
+      ? assumes.map((a): Pallet => (a.rel === 'mem' ? { k: 'mem', t: a.t, sub: a.sub } : { k: a.rel, l: a.l, r: a.r }))
+      : [rel === 'neq' ? { k: 'neq', l, r } : { k: 'eq', l, r }];
+    const list = ps.map((p) => factSVG(p, L)).join('<tspan>, </tspan>');
+    return { tag: ps.length > 1 ? `ASSUME ${ps.length}` : 'ASSUME', math: `${list}${exportsWord}${list}<tspan> ⟹ </tspan>${Q}` };
   }
   if (!l || !r) return { tag: kind === 'classical' ? 'SUPPOSE NOT' : 'SUPPOSE', math: `<tspan font-style="italic" fill-opacity=".6">choose l and r</tspan>` };
   const assumed: Pallet = kind === 'suppose' ? { k: 'eq', l, r } : { k: 'neq', l, r };
@@ -54,9 +60,9 @@ export function roomHeading(kind: Room['kind'], l: Room['l'] | null, r: Room['r'
   };
 }
 
-export function roomSVG(room: { id: string; kind: Room['kind']; rel?: Room['rel']; l: Room['l'] | null; r: Room['r'] | null; rect: Room['rect'] }, L: Labels, ghost = false, q?: Fact): string {
+export function roomSVG(room: { id: string; kind: Room['kind']; rel?: Room['rel']; l: Room['l'] | null; r: Room['r'] | null; rect: Room['rect']; assumes?: DeskAssumption[] }, L: Labels, ghost = false, q?: Fact): string {
   const poly = roomPoly(room.rect).map(([x, y]) => P(x, y));
-  const { tag, math } = roomHeading(room.kind, room.l, room.r, L, room.rel, q);
+  const { tag, math } = roomHeading(room.kind, room.l, room.r, L, room.rel, q, room.assumes);
   const a = P(room.rect.x, room.rect.y + room.rect.h * 0.5);
   const ax = a[0] - 16, ay = a[1] - 30;
   return `<g class="fl-room${ghost ? ' is-ghost' : ''}${room.kind === 'assume' ? ' is-assume' : ''}" data-r="${esc(room.id)}">` +
@@ -308,6 +314,12 @@ export function machineSVG(g: MGeo, cx: Ctx, varLabels?: Map<string, string>): s
   } else if (L.glyph === '∵') {
     // because (∵): Latin Modern draws it tiny, so the three dots are drawn at glyph size (two above, one below)
     o += `<g class="fl-because" fill="${L.on}"><circle cx="${f1(c[0] - 5.6)}" cy="${f1(c[1] - 3.2)}" r="2.3"/><circle cx="${f1(c[0] + 5.6)}" cy="${f1(c[1] - 3.2)}" r="2.3"/><circle cx="${f1(c[0])}" cy="${f1(c[1] + 4.4)}" r="2.3"/></g>`;
+  } else if (L.subBlob) {
+    // xy ∈ (H): the closure's term and ∈ in white, then the subgroup as a small Euler set on the top face
+    const fs = L.glyph.length > 4 ? 13.5 : 15.5, tw = L.glyph.length * fs * 0.46, bw = 30 * 0.62;
+    const x0 = c[0] - (tw + 3 + bw) / 2;
+    o += `<text x="${f1(x0 + tw / 2)}" y="${f1(c[1] + 5)}" text-anchor="middle" font-family="${FONT.math}" font-size="${fs}" fill="${L.on}">${glyphSVG(L.glyph)}</text>` +
+      eulerBlobSVG(L.subBlob.label, x0 + tw + 3 + bw / 2, c[1], 0.62, { normal: L.subBlob.normal });
   } else {
     const glyph = L.glyph;
     o += `<text x="${f1(c[0])}" y="${f1(c[1] + 6)}" text-anchor="middle" font-family="${FONT.math}" font-size="${glyph.length > 3 ? 14.5 : glyph.length > 2 ? 16 : 19}" fill="${L.on}"${L.neutral && glyph === '?' ? ' font-weight="700"' : ''}>${glyphSVG(glyph)}</text>`;
@@ -358,7 +370,9 @@ export function towerSVG(g: MGeo, varLabels?: Map<string, string>): string {
   o += `<g class="fl-body"><path d="${B.hull}" fill="${L.hull}"/>`;
   o += `<g class="fl-top"><path d="${B.top}" fill="${L.ink}"/><path class="fl-inset" d="${B.inset}" fill="#fff" opacity=".16"/>`;
   const gp = P((g.x0 + g.x1) / 2 + 0.1, (g.y0 + g.y1) / 2 + 0.1, h);
-  o += `<text x="${f1(gp[0] + 2)}" y="${f1(gp[1] + 7)}" text-anchor="middle" font-family="${FONT.math}" font-size="${label.length > 2 ? 14 : 17}" fill="${L.on}">${varSVG(label)}<tspan font-size="72%" dx="1.5">∈${isZ ? 'ℤ' : '<tspan font-style="italic">G</tspan>'}</tspan></text>`;
+  // x₁ ∈ G for an element, n₁ ∈ ℤ for an integer; a Subgroup Tower reads H₁ ≤ G (N₁ ⊴ G for a normal subgroup)
+  const rel = L.subTower ? (L.subTower === 'normal' ? '⊴' : '≤') : '∈';
+  o += `<text x="${f1(gp[0] + 2)}" y="${f1(gp[1] + 7)}" text-anchor="middle" font-family="${FONT.math}" font-size="${label.length > 2 ? 14 : 17}" fill="${L.on}">${varSVG(label)}<tspan font-size="72%" dx="1.5">${rel}${isZ && !L.subTower ? 'ℤ' : '<tspan font-style="italic">G</tspan>'}</tspan></text>`;
   o += `</g>`;
   // transmitter on the back corner: collar and mast as small cylinders standing on the top face, then the bulb
   const bp = P(g.x0 + 0.3, g.y0 + 0.3, h), bx = bp[0], by = bp[1];
@@ -439,12 +453,41 @@ export function socketSVG(g: MGeo, cx: Ctx, filled: boolean): string {
     `</g></g>`;
 }
 
-export function socketLabelSVG(g: MGeo, cx: Ctx, filled: boolean): string {
+/**
+ * A dock's statement on the floor. Open docks (Book phase A) show their shape with a hole chip (`d = ?`), and the
+ * chip fills with the answer once the dock has accepted it (`answer` = the delivered hole values). Witness docks
+ * (holes under ∀) likewise.
+ */
+export function dockMathSVG(sk: SocketDecl, L: Labels, answer?: Subst | null): string {
+  if (!K.isOpen(sk)) return factSVG(sk.target, L);
+  const d = K.openDisplay(sk);
+  const L2: Labels = { ...L };
+  const chips: string[] = [];
+  const halo = (fill: string) => `stroke="${fill}" stroke-width="9" stroke-linejoin="round" paint-order="stroke"`;
+  const compound = (t: { k: string }) => t.k === 'mul' || t.k === 'pow';
+  const paren = (s: string) => `<tspan font-style="normal">(</tspan>${s}<tspan font-style="normal">)</tspan>`;
+  for (const hd of sk.holes ?? []) {
+    const pid = `?${hd.id}`, n = chips.length, v = answer?.[hd.id];
+    L2[pid] = `¤${n}¤`;
+    chips.push(v
+      // the delivered answer is inked in the equation family's text colour (a halo would blur a word); a word under
+      // a power or an inverse keeps its parentheses: ab = (ad)²
+      ? `<tspan class="fl-hole is-filled" fill="#11806C">${termSVG(v, L)}</tspan>\u0000${compound(v) ? '1' : '0'}`
+      : `<tspan class="fl-hole" font-style="normal" font-weight="600" ${halo('#ECEEF3')}>${(d.labels[pid] ?? '?').replace(/[&<>]/g, '')}</tspan>`);
+  }
+  const fill = (n: string, sup: boolean) => { const [c, cmp] = (chips[+n] ?? '?').split('\u0000'); return cmp === '1' && sup ? paren(c!) : c!; };
+  return factSVG(d.fact, L2)
+    .replace(/<tspan font-style="italic">¤(\d+)¤<\/tspan>(?=(<tspan font-style="normal" font-size="68%" baseline-shift="38%">)?)/g, (_m, n: string, sup?: string) => fill(n, !!sup))
+    .replace(/¤(\d+)¤/g, (_m, n: string) => fill(n, false));
+}
+
+export function socketLabelSVG(g: MGeo, cx: Ctx, filled: boolean, answer?: Subst | null): string {
   const t = socketTarget(g.m, cx.level);
+  const sk = g.m.config.kind === 'socket' ? cx.level.sockets.find((x) => x.id === (g.m.config as { socketId: string }).socketId) : undefined;
   const c = P((g.x0 + g.x1) / 2, (g.y0 + g.y1) / 2);
   const lx = Math.max(c[0] + isoEllipse(0.44 * sockSize(g) + 0.12).rx + 10, P(g.x1, g.y0)[0] + 6);
   return `<g class="fl-lab fl-socklab" data-sock="${esc(g.m.id)}"><g class="fl-sz fl-sz-f" style="transform-origin:${f1(lx)}px ${f1(c[1])}px"><text class="fl-socktag" x="${f1(lx)}" y="${f1(c[1] - 7)}" font-family="${FONT.ui}" font-size="10.5" font-weight="600" letter-spacing=".12em" fill="${INK.navy}">${filled ? 'DELIVERED' : 'DELIVER'}</text>` +
-    (t ? `<text x="${f1(lx)}" y="${f1(c[1] + 14)}" font-family="${FONT.math}" font-size="19" fill="${INK.navy}">${factSVG(t, cx.L)}</text>` : '') + `</g></g>`;
+    (t ? `<text class="fl-dockmath" x="${f1(lx)}" y="${f1(c[1] + 14)}" font-family="${FONT.math}" font-size="19" fill="${INK.navy}">${sk ? dockMathSVG(sk, cx.L, answer) : factSVG(t, cx.L)}</text>` : '') + `</g></g>`;
 }
 
 // ───────────── status pips ─────────────
