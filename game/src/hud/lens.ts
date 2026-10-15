@@ -90,6 +90,8 @@ const hasStatus = (m: Machine) => m.kind !== 'tower' && m.kind !== 'given';
 export interface LensApi { render: (s: S) => void; position: () => void; el: HTMLElement }
 
 export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () => number; keepClear?: () => HTMLElement[] }): LensApi {
+  /** Machines saved to the Lemma Book from this lens (this session): their lens keeps the post-save note. */
+  const justSaved = new Set<string>();
   sortsNow = () => varSortsOf(store.get());
   const el = h('section', { class: 'h3-lens', hidden: true, 'aria-label': 'Machine inspector' });
   const notch = h('span', { class: 'h3-lens-notch', 'aria-hidden': 'true' });
@@ -369,13 +371,13 @@ export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () 
     const wrap = h('span', { class: 'h3-terms' });
     if (v.k === 'term') { wrap.append(markVars(beadsInline(v.term, L, H))); return wrap; }
     const f = v.k === 'fact' ? v.fact : v.card;
-    const gal = groupAliases((f as { binds?: import('../kernel/types').StructBinder[] }).binds, L);
+    const gal = groupAliases((f as { binds?: import('../kernel/types').StructBinder[] }).binds, L, (f as { metas?: string[] }).metas);
     const parts = withEAliases(gal, () => fact(f));
     if (!parts) return null;
     const metas = (f as { metas?: string[] }).metas ?? [];
     const binds = (f as { binds?: import('../kernel/types').StructBinder[] }).binds ?? [];
     // every parameter the card is for: ∀H ≤ G, x. — ∀G, K, f : G → K. — never just the element letters (#5)
-    if (binds.length) wrap.append(h('span', { class: 'h3-strip-q math', html: quantH(metas, binds, { ...L, ...groupAliases(binds, L) }).replace(/&ensp;$/, '') }));
+    if (binds.length) wrap.append(h('span', { class: 'h3-strip-q math', html: quantH(metas, binds, { ...L, ...groupAliases(binds, L, metas) }).replace(/&ensp;$/, '') }));
     else if (metas.length) wrap.append(h('span', { class: 'h3-strip-q math', html: `∀${metas.map((x) => `<i class="m-atom any g">${esc(x)}</i>`).join(', ')}.` }));
     wrap.append(...parts);
     wrap.querySelectorAll<HTMLElement>('.bn-meta').forEach((x) => x.classList.add('h3-varbead', 'g'));
@@ -770,13 +772,17 @@ export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () 
         const name = h('input', { class: 'h3-term h3-lname', placeholder: 'Name it', value: suggested, 'aria-label': 'lemma name', autocomplete: 'off', spellcheck: 'false' });
         const save = h('button', { class: 'lw-key small primary' }, 'Save to Lemma Book');
         const after = h('p', { class: 'h3-note', hidden: true }, 'Saved, it is a recipe in every later order.');
-        const doSave = () => { const res2 = store.saveLemma(m.id, name.value.trim() || suggested); if (res2.ok) { save.textContent = 'Saved ✓'; save.disabled = true; after.hidden = false; } };
+        // marked BEFORE saving: the store re-renders the lens inside saveLemma
+        const doSave = () => { justSaved.add(m.id); const res2 = store.saveLemma(m.id, name.value.trim() || suggested); if (res2.ok) { save.textContent = 'Saved ✓'; save.disabled = true; after.hidden = false; } else justSaved.delete(m.id); };
         save.addEventListener('click', doSave);
         name.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') doSave(); if (e.key === 'Escape') { e.preventDefault(); name.blur(); store.openLens(null); } });
         // saved records are positional ($0:H): compare up to renaming, so "Ready to save" goes once it is saved (#14)
         const already = camp(s).lemmas.some((l) => safe(() => K.sameCardUpToRenaming(l.card, out.card), JSON.stringify(l.card) === JSON.stringify(out.card)));
         sec.append(h('div', { class: 'h3-save' }, h('span', { class: 'h3-badge-ok' }, already ? 'In the Lemma Book' : 'Ready to save'), already ? null : name, already ? null : save));
-        if (!already) sec.append(after); // shown only once it is saved (#23)
+        // shown only once it is saved (#23): saving re-renders the lens as "In the Lemma Book", so the machine saved
+        // from this lens keeps its note; a record saved in an earlier session shows none
+        if (!already) sec.append(after);
+        else if (justSaved.has(m.id)) { after.hidden = false; sec.append(after); }
       } else {
         const t = given.length
           ? `Can’t save: it uses ${given.map((g) => { const gd = s.level.givens.find((x) => `g:${x.id}` === g); return gd ? `${gd.name}: ${safe(() => K.factText(gd.fact as never, L), '')}` : g.slice(2); }).join(', ')}.`

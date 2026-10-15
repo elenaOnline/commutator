@@ -8,7 +8,8 @@ import * as K from '../kernel';
 import type { Card, Fact, Family, Term } from '../kernel/types';
 import { FAMILY } from '../ui/tokens';
 import type { JoinerRecipe, LibRef, MachineKind, OperatorRecipe, RewriteRecipe, TheoremRecipe } from '../factory/types';
-import { REGISTRY, esc, fH, labelsAll, nameHTML, posName, safe, type S } from './util';
+import { REGISTRY, esc, fH, labelsAll, nameHTML, posName, safe, withEAliases, type S } from './util';
+import { cardAliases } from '../ui/sorts';
 import { stripEl, transformEl, type Rails } from './strip';
 import { h } from './util';
 import { entryKeyOf, familyName, sideName } from './merge';
@@ -136,7 +137,13 @@ export function libraryFor(s: S, kind: MachineKind): LibEntry[] {
   const out: LibEntry[] = [];
   // every row shows its statement: a strip where one exists, memberships as term ∈ (set), else the typeset maths —
   // never an empty figure (a saved lemma's lens showed only its toggle, #10)
-  const demoOf = (f: Fact, family: Family, Lx: Record<string, string>): (() => HTMLElement) | undefined =>
+  // a card's figure tags e by the kernel's display names too (e_G, e_K — never e_G₁ or a positional id; §5.13)
+  const demoOf = (f: Fact, family: Family, Lx: Record<string, string>): (() => HTMLElement) | undefined => {
+    const d = demoOf0(f, family, Lx);
+    const al = f.k === 'law' || f.k === 'cond' ? cardAliases(f.binds, f.metas) : {};
+    return d && Object.keys(al).length ? () => withEAliases(al, d) : d;
+  };
+  const demoOf0 = (f: Fact, family: Family, Lx: Record<string, string>): (() => HTMLElement) | undefined =>
     f.k === 'eq' || f.k === 'law' ? lawDemo(f.l, f.r, family, Lx)
     : f.k === 'cond' && f.premises.every((p) => p.k === 'eq' || p.k === 'neq') && (f.concl.k === 'eq' || f.concl.k === 'neq')
       ? joinDemo(f.premises.map((p) => ({ l: (p as { l: Term }).l, rel: p.k === 'neq' ? '≠' : '=', r: (p as { r: Term }).r }) as Rails), { l: f.concl.l, rel: f.concl.k === 'neq' ? '≠' : '=', r: f.concl.r }, family, Lx)

@@ -3,7 +3,22 @@
 // in the sort's ink, the sort's name as a small tag); the level's first group stays white and untagged, so a
 // one-group level looks exactly as before. Identity is written e_G, e_K once the level has two groups.
 import * as K from '../kernel';
-import type { LevelManifest, ProofGraph, Term } from '../kernel/types';
+import type { LevelManifest, ProofGraph, StructBinder, Term } from '../kernel/types';
+import { displayCard } from '../kernel/print';
+
+/**
+ * A card's group and set parameters by the kernel's display names (K displayCard, KERNEL-EXT §5.13): groups G, K, L,
+ * M, Q, R — never H, which is for subgroups — sets Ω, Γ, … whatever ids the card stores (S, T, G₁, $1:K). One rule
+ * for every renderer (HUD strips, picker figures, chooser, floor plates), so a card reads the same everywhere.
+ */
+export function cardAliases(binds: readonly StructBinder[] | undefined, metas: readonly string[] = []): Record<string, string> {
+  if (!binds?.some((b) => b.k === 'grp' || b.k === 'set')) return {};
+  try {
+    const e: Term = { k: 'e' };
+    const d = displayCard({ k: 'law', metas: [...metas], l: e, r: e, binds: [...binds] } as never) as { binds?: StructBinder[] };
+    return Object.fromEntries(binds.flatMap((b, i) => (b.k === 'grp' || b.k === 'set' ? [[b.id, d.binds?.[i]?.id ?? b.id]] : [])));
+  } catch { return {}; }
+}
 
 export interface SortStyle { id: string; label: string; kind: 'group' | 'set'; fill: string; ring: string; ink: string; plain: boolean }
 

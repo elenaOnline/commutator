@@ -6,7 +6,7 @@ import type { DeskAssumption, Fact, Family, LevelManifest, Pallet, PatFact, Stru
 import * as K from '../kernel';
 import { campSave, progressOf, type CampaignSave, type FactoryStore, type FState } from '../state/factoryStore';
 import { campaignOf } from '../levels/campaigns';
-import { eAliases, eTag, isActionApp } from '../ui/sorts';
+import { cardAliases, eAliases, eTag, isActionApp } from '../ui/sorts';
 import { LEVELS, REGISTRY, MIRROR_NAMES, SIDE_PAIRS } from '../levels/levels';
 import { LEVEL_BY_ID } from '../levels/campaigns';
 import type { ItemValue, Machine, MachineKind, MachineSpec } from '../factory/types';
@@ -27,7 +27,9 @@ export const richHTML = (txt: string, level: LevelManifest): string => {
 };
 import { labels as labels0 } from '../shell/util';
 /** Level letters, plus (Book phase B) the level's subgroups by name, so `t ∈ H` prints H. */
-export const labels = (level: LevelManifest): Record<string, string> => ({ ...labels0(level), ...Object.fromEntries((level.subgroups ?? []).map((g) => [g.id, g.label])),
+// K.levelLabels first (KERNEL-EXT §5.13): the two-group mark (every e subscripted), action marks, and the labels the
+// kernel registers so its own printing names maps by label (π, never pi); then the HUD's own
+export const labels = (level: LevelManifest): Record<string, string> => ({ ...safe(() => K.levelLabels(level), {} as Record<string, string>), ...labels0(level), ...Object.fromEntries((level.subgroups ?? []).map((g) => [g.id, g.label])),
   ...Object.fromEntries((level.sorts ?? []).map((g) => [g.id, g.label])), ...Object.fromEntries((level.maps ?? []).map((g) => [g.id, g.label])),
   // kernel-printed text (jams, transcript, paper) writes an action applied as α(p), as the floor does: mark actions
   ...Object.fromEntries((level.maps ?? []).filter((m) => m.kind === 'action').map((m) => [K.actionMark(m.id), '1'])) });
@@ -84,21 +86,9 @@ export const tH = (t: Term, L: Record<string, string>, mode?: 'stmt' | 'proof'):
   const html2 = acts.length ? html.replace(/<i class="m-atom[^"]*">¶a(\d+)¶<\/i>/g, (_m, n: string) => { const g = acts[+n]!; const gh = tH(g, L, mode); return g.k === 'mul' || g.k === 'pow' ? `(${gh})` : gh; }) : html;
   return tags.length ? html2.replace(/<i class="m-atom[^"]*">¶e(\d+)¶<\/i>/g, (_m, n: string) => `<i class="m-e">e</i><sub class="m-sub m-esort">${nameHTML(tags[+n]!)}</sub>`) : html2;
 };
-/** Display names for a card's group parameters: S, T, U or positional ids become G, K, Q … (skipping names in use). */
-export function groupAliases(binds: StructBinder[] | undefined, L: Record<string, string>): Record<string, string> {
-  const grps = (binds ?? []).filter((b) => b.k === 'grp').map((b) => b.id);
-  if (!grps.length) return {};
-  const taken = new Set(Object.values(L));
-  const pool = ['G', 'K', 'Q', 'R', 'U'].filter((x) => !taken.has(x) || grps.length > 0);
-  const out: Record<string, string> = {};
-  let i = 0;
-  for (const id of grps) {
-    const nm = L[id] ?? posName(id);
-    if (!/^[STU]$/.test(nm) && !id.startsWith('$')) { out[id] = nm; continue; }
-    while (i < pool.length && Object.values(out).includes(pool[i]!)) i++;
-    out[id] = pool[i++] ?? nm;
-  }
-  return out;
+/** Display names for a card's group and set parameters (the kernel's displayCard: G, K, L … never H; sets Ω, Γ). */
+export function groupAliases(binds: StructBinder[] | undefined, _L?: Record<string, string>, metas: readonly string[] = []): Record<string, string> {
+  return cardAliases(binds, metas);
 }
 /** Render with identity subscripts following the same aliases (e_T → e_K). */
 export function withEAliases<T>(L: Record<string, string>, fn: () => T): T {
@@ -185,7 +175,7 @@ export function fH(f: AnyFact, L: Record<string, string>, mode: 'stmt' | 'proof'
     case 'mem': return tH(f.t, L, mode) + rel('∈') + subH(f.sub, L);
     case 'law': case 'cond': {
       // a card's group parameters read G, K (the Book's names), never S / T or a positional $1:K (#3, #6)
-      const L2 = { ...L, ...groupAliases(f.binds, L) };
+      const L2 = { ...L, ...groupAliases(f.binds, L, f.metas) };
       return withEAliases(L2, () => f.k === 'law'
         ? quantH(f.metas, f.binds, L2) + tH(f.l, L2, mode) + rel('=') + tH(f.r, L2, mode)
         // no premises: the conclusion alone, never a stray ⟹ (#9)

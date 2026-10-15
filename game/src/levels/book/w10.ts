@@ -64,6 +64,7 @@ export const LEVELS: LevelManifest[] = [
     method: 'Equivalence relation', source: 'Pinter 12.D1',
     insight: 'The three properties use the three facts about a subgroup: it contains e, it is closed under inverses, and it is closed under products.',
     memo: 'x and y are related when xy⁻¹ is in H. Prove the three properties.',
+    lemmaNames: ['coset relation is reflexive', 'coset relation is symmetric', 'coset relation is transitive'],
     atoms: [], givens: [],
     sockets: [
       { id: 's1', target: SAME_COSET.s1, allowedGivens: [] },

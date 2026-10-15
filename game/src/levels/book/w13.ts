@@ -59,6 +59,7 @@ export const LEVELS: LevelManifest[] = [
     method: 'Subgroup test', source: 'Pinter 15 Theorem 2',
     insight: 'Conjugating the second hypothesis by c makes the two memberships fit together: (ac⁻¹)(c·bd⁻¹·c⁻¹) is (ab)(cd)⁻¹. Normality is exactly what allows the conjugation.',
     memo: 'N is normal. Show that multiplying cosets does not depend on the representatives.',
+    lemmaNames: ['coset multiplication is well defined'],
     atoms: [],
     givens: [],
     sockets: [{

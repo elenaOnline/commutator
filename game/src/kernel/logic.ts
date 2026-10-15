@@ -80,6 +80,17 @@ export function schemaInfo(id: string, ctx: KernelCtx): Schema | undefined {
   return ctx.registry[id];
 }
 
+/**
+ * Why a theorem id is not in the registry, in the player's words: a disabled saved lemma by its display name and
+ * reason, a lemma gone from the Lemma Book, else an unknown theorem. Never prints a raw `lemma:…` id.
+ */
+export function missingTheorem(id: string, ctx: KernelCtx): string {
+  const d = ctx.disabled?.[id];
+  if (d) return `The lemma “${d.name}” isn't available. ${d.reason?.trim() || 'It is disabled in your Lemma Book.'}`;
+  if (id.startsWith('lemma:')) return 'This floor uses a saved lemma that is no longer in your Lemma Book.';
+  return `There is no theorem “${id}”.`;
+}
+
 /** Whether a registry schema may be used in the current level, with its (possibly mirrored) card. */
 export function schemaCard(id: string, mirror: boolean | undefined, ctx: KernelCtx): Card {
   // Book phase C: the map kinds' laws are kernel-owned too
@@ -104,7 +115,7 @@ export function schemaCard(id: string, mirror: boolean | undefined, ctx: KernelC
     return mirror ? mirrorCard(imported.card) : imported.card;
   }
   const sc = ctx.registry[id];
-  if (!sc) throw new KErr(`There is no theorem “${id}”.`);
+  if (!sc) throw new KErr(missingTheorem(id, ctx));
   if (ctx.level.unlocks.includes(id)) throw new KErr(`${sc.name} is what this order proves. It can't prove itself.`);
   if (!ctx.level.tools.schemas.includes(id)) throw new KErr(`${sc.name} is not available here.`);
   if (mirror && !sc.mirrorable) throw new KErr(`${sc.name} has no mirror version.`);

@@ -14,6 +14,7 @@ import type { Belt, Canvas, Endpoint, Face, LibRef, Machine, MachineConfig, Mach
 import type { Blueprint, Edit } from './index';
 import { SORT_SEQ, SPECS, defaultConfig, libName, schemaOf, sortBase, splitLabel, subscript, varLabel } from './catalog';
 import { MAX_DESKS, POWER_LITERAL_FAMILY } from '../kernel';
+import { missingTheorem } from '../kernel/logic';
 import { LEVEL_BY_ID, REGISTRY } from '../levels/levels';
 import { DOCK_PORTS, FACE_DELTA, FACES, OPPOSITE, addTile, footprint, frontOf, inRect, portsOf, rectOf, sizeOf, tileEq, tileKey } from './geometry';
 
@@ -1218,7 +1219,7 @@ function refReason(ref: LibRef | null | undefined, ctx: KernelCtx): string | nul
     case 'schema': {
       if (ref.id === POWER_LITERAL_FAMILY) return null; // the family entry: the lens still has to choose r
       const sc = schemaOf(ctx, ref.id);
-      if (!sc) return ref.id ? `No theorem called “${ref.id}”.` : 'No earned theorem to build yet.';
+      if (!sc) return ref.id ? missingTheorem(ref.id, ctx) : 'No earned theorem to build yet.';
       if (ref.mirror && !sc.mirrorable) return `${sc.name} has no mirror image.`;
       return null;
     }

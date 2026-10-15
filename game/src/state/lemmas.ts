@@ -65,3 +65,17 @@ export function positionalRefs<T>(x: T, lemmas: readonly { id: string; card: Car
   };
   return walk(x) as T;
 }
+
+/** The Lemma Book ids a floor cites (every `{ k: 'schema', id: 'lemma:…' }` in it), in first-use order. */
+export function citedLemmas(x: unknown): string[] {
+  const out = new Set<string>();
+  const walk = (v: unknown): void => {
+    if (Array.isArray(v)) { v.forEach(walk); return; }
+    if (!v || typeof v !== 'object') return;
+    const o = v as Record<string, unknown>;
+    if (o.k === 'schema' && typeof o.id === 'string' && o.id.startsWith('lemma:')) out.add(o.id);
+    for (const y of Object.values(o)) walk(y);
+  };
+  walk(x);
+  return [...out];
+}

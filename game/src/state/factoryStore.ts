@@ -12,7 +12,7 @@ import { REGISTRY } from '../levels/levels';
 import { ALL_LEVELS, CAMPAIGNS, CAMPAIGN_LEVELS, LEVEL_BY_ID, campaignOf, type Campaign } from '../levels/campaigns';
 
 export type { Campaign };
-import { positional, positionalRefs } from './lemmas';
+import { citedLemmas, positional, positionalRefs } from './lemmas';
 
 export type Tool =
   | { k: 'select' }
@@ -152,9 +152,11 @@ const AWARDED = new Set(ALL_LEVELS.flatMap((l) => l.unlocks));
  */
 export function ctxFor(level: LevelManifest, earned: string[], lemmas: SavedLemma[] = []): K.KernelCtx {
   const authored: Record<string, K.Schema> = {};
+  const disabled: NonNullable<K.KernelCtx['disabled']> = {};
   const camp = campaignOf(level);
   for (const l of lemmas) {
-    if (l.verified === false) continue;
+    // a switched-off lemma stays out of the registry; the kernel names it (and why) to a floor that cites it
+    if (l.verified === false) { disabled[l.id] = { name: l.name, ...(l.reason ? { reason: l.reason } : {}) }; continue; }
     if (campaignOf(l.levelId) !== camp && l.levelId !== level.id) continue;
     authored[l.id] = { id: l.id, name: l.name, textbook: l.name, card: l.card, origin: 'authored', mirrorable: true };
   }
@@ -181,7 +183,7 @@ export function ctxFor(level: LevelManifest, earned: string[], lemmas: SavedLemm
   const open = camp === 'book'
     ? { lift: level.tools.lift, merge: level.tools.merge, suppose: level.tools.suppose, classical: level.tools.classical, press: level.tools.press, conjecture: level.tools.conjecture }
     : { lift: true, merge: true, suppose: true, classical: true, press: true, conjecture: true };
-  return { level: { ...level, tools: { ...open, schemas } }, registry };
+  return { level: { ...level, tools: { ...open, schemas } }, registry, ...(Object.keys(disabled).length ? { disabled } : {}) };
 }
 /** ctxFor with the level's own campaign's earned theorems and Lemma Book. */
 export const ctxForSave = (level: LevelManifest, save: FSave): K.KernelCtx => {
@@ -335,7 +337,11 @@ export class FactoryStore {
   resetLevel() { this.commit(F.initialCanvas(this.s.level, this.s.ctx)); }
 
   // ───────── editing (every edit = new epoch) ─────────
-  private commit(canvas: Canvas, record = true) {
+  private commit(canvas0: Canvas, record = true) {
+    // Every floor in the store applies Lemma Book records by their positional binders ($2:f), whatever path it came in
+    // by (place / configure / paste / undo / a floor written by a script): binder keys still under a card's old names
+    // ({ f: 'pi' }) would jam ("H is not a parameter of …") or ask for a choice already made. Idempotent; usually a no-op.
+    const canvas = positionalRefs(canvas0, this.camp().lemmas);
     if (record) { this.undoStack.push(this.s.canvas); this.redoStack = []; if (this.undoStack.length > 200) this.undoStack.shift(); }
     const compiled = F.compile(canvas, this.s.ctx);
     this.set({ canvas, compiled, run: F.initRun(canvas, compiled) });
@@ -421,11 +427,25 @@ export class FactoryStore {
         const level = LEVEL_BY_ID[l.levelId];
         const earlier = done.filter((d) => d.verified !== false);
         const r = level ? F.verifyLemma(l, ctxFor(level, cs.earned, earlier), earlier.map((d) => d.id)) : { ok: false as const, reason: 'its floor no longer exists' };
-        done.push({ ...l, verified: r.ok, reason: r.ok ? undefined : r.reason });
+        done.push({ ...l, verified: r.ok, reason: r.ok ? undefined : FactoryStore.missingCitation(l, earlier, cs.lemmas) ?? r.reason });
       }
       save = withCamp(save, c, (x) => ({ ...x, lemmas: done }));
     }
     return save;
+  }
+
+  /**
+   * Why a lemma that cites other lemmas cannot check: one it uses is gone from the Lemma Book or is itself disabled
+   * (a chain, e.g. f(e) = e → f(x⁻¹) = f(x)⁻¹ → fibre lemma, goes off together). The floor's own jam ("Waiting on the
+   * Theorem.") would not say which one. Null when every cited lemma is in and verified.
+   */
+  static missingCitation(l: SavedLemma, earlier: SavedLemma[], all: SavedLemma[]): string | null {
+    const miss = citedLemmas(l.canvas).filter((id) => id !== l.id && !earlier.some((d) => d.id === id));
+    if (!miss.length) return null;
+    const id = miss[0]!;
+    const rec = all.find((x) => x.id === id);
+    if (!rec) return 'It uses a lemma that is no longer in your Lemma Book.';
+    return rec.savedAt > l.savedAt ? `It uses “${rec.name}”, which was saved after it.` : `It uses “${rec.name}”, which is disabled.`;
   }
 
   /** Save the card produced by a ∀ machine (or Assume gate) on this floor to the Lemma Book. */

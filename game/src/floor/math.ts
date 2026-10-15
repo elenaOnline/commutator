@@ -3,7 +3,7 @@
 // and the chip always print one statement the same way. HTML (tooltips) uses shell/util fH directly.
 import type { Fact, PatFact, Poly, Term } from '../kernel/types';
 import { fH, tH } from '../shell/util';
-import { eAliases, eTag, isActionApp } from '../ui/sorts';
+import { cardAliases, eAliases, eTag, isActionApp } from '../ui/sorts';
 
 export type Labels = Record<string, string>;
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
@@ -89,8 +89,8 @@ export function factSVG(f: Fact | PatFact, L0: Labels): string {
   const binds = f.k === 'law' || f.k === 'cond' ? f.binds ?? [] : [];
   const L: Labels = { ...L0 };
   const pos = (id: string) => id.replace(/^\$\d+:/, '');
-  let gi = 0;
-  for (const b of binds) if (b.k === 'grp') { const nm = L[b.id] ?? pos(b.id); L[b.id] = /^[STU]$/.test(nm) || b.id.startsWith('$') ? ['G', 'K', 'Q', 'R'][gi++] ?? nm : nm; }
+  // groups G, K, L … (never H), sets Ω, Γ: the kernel's display names, as on every HUD card (KERNEL-EXT §5.13)
+  Object.assign(L, cardAliases(binds, f.k === 'law' || f.k === 'cond' ? f.metas : []));
   const nm = (id: string) => sub(L[id] ?? pos(id));
   const sr = (r: unknown) => (r === undefined ? it('G') : nm(typeof r === 'string' ? r : (r as { id: string }).id));
   const one = (b: (typeof binds)[number]): string => {
@@ -106,7 +106,7 @@ export function factSVG(f: Fact | PatFact, L0: Labels): string {
     return parts.length ? up('∀') + parts.join(up(', ')) + up('. ') : '';
   };
   const prev = eAliases.cur;
-  eAliases.cur = { ...prev, ...Object.fromEntries(binds.filter((b) => b.k === 'grp').map((b) => [b.id, L[b.id]!])) };
+  eAliases.cur = { ...prev, ...Object.fromEntries(binds.filter((b) => b.k === 'grp' || b.k === 'set').map((b) => [b.id, L[b.id]!])) };
   try {
   switch (f.k) {
     case 'eq': return termSVG(f.l, L) + rel('=') + termSVG(f.r, L);

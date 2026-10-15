@@ -68,6 +68,7 @@ export const LEVELS: LevelManifest[] = [
     insight: 'Powers of one element combine by adding exponents, and addition does not care about order. So (xⁱxʲ)ᵐ splits as (xⁱ)ᵐ(xʲ)ᵐ.',
     source: 'Pinter 11.B2 / 11.C3',
     memo: 'Two powers of one part, run in a row, then repeated m times. Show the repeats split into m of each.',
+    lemmaNames: ['powers of a product of powers'],
     atoms: [], givens: [],
     sockets: [{
       id: 's', allowedGivens: [],

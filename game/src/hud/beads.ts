@@ -33,7 +33,8 @@ function factorEl(f: Term, fpath: number[], o: O): HTMLElement {
     const n = document.createElement('span');
     n.className = 'bn-f bn-e';
     n.dataset.leaf = 'e';
-    n.innerHTML = `<span class="bn-disc"><i>e</i><sub class="bn-sub">${esc(eTag(f)!)}</sub></span>`;
+    // the tag inside the letter: it takes the letter's ink (white on a dark bead, navy on a pale one)
+    n.innerHTML = `<span class="bn-disc"><i>e<sub class="bn-sub">${esc(eTag(f)!)}</sub></i></span>`;
     return n;
   }
   // Book phase C: a map frame f(…) — the name, then a frame around the argument(s); argument i is child i

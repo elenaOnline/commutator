@@ -65,6 +65,7 @@ export const LEVELS: LevelManifest[] = [
     method: 'Preservation', source: 'Pinter 16 Theorem 1',
     insight: 'f(a) = f(b) and f(ab⁻¹) = e say the same thing: two elements have the same image exactly when they lie in the same coset of the kernel.',
     memo: 'Let f be any homomorphism. Show f(a) = f(b) exactly when f(ab⁻¹) = e.',
+    lemmaNames: ['fibre lemma ⟹', 'fibre lemma ⟸'],
     atoms: [], givens: [],
     sockets: [
       { id: 'fwd', target: homCond([peq(fT(u), fT(v))], peq(fT(P(u, I(v))), eS('T'))), allowedGivens: [] },
@@ -103,6 +104,7 @@ export const LEVELS: LevelManifest[] = [
     method: 'Computation', source: 'Pinter 16.D2–D3',
     insight: 'Conjugating by a respects products, composes as conjugation by ab, and conjugating by a⁻¹ undoes it.',
     memo: 'Conjugation by a is a map from the group to itself. Check three of its properties.',
+    lemmaNames: ['conjugation preserves products', 'conjugation by a product', 'conjugation by a⁻¹ undoes a'],
     atoms: [],
     givens: [],
     sockets: [

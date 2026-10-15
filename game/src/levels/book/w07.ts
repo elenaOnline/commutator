@@ -78,6 +78,7 @@ export const LEVELS: LevelManifest[] = [
     method: 'Preservation', source: 'Pinter 9.B1',
     insight: 'e = ee, so f(e) is idempotent in K. The only idempotent is e.',
     memo: 'For every map f that preserves products, f(e) is the identity.',
+    lemmaNames: ['f(e) = e'],
     atoms: [], givens: [],
     sockets: [{
       id: 's', allowedGivens: [],
@@ -95,6 +96,7 @@ export const LEVELS: LevelManifest[] = [
     method: 'Uniqueness argument', source: 'Pinter 9.B2',
     insight: 'f(x) times f(x⁻¹) is f(e), which is e. So f(x⁻¹) is the inverse of f(x).',
     memo: 'For every map f that preserves products, f(x⁻¹) = f(x)⁻¹.',
+    lemmaNames: ['f(x⁻¹) = f(x)⁻¹'],
     atoms: [], givens: [],
     sockets: [{
       id: 's', allowedGivens: [],

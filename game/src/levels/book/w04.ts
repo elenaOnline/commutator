@@ -147,6 +147,7 @@ export const LEVELS: LevelManifest[] = [
     method: 'Subgroup test', source: 'Pinter 5.D4L / 5.D4b',
     insight: 'The same law at two cleverly chosen instances: the product of two such elements is again one.',
     memo: 'a and b obey the same law. Show a commutes with squares, and ab obeys the law.',
+    lemmaNames: ['a commutes with every square'],
     atoms: atomsAB,
     givens: [
       { id: 'Ha', name: 'Hₐ', fact: { k: 'law', metas: ['x'], l: P(a, x, a, x), r: P(x, a, x, a) } },

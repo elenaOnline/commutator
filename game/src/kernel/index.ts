@@ -23,6 +23,11 @@ export interface KernelCtx {
   level: LevelManifest;
   /** All schemas known to the game (earned + imported). Availability is level.tools.schemas. */
   registry: Record<string, Schema>;
+  /**
+   * Saved lemmas that are in the player's Lemma Book but switched off (failed re-verification), by schema id,
+   * with their display name and why — so a floor citing one is told which lemma and why, never its raw id.
+   */
+  disabled?: Record<string, { name: string; reason?: string }>;
 }
 
 // ───────────── Terms ─────────────

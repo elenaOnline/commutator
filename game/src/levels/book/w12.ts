@@ -63,6 +63,7 @@ export const LEVELS: LevelManifest[] = [
     method: 'Subgroup test', source: 'Pinter 14 Theorem 2(i)',
     insight: 'Kernel membership is the equation f(x) = e, so the subgroup test and normality become three computations through the homomorphism law, finished by your own ch. 9 lemmas.',
     memo: 'Let f be any homomorphism. Show its kernel is a normal subgroup.',
+    lemmaNames: ['kernel closed under products', 'kernel closed under inverses', 'kernel closed under conjugation'],
     atoms: [], givens: [],
     sockets: [
       { id: 'prod', target: homCond(['x', 'y'], [peq(f(x), eT), peq(f(y), eT)], peq(f(P(x, y)), eT)), allowedGivens: [] },

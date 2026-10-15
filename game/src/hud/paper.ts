@@ -13,7 +13,7 @@ import { MIRROR_NAMES, REGISTRY } from '../levels/levels';
 import { BOOK_LEVELS } from '../levels/book';
 import { MAP_WORDS, buildTranscript, graphLabels, schemaInfo, type EqLine, type Item, type ProseLine, type State } from './proof';
 import { adapt } from './transcript';
-import { campaignOf, deskFact, displayNo, openView, progressOf, richHTML, esc, fH, h, labels as labels0, nameHTML, safe, statementOf, tH, type S, type Store } from './util';
+import { groupAliases, withEAliases, campaignOf, deskFact, displayNo, openView, progressOf, richHTML, esc, fH, h, labels as labels0, nameHTML, safe, statementOf, tH, type S, type Store } from './util';
 
 export interface PaperLine {
   no: number;
@@ -405,6 +405,11 @@ function factStatement(f: Fact, L: Record<string, string>, sortLabel: (r: unknow
 /** A statement's binders (groups, subgroups, maps, then element variables by sort, in the card's order) and its body. */
 function cardParts(f: Fact, L: Record<string, string>, sortLabel: (r: unknown) => string, opts: { any?: boolean }, inline = false): { parts: string[]; body: string } {
   if (f.k !== 'law' && f.k !== 'cond') return { parts: [], body: math(fH(f as never, L)) };
+  // a card's group parameters read G, K, L … (never S / T, never H): the shared aliases, for binders, sorts and e's subscripts
+  const al = groupAliases(f.binds, L, f.metas);
+  return withEAliases({ ...L, ...al }, () => cardParts0(f, { ...L, ...al }, (r) => { const o = r as { k?: string; id?: string } | string | undefined; if (typeof o === 'string') return al[o] ?? sortLabel(o); return o && o.k === 'sortmeta' && o.id ? al[o.id] ?? o.id : sortLabel(r); }, opts, inline, al));
+}
+function cardParts0(f: Fact & { k: 'law' | 'cond' }, L: Record<string, string>, sortLabel: (r: unknown) => string, opts: { any?: boolean }, inline: boolean, al: Record<string, string>): { parts: string[]; body: string } {
   const metaL = { ...L, ...Object.fromEntries(f.metas.map((m) => [m, m])) };
   const zs = new Set<string>();
   const walkZ = (t: unknown): void => {
@@ -416,7 +421,7 @@ function cardParts(f: Fact, L: Record<string, string>, sortLabel: (r: unknown) =
   walkZ(f);
   const mv = (m: string) => `<i class="m-atom${opts.any ? ' any' : ''}">${esc(m)}</i>`;
   const parts: string[] = [];
-  const grps = (f.binds ?? []).filter((b) => b.k === 'grp').map((b) => b.id);
+  const grps = (f.binds ?? []).filter((b) => b.k === 'grp').map((b) => al[b.id] ?? b.id);
   if (grps.length) parts.push(`${grps.length > 1 ? 'groups' : 'a group'} ${grps.map(mv).join(', ')}`);
   for (const b of f.binds ?? []) {
     if (b.k === 'sub') parts.push(`${mv(b.id)} <span class="m-rel">${b.normal ? '⊴' : '≤'}</span> <i>${esc(sortLabel(b.sort))}</i>`);

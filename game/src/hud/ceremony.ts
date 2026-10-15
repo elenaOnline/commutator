@@ -33,6 +33,8 @@ export interface Savable { machine: string; card: Card; dock: number; name: stri
 function statementText(card: Card): string {
   const div = document.createElement('div');
   div.innerHTML = fH(card, {});
+  // a name is plain text: e's group subscript would flatten to "eG", so it goes (f(e) = e: the map says which e)
+  div.querySelectorAll('.m-esort').forEach((x) => x.remove());
   // a name field is plain text: superscripts become ⁻¹, ², ⁿ (never "x-1")
   const SUP: Record<string, string> = { '-': '⁻', '−': '⁻', '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴', '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹', n: 'ⁿ', '+': '⁺' };
   div.querySelectorAll('sup').forEach((x) => { const t = x.textContent ?? ''; x.textContent = [...t].every((c) => SUP[c]) ? [...t].map((c) => SUP[c]).join('') : `^${t}`; });

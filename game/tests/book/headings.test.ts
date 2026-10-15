@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import { BOOK_LEVELS } from '../../src/levels/book';
 import { fullStatementHTML } from '../../src/hud/paper';
-import { fH, labels } from '../../src/hud/util';
+import { fH, groupAliases, labels, withEAliases } from '../../src/hud/util';
 import { paperText } from './paper-kit';
 
 const strip = (html: string) => paperText(html).replace(/\s+/g, ' ').trim();
@@ -27,7 +27,10 @@ describe('Book headings state the whole theorem', () => {
         const t = sk.target;
         if (sk.holes?.length) continue; // an open dock's holes are chips, drawn by the caller
         const want = t.k === 'cond' ? [...t.premises, t.concl] : t.k === 'law' ? [{ k: 'eq', l: t.l, r: t.r }] : [t];
-        for (const p of want) expect(head, `${lv.id}: dock ${sk.id}`).toContain(body(fH(p as never, { ...L, ...Object.fromEntries(((t as { metas?: string[] }).metas ?? []).map((m) => [m, m])) })));
+        // a card's groups read by the shared aliases (G, K …), e's subscripts too
+        const al = t.k === 'law' || t.k === 'cond' ? groupAliases(t.binds, L, t.metas) : {};
+        const L2 = { ...L, ...al, ...Object.fromEntries(((t as { metas?: string[] }).metas ?? []).map((m) => [m, m])) };
+        for (const p of want) expect(head, `${lv.id}: dock ${sk.id}`).toContain(body(withEAliases(L2, () => fH(p as never, L2))));
       }
       expect(head).not.toMatch(/For all ,|for all ,|∀\s*\.|\. ⟹|, ⟹|^⟹/);
       expect(head).not.toMatch(/\$\d|\bx\d\b/); // no positional names, no raw Tower ids
