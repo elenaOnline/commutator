@@ -11,10 +11,12 @@ const dockOf = (c: Canvas, id = 'socket:s') => c.machines.find((m) => m.id === i
 const portsById = (m: Machine, f: Floor) => Object.fromEntries(portsOf(m, f.ctx).map((p) => [p.id, { tile: p.tile, face: p.face }]));
 
 /** L01 floor: pre-start spool → cancel → the dock's `port` inlet. */
+// the canceller sits beside the inlet under test: connect takes the nearest free inlet (playtest W10–14 #7)
+const NEAR: Record<string, { x: number; y: number }> = { q: { x: 5, y: 3 }, qn: { x: 8, y: -3 }, qe: { x: 14, y: -3 }, qs: { x: 10, y: 3 } };
 function l01(port: string): { f: Floor; can: string } {
   const f = new Floor(LEVEL_BY_ID.L01!);
   const spool = f.c.machines.find((m) => m.kind === 'spool')!.id;
-  const can = f.add(cancel(), { x: 5, y: 3 });
+  const can = f.add(cancel(), NEAR[port] ?? { x: 5, y: 3 });
   f.wire(spool, can);
   f.wire(can, f.socket(), port);
   return { f, can };

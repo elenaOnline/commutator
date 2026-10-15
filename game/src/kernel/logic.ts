@@ -10,7 +10,7 @@ import {
   E, KErr, atomsOf, instantiate, inv, isGround, locate, railOf, locateGap, meta, metasOf, mirrorCard, mul, norm, pow, same,
   spliceRail, withRail, word,
 } from './terms';
-import { actionMark, factText, labelsOf, termText, type Labels } from './print';
+import { MULTI_GROUP, actionMark, factText, labelsOf, registerLabels, termText, type Labels } from './print';
 import { POLY_LIMITS, ResourceLimit, polyNorm, polyRefs, polyRename, resetPolyBudget } from './poly';
 import { literalOf, powerAllowed, powerSchema } from './powers';
 import { dockText, fillOpen, holesProblem, isOpen } from './open';
@@ -289,11 +289,15 @@ export function checkSubst(s: Subst, metas: MetaId[], ctx: KernelCtx, zmetas: Se
 
 /** Display labels of a level: atoms (and Towers) plus, Book phase B, its subgroups (and Subgroup Towers). */
 export function levelLabels(level: LevelManifest): Labels {
-  return {
+  const L: Labels = {
+    // two or more groups: every identity is subscripted in text (playtest W10–14 #3)
+    ...([...sortEnv(level).sorts.values()].filter((x) => x.kind === 'group').length >= 2 ? { [MULTI_GROUP]: '1' } : {}),
     ...Object.fromEntries((level.maps ?? []).filter((m) => m.kind === 'action').map((m) => [actionMark(m.id), '1'])),
     ...Object.fromEntries([...(level.sorts ?? []), ...(level.maps ?? [])].map((x) => [x.id, x.label])),
     ...labelsOf(level.atoms), ...Object.fromEntries(subsIn(level).map((x) => [x.id, x.label])),
   };
+  registerLabels(L);
+  return L;
 }
 
 /** Capitalize the first letter of a message clause (maths symbols are left alone). */
@@ -366,7 +370,7 @@ function mismatch(rule: RuleRef, srcInst: Term, redex: Term, s: Subst, L: Labels
 }
 
 export function stepCore(p: Pallet, op: StepOp, ctx: KernelCtx, ruleFact: Fact | undefined): Pallet {
-  const L = labelsOf(ctx.level.atoms);
+  const L = levelLabels(ctx.level);
   if (!op || typeof op !== 'object') throw new KErr('This step is malformed.');
   if (op.k === 'swap') {
     if (p.k === 'mem') throw new KErr('A membership t ∈ H has one side. There is nothing to swap.');
@@ -625,18 +629,21 @@ export function check(g: ProofGraph, ctx0: KernelCtx): CheckResult {
   for (const r of Object.values(results)) if (!r.ok) ok = false;
 
   const rigid = new Set(vx.vars.map((v) => v.id));
-  const sockets = ctx.level.sockets.map((sock) => socketResult(sock, nodes, results, L, rigid));
+  const sockets = ctx.level.sockets.map((sock) => socketResult(sock, nodes, results, L, rigid, ctx.level.givens));
   return { ok, nodes: results, sockets, solved: sockets.length > 0 && sockets.every((s) => s.ok) };
 }
 
 function socketResult(
   sock: LevelManifest['sockets'][number], nodes: ProofNode[], results: Record<NodeId, NodeResult>, L: Labels,
-  rigid: Set<string> = new Set(),
+  rigid: Set<string> = new Set(), givens: LevelManifest['givens'] = [],
 ): SocketResult {
   const t = sock.target;
   const allowed = new Set(sock.allowedGivens.map((g) => `g:${g}`));
   let nearly: string | undefined;
-  const reliesOn = (extra: string[]) => extra.map((d) => (d.startsWith('a:') ? 'an open assumption' : `given ${d.slice(2)}`)).join(', ');
+  // display names, never ids (playtest W4–9: "rests on given injgf" → "rests on the given g∘f injective")
+  const givenName = (id: string) => givens.find((g) => g.id === id)?.name ?? id;
+  const reliesOn = (extra: string[]) =>
+    [...new Set(extra.map((d) => (d.startsWith('a:') ? 'an open assumption' : `the given ${givenName(d.slice(2))}`)))].join(', ');
   if (sock.holes !== undefined) {
     // Book phase A: an open dock. Filled by the first root node whose fact is target[holes := T̄]
     // (pallets: ordered sides — the bench records a swap; cards: up to renaming, premise order, flip).
@@ -703,7 +710,7 @@ function socketResult(
     }
     const extra = r.deps.filter((d) => !allowed.has(d));
     if (extra.length) {
-      nearly = `This proof rests on ${extra.map((d) => (d.startsWith('a:') ? 'an open assumption' : `given ${d.slice(2)}`)).join(', ')}. This goal doesn't allow that.`;
+      nearly = `This proof rests on ${reliesOn(extra)}. This goal doesn't allow that.`;
       continue;
     }
     return { id: sock.id, ok: true, filledBy: n.id };
@@ -1145,7 +1152,7 @@ export function generalizeFact(f: Fact, vars: AtomDecl[], hyps: Room[], reserved
   return out;
 }
 
-const GRP_POOL = ['G', 'H', 'K', 'Q', 'A', 'B'];
+const GRP_POOL = ['G', 'K', 'Q', 'L', 'M', 'R']; // never H: the subgroup letter (playtest W10–14 #3)
 const HOM_POOL = ['f', 'g', 'h', 'φ', 'ψ', 'π'];
 const SUB_POOL = ['H', 'K', 'N', 'M', 'L', 'J'];
 const Z_POOL = ['n', 'k', 'm', 'j', 'i', 'l', 'r', 's'];
@@ -1272,7 +1279,7 @@ export function sameCardUpToPermutation(a: Card, b: Card): boolean {
 export function lemmaEligibility(fact: Fact | undefined, deps: string[], g: ProofGraph, ctx: KernelCtx):
   { ok: true } | { ok: false; reason: string } {
   const vx = withVars(ctx, g);
-  const L = labelsOf(vx.ctx.level.atoms);
+  const L = levelLabels(vx.ctx.level);
   if (!fact || (fact.k !== 'law' && fact.k !== 'cond')) return { ok: false, reason: 'Only a ∀ statement can go in the Lemma Book.' };
   // Book phase A: a card with an unbound meta (an open dock's hole) is not a statement; it is never saved
   const bound = new Set(fact.metas);

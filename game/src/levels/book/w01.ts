@@ -2,6 +2,7 @@
 // Three levels. The Book assumes nothing, so P3.1 re-teaches place → connect → deliver with a pre-placed Spool.
 import type { LevelManifest, Pallet, Term, Toolset } from '../../kernel/types';
 import type { AtomSpec, ConceptCard } from '../cards';
+import { letterSlot } from '../../ui/letters';
 
 // ── local builders (normalized terms) ──
 const A = (id: string): Term => ({ k: 'atom', id });
@@ -57,12 +58,8 @@ export const LEVELS: LevelManifest[] = [
   },
 ];
 
-/**
- * Illustrative letters for card figures. One hue per letter across every card of these worlds, matching the level
- * constants (a b c d) on the floor, so a letter keeps its shape: AT('abc') → a, b, c in their own slots.
- */
-const LETTER_HUE: Record<string, number> = { a: 0, b: 1, c: 2, d: 3, p: 0, q: 1, r: 2, s: 3, u: 0, v: 1, w: 2, x: 2, y: 3, z: 4 };
-const AT = (s: string): AtomSpec[] => [...s].map((id) => ({ id, label: id, hue: LETTER_HUE[id]! }));
+/** Card letters: AT('pq') → p, q, each in its own shape (ui/letters: a letter keeps its shape on every card and floor). */
+const AT = (s: string): AtomSpec[] => [...s].map((id) => ({ id, label: id, hue: letterSlot(id) }));
 
 /** Concept cards for this world's levels, keyed by level id. */
 export const CARDS: Record<string, ConceptCard[]> = {
@@ -85,7 +82,7 @@ export const CARDS: Record<string, ConceptCard[]> = {
     {
       title: 'What a proof is',
       long: true,
-      body: 'A proof is an argument that a statement must be true, using only what was agreed at the start. Here that means the three group rules and any givens listed on the order. If the goal can be reached from those alone, it holds in every group at once: numbers under addition, the symmetries of a square, the shuffles of a deck. Checking examples can never do this, because there are infinitely many groups. A proof covers all of them.\n\nEach move is approved by a checker, so a finished proof has no gaps. You are done when the goal reaches the **Receiving Dock**, marked ∎, the traditional sign for the end of a proof.',
+      body: 'A proof is an argument that a statement must be true, using only what was agreed at the start. Here that means the three group rules and any givens listed on the order. If the goal can be reached from those alone, it holds in every group at once: numbers under addition, the symmetries of a square, the shuffles of a deck. Checking examples can never do this, because there are infinitely many groups. A proof covers all of them.\n\nEach move is approved by a checker, so a finished proof has no gaps. The goal waits at the **dock**, the dark box labelled DELIVER. Belt a proof of the goal into it. When the proof arrives, the dock shows ∎, the traditional sign for the end of a proof.',
     },
   ],
 
@@ -105,9 +102,10 @@ export const CARDS: Record<string, ConceptCard[]> = {
     },
     {
       title: 'Rules run both ways',
-      body: 'A recipe can also run from right to left. Read $H$ backwards and it inserts $xx$ at a gap between factors, or at either end, for any $x$ you pick. Inserting $xx$ keeps the value, because $xx = e$. With other letters:',
-      figures: [{ k: 'math', atoms: AT('dc'), rows: [
-        { seq: ['d', '=', { t: 'd(cc)', br: [[1, 2, '$H$ backwards, $x = c$']] }] },
+      body: 'A rule is an equation, so it can be used in either direction. Read forwards, it replaces its left side by its right side. Read backwards, it replaces its right side by its left side. Every rule can run backwards, the group rules and the givens alike. With a rule $pq = r$ on other letters:',
+      figures: [{ k: 'math', atoms: AT('pqrs'), rows: [
+        { label: 'the rule', seq: ['pq', '=', 'r'] },
+        { label: 'backwards', seq: ['sr', '=', { t: 's(pq)', br: [[1, 2, '$r$ read as $pq$']] }] },
       ] }],
     },
   ],
@@ -115,7 +113,7 @@ export const CARDS: Record<string, ConceptCard[]> = {
   'P3.3': [
     {
       title: 'Choosing the instance',
-      body: 'A law with a variable, like $x^{-1}x = e$, is one equation for every element. When you use it in a Rewriter, you choose which element your instance stands for, and you can type any term there.',
+      body: 'A law with a variable, like $x^{-1}x = e$, is one equation for every element. When you use it in a Rewriter, you choose which element $x$ stands for.',
       figures: [{ k: 'math', atoms: AT('c'), rows: [
         { seq: [{ t: 'c^-1c', br: [[0, 1, 'the law at $x = c$']] }, '=', 'e'] },
       ] }],

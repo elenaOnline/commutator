@@ -75,6 +75,34 @@ describe('lowering: Rewriter recipes', () => {
     expect(comp.machines[re]!.nodes.map((n) => n.split('#')[1])).toEqual(['insert', 'rewrite']);
   });
 
+  it('playtest W4–9 #13: a source-e rule may also bracket an e already in the word (no extra e inserted)', () => {
+    const f = new Floor(LEVEL_BY_ID.L03!);
+    const sp = f.add(spool(b));
+    const ie = f.add(insertE());
+    f.wire(sp, ie);
+    expect(txt(f.compile(), ie, f.level)).toBe('b = eb');
+    const onE = F.pinFromAddr(eq(b, P(E, b)), { side: 'r', path: [], range: [0, 1] })!;
+    const re = f.add(lawRw({ k: 'given', givenId: 'h' }, { dir: 'rev', gap: onE }));
+    f.wire(ie, re);
+    const comp = f.compile();
+    expect(txt(comp, re, f.level)).toBe('b = abb');
+    expect(comp.machines[re]!.nodes.map((n) => n.split('#')[1])).toEqual(['rewrite']);
+    // the lens offers carets and the bracket on e together; the bracket is chosen
+    const res = comp.machines[re]!;
+    expect(res.candidates!.some((c) => 'gap' in c.addr)).toBe(true);
+    expect(res.candidates![res.chosen!]!.addr).toEqual({ side: 'r', path: [], range: [0, 1] });
+    expect(comp.check.ok).toBe(true);
+    // a caret still inserts (the old behaviour), and the default is the first caret
+    const re2 = f.add(lawRw({ k: 'given', givenId: 'h' }, { dir: 'rev' }));
+    f.wire(ie, re2);
+    expect(txt(f.compile(), re2, f.level)).toBe('b = abeb');
+    // a bracket that is not on an e is refused with a reason
+    const onB = F.pinFromAddr(eq(b, P(E, b)), { side: 'r', path: [], range: [1, 2] })!;
+    const re3 = f.add(lawRw({ k: 'given', givenId: 'h' }, { dir: 'rev', gap: onB }));
+    f.wire(ie, re3);
+    expect(reason(f.compile(), re3)).toMatch(/not on an e/);
+  });
+
   it('routed recipe: a fact made on the floor rides into the rule port', () => {
     const f = new Floor(LEVEL_BY_ID.L03!);
     const sp = f.add(spool(b));
@@ -223,7 +251,7 @@ describe('docks, jams and causes', () => {
     lv.sockets[0]!.allowedGivens = [];
     const f = new Floor(lv);
     f.wire(f.given('h'), f.socket());
-    expect(reason(f.compile(), f.socket())).toContain('rests on given h');
+    expect(reason(f.compile(), f.socket())).toContain('rests on the given h');
   });
 
   it('a feedback loop is a jam', () => {

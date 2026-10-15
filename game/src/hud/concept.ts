@@ -56,6 +56,32 @@ export function openConceptFor(store: Store, kindOrWord: string, text?: string) 
   store.openCards(Math.max(0, i));
 }
 
+/**
+ * Nothing clips (NORMS): a brace's label is centred under its span, so a label under a short term near the card's
+ * edge would be cut off. Slide each such label just inside the card's content box.
+ */
+function keepInside(card: HTMLElement) {
+  // the card never covers the order chip or the run panel: it starts below whichever of them it would overlap
+  card.style.removeProperty('top'); card.style.removeProperty('max-height');
+  const c0 = card.getBoundingClientRect();
+  let top = c0.top;
+  for (const sel of ['.h3-run', '.h3-order']) {
+    const p = document.querySelector<HTMLElement>(sel)?.getBoundingClientRect();
+    if (p && p.width && p.left < c0.right && p.right > c0.left && p.bottom > top) top = p.bottom + 12;
+  }
+  if (top !== c0.top) { card.style.top = `${Math.round(top)}px`; card.style.maxHeight = `${Math.round(innerHeight - top - 104)}px`; }
+  const r = card.getBoundingClientRect();
+  if (!r.width) return;
+  const cs = getComputedStyle(card);
+  const left = r.left + parseFloat(cs.paddingLeft), right = r.right - parseFloat(cs.paddingRight);
+  card.querySelectorAll<HTMLElement>('.cc-brlabel, .cc-cap').forEach((lab) => {
+    lab.style.removeProperty('--dx');
+    const b = lab.getBoundingClientRect();
+    const dx = b.left < left ? left - b.left : b.right > right ? right - b.right : 0;
+    if (dx) lab.style.setProperty('--dx', `${Math.round(dx)}px`);
+  });
+}
+
 export function mountConcepts(layer: HTMLElement, store: Store) {
   const el = h('section', { class: 'h3-cards cc', hidden: true, role: 'dialog', 'aria-label': 'Concept cards' });
   layer.append(el);
@@ -91,6 +117,9 @@ export function mountConcepts(layer: HTMLElement, store: Store) {
     const dots = h('span', { class: 'cc-dots' });
     cs.forEach((_, i) => { const d = h('button', { class: `cc-dot${i === page ? ' on' : ''}`, 'aria-label': `card ${i + 1}` }); d.addEventListener('click', () => store.setCardPage(i)); dots.append(d); });
     el.append(h('footer', { class: 'cc-foot' }, prev, dots, h('span', { class: 'cc-flex' }), h('span', { class: 'cc-hint' }, 'Enter or Esc closes · ← → pages'), next));
+    const fit = () => keepInside(el);
+    requestAnimationFrame(fit);
+    void document.fonts?.ready.then(() => requestAnimationFrame(fit));
   };
   // While open: Esc / Enter close, arrows page. Everything else (Q, hotkeys) passes to the floor.
   window.addEventListener('keydown', (e) => {

@@ -14,6 +14,7 @@ import { CARDS as C2 } from '../../src/levels/book/w02';
 import { CARDS as C3 } from '../../src/levels/book/w03';
 import { type AtomSpec, type ConceptCard, type Figure, type MathCell } from '../../src/levels/cards';
 import { RELS, displayTerm, parseDisplay, parseDisplayFig, parseSubgroup, type DFactor } from '../../src/hud/figures/parse';
+import { letterSlot } from '../../src/ui/letters';
 
 const CARDS: Record<string, ConceptCard[]> = { ...C1, ...C2, ...C3 };
 const LEVEL_BY_ID: Record<string, (typeof LEVELS)[number]> = Object.fromEntries(LEVELS.map((l) => [l.id, l]));
@@ -267,16 +268,10 @@ describe('Book worlds 1–3 · concept cards', () => {
   });
 });
 describe('Book worlds 1–3 · letter shapes', () => {
-  it('a letter keeps one hue across every card, and matches the level’s own constant on the floor', () => {
-    const seen = new Map<string, number>();
+  it('a letter keeps one shape on every card and floor: its hue is ui/letters’ letterSlot, never a card’s own', () => {
     for (const [id, cs] of Object.entries(CARDS)) for (const c of cs) for (const f of figuresOf(c)) {
       if (f.k !== 'math' && f.k !== 'scene') continue;
-      for (const a of f.atoms ?? []) {
-        expect(seen.get(a.id) ?? a.hue, `${id} · ${c.title}: ${a.id}`).toBe(a.hue);
-        seen.set(a.id, a.hue);
-        const own = LEVEL_BY_ID[id]!.atoms.find((x) => x.id === a.id);
-        if (own) expect(a.hue, `${id}: ${a.id} on the floor`).toBe(own.hue);
-      }
+      for (const a of f.atoms ?? []) expect(a.hue, `${id} · ${c.title}: ${a.id}`).toBe(letterSlot(a.label));
     }
   });
   it('no stray “;” from \\; spacing in card maths, and no named trick in a card title', () => {

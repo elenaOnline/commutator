@@ -9,7 +9,7 @@ import * as F from '../../src/factory';
 import type { Card, LevelManifest, StructBinder, Term, Toolset } from '../../src/kernel/types';
 import {
   bookFloor, saveLemma, spool, cancel, routed, thm, lawRw, mult, op, P, I, M, eq, pinSpan,
-  app, eS, groupTower, homTower, elemTower, lvZ, tower, pw, Zc, E, intKnob, pop,
+  app, eS, groupTower, homTower, elemTower, lvZ, tower, pw, Zc, E, intKnob, pop, insertE,
 } from './kit-w1214';
 import { buildIdempotent, buildCommutator, EARNED } from './lemmas-w123';
 import { buildNegPower, multiRoom } from './lemmas-w89';
@@ -50,7 +50,7 @@ export function buildHomE() {
   fl.add(homTower('f1', 'f₁', 'G1', 'K1'), { x: 6, y: 30 });
   const fE = app('f1', eS('G1'));
   const sp = fl.add(spool(fE));
-  const ee = fl.add(lawRw({ k: 'axiom', id: 'unitL' }, { dir: 'rev', target: F.pinFromAddr(eq(fE, fE), { side: 'r', path: [0] })! }));
+  const ee = fl.add(insertE(F.pinFromGap(eq(fE, fE), { side: 'r', path: [0], gap: 0 })!)); // e ⟶ ee inside f₁: the HUD's insert e
   const hm = fl.add(lawRw(sch('hom.mul')));
   const sw = fl.add(op({ k: 'swap' }));
   const id = fl.add(thm(sch(idem.id)));

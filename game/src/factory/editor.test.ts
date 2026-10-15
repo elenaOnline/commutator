@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import * as F from './index';
+import { Floor, cancel as cancelM, spool as spoolM, a as aT, I as IT, P as PT, eq as eqT, order as orderT } from './compiler.testkit';
 import type { KernelCtx } from '../kernel';
 import { LEVELS, LEVEL_BY_ID, REGISTRY } from '../levels/levels';
 
@@ -110,7 +112,11 @@ function invariants(c: Canvas, k: KernelCtx = ctx) {
       expect(occ.has(tileKey(t)), `belt ${bl.id} under machine at ${tileKey(t)}`).toBe(false);
       const f = fronts.get(tileKey(t));
       const lastOpen = !to && i === bl.path.length - 1; // an open belt may point at a doorstep
-      expect(lastOpen || f === undefined || f === `${bl.from.m}#${bl.from.port}` || (!!to && f === `${to.m}#${to.port}`), `belt ${bl.id} on doorstep of ${f}`).toBe(true);
+      // W10–14 #7: a belt may run straight across a free doorstep, along the machine's face (never into it)
+      const fp2 = f ? portsOf(m(c, f.split('#')[0]!), k).find((p) => p.id === f.split('#')[1]) : undefined;
+      const pv = i ? bl.path[i - 1] : undefined, nx = bl.path[i + 1];
+      const passes = !!fp2 && !!pv && !!nx && (pv.x === nx.x ? (fp2.face === 'E' || fp2.face === 'W') : pv.y === nx.y && (fp2.face === 'N' || fp2.face === 'S'));
+      expect(lastOpen || passes || f === undefined || f === `${bl.from.m}#${bl.from.port}` || (!!to && f === `${to.m}#${to.port}`), `belt ${bl.id} on doorstep of ${f}`).toBe(true);
       const prev = i ? bl.path[i - 1]! : null, next = bl.path[i + 1];
       const straightH = prev && next && prev.y === t.y && next.y === t.y;
       const straightV = prev && next && prev.x === t.x && next.x === t.x;
@@ -604,7 +610,7 @@ describe('forgiving belts (r2)', () => {
     const d = must(e);
     expect(d.belts.length).toBe(2);
     const br = d.belts.find((b) => b.to!.m === 'socket:s')!;
-    expect(br.broken).toMatch(/Receiving Dock.*faces the Hopper/);
+    expect(br.broken).toMatch(/the dock.*faces the Hopper/);
     if (e.ok) { expect(e.note).toMatch(/re-routing/); expect(e.broken).toEqual([br.id]); }
     invariants(d);
     // removing an obstacle heals it
@@ -624,7 +630,7 @@ describe('forgiving belts (r2)', () => {
     c = must(lplace(c, 'canceller', { x: 5, y: 0 }, 0, ctx));
     const e = lplace(c, 'popper', { x: 4, y: 0 }, 0, ctx);
     expect(e.ok).toBe(false);
-    if (!e.ok) { expect(e.reason).toBe('The Rewriter is in the way.'); expect(e.blockers).toEqual(['canceller1']); }
+    if (!e.ok) { expect(e.reason).toBe('The cancel Rewriter is in the way.'); expect(e.blockers).toEqual(['canceller1']); }
     // an Anvil inside a room whose ≠ input faces the wall
     let r = initialCanvas(k.level, k);
     r = must(paintRoom(r, { x: 3, y: 2, w: 8, h: 6 }, 'suppose', a, b, k));
@@ -633,7 +639,7 @@ describe('forgiving belts (r2)', () => {
     r = must(lplace(r, 'hopper', { x: 3, y: 7 }, 0, k));             // and its side approach is taken
     const w = lconnect(r, { m: 'swapper1', port: 'out' }, { m: 'anvil1', port: 'b' }, k);
     expect(w.ok).toBe(false);
-    if (!w.ok) { expect(w.reason).toBe('no route: the Joiner’s ≠ input faces the room wall.'); expect(w.blockers).toEqual([r.rooms[0]!.id]); }
+    if (!w.ok) { expect(w.reason).toBe('no route: the clash Joiner’s ≠ input faces the room wall.'); expect(w.blockers).toEqual([r.rooms[0]!.id]); }
   });
 
   it('routes never take another port’s doorstep', () => {
@@ -962,9 +968,9 @@ describe('v4 r2: doorsteps and the L12 floor', () => {
     c = must(place(c, 'rewriter', { x: 4, y: 4 }, 0, ctx, RWr));        // rule port on the north side → doorstep (4,3)
     const e = place(c, 'joiner', { x: 3, y: 2 }, 0, ctx);
     expect(e.ok).toBe(false);
-    if (!e.ok) { expect(e.reason).toBe('That would block the Rewriter’s rule input.'); expect(e.blockers).toEqual(['rewriter1']); }
+    if (!e.ok) { expect(e.reason).toBe('That would block the routed Rewriter’s rule input.'); expect(e.blockers).toEqual(['rewriter1']); }
     const ghost: Machine = { id: 'g', kind: 'hopper', at: { x: 4, y: 3 }, rot: 0, config: { kind: 'hopper', t: null } };
-    expect(placementWhy(c, ghost, ctx)?.reason).toBe('That would block the Rewriter’s rule input.');
+    expect(placementWhy(c, ghost, ctx)?.reason).toBe('That would block the routed Rewriter’s rule input.');
     expect(placementWhy(c, { ...ghost, at: { x: 7, y: 3 } }, ctx)).toBeNull();
   });
 
@@ -1007,7 +1013,7 @@ describe('v4 final: short-belt splices and unambiguous blame', () => {
     invariants(d);
   });
 
-  it('blame names a belt by its source’s plate and position, and still flashes its id', () => {
+  it('blame names a belt by its source’s role, never coordinates, and still flashes its id', () => {
     let c = empty();
     c = must(lplace(c, 'canceller', { x: 0, y: 0 }, 0, ctx));
     c = must(lplace(c, 'popper', { x: 9, y: 0 }, 0, ctx));
@@ -1017,7 +1023,7 @@ describe('v4 final: short-belt splices and unambiguous blame', () => {
     const along = [{ x: 4, y: 2 }, { x: 4, y: 1 }, { x: 4, y: 0 }, { x: 5, y: 0 }, { x: 6, y: 0 }, { x: 6, y: 1 }, { x: 6, y: 2 }, { x: 7, y: 2 }];
     const e = lconnect(c, { m: 'hopper1', port: 'out' }, { m: 'inverter1', port: 'q' }, ctx, along);
     expect(e.ok).toBe(false);
-    if (!e.ok) { expect(e.reason).toMatch(/[Tt]he belt from the CANCEL Rewriter at \(0,0\)/); expect(e.blockers).toContain('b1'); }
+    if (!e.ok) { expect(e.reason).toMatch(/[Tt]he belt from the cancel Rewriter is in the way/); expect(e.reason).not.toMatch(/\(\d+,\s*-?\d+\)/); expect(e.blockers).toContain('b1'); }
   });
 });
 
@@ -1083,5 +1089,42 @@ describe('v4.1 open belts', () => {
     invariants(p);
     const lvl = must(extendTo(initialCanvas(ctx.level, ctx), { m: 'pre:0', port: 'out' }, { x: 4, y: 2 }, ctx));
     expect(migrateCanvas(lvl, ctx)!.belts).toEqual(lvl.belts);
+  });
+});
+
+describe('UX fixes (playtest 2026-10-15)', () => {
+  it('MIN_ROOM is exported; the desk refusal says how to remove the room', () => {
+    expect(F.MIN_ROOM).toEqual({ w: 3, h: 3 });
+    const f = new Floor(orderT(eqT(aT, aT)));
+    const e = F.paintRoom(f.c, { x: 10, y: 4, w: 6, h: 5 }, 'suppose', aT, aT, f.ctx);
+    if (!e.ok) throw new Error(e.reason);
+    const desk = e.canvas.machines.find((m) => m.config.kind === 'desk')!.id;
+    const r = F.remove(e.canvas, [desk]);
+    expect(r.ok).toBe(false);
+    expect((r as { reason: string }).reason).toBe('The desk and gate belong to their room. Select the room and press ⌫, or use Delete room.');
+  });
+  it('moving a machine re-routes its belts where a route exists; with none, the belt stays (dashed) with a note', () => {
+    const f = new Floor(orderT(eqT(aT, aT)));
+    const sp = f.add(spoolM(PT(aT, IT(aT))), { x: 6, y: 6 });
+    const c1 = f.add(cancelM(), { x: 12, y: 6 });
+    const c2 = f.add(cancelM(), { x: 18, y: 10 });
+    f.wire(sp, c1); f.wire(c1, c2);
+    for (const d of [{ x: 0, y: 5 }, { x: -10, y: 0 }, { x: 3, y: -4 }]) {
+      const e = F.moveMachines(f.c, [c1], d, f.ctx);
+      expect(e.ok).toBe(true);
+      expect((e as { canvas: F.Canvas }).canvas.belts.every((b) => !b.broken)).toBe(true);
+      expect((e as { note?: string }).note).toBeUndefined();
+    }
+    // box the spool's output in: the belt cannot leave, so it is kept broken with an honest note
+    const g = new Floor(orderT(eqT(aT, aT)));
+    const s0 = g.add(spoolM(aT), { x: 6, y: 6 });
+    const tgt = g.add(cancelM(), { x: 12, y: 6 });
+    g.wire(s0, tgt);
+    for (const t of [{ x: 7, y: 5 }, { x: 7, y: 7 }, { x: 8, y: 6 }]) g.add(spoolM(aT), t);
+    const e2 = F.moveMachines(g.c, [tgt], { x: 0, y: 6 }, g.ctx);
+    expect(e2.ok).toBe(true);
+    const kept = (e2 as { canvas: F.Canvas }).canvas.belts.find((b) => b.from.m === s0);
+    expect(kept).toBeDefined();
+    if (kept!.broken) expect((e2 as { note?: string }).note).toMatch(/belt needs re-routing/);
   });
 });

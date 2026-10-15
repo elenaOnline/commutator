@@ -38,3 +38,30 @@ export function positional(card: Card): Card {
   if (card.metaSorts) next.metaSorts = Object.fromEntries(Object.entries(card.metaSorts).map(([m, s]) => [m, typeof s === 'string' ? (r(s) as string) : (walk(s) as typeof s)]));
   return next;
 }
+
+/**
+ * Floors saved before records became positional bind a lemma's structures under the old names
+ * (`{ k:'schema', id:'lemma:…', structs: { f: 'f' } }`). Rewrite every such reference to the record's positional
+ * binder ids (`{ '$2:f': 'f' }`) so those floors keep compiling. Keys already positional, or naming no binder, are
+ * left alone. Pure; returns the input unchanged when nothing needs rewriting.
+ */
+export function positionalRefs<T>(x: T, lemmas: readonly { id: string; card: Card }[]): T {
+  const byId = new Map(lemmas.map((l) => [l.id, (positional(l.card).binds ?? []).map((b) => b.id)]));
+  if (!byId.size) return x;
+  const walk = (v: unknown): unknown => {
+    if (Array.isArray(v)) { let ch = false; const out = v.map((y) => { const z = walk(y); if (z !== y) ch = true; return z; }); return ch ? out : v; }
+    if (!v || typeof v !== 'object') return v;
+    const o = v as Record<string, unknown>;
+    let out: Record<string, unknown> | null = null;
+    for (const [k, y] of Object.entries(o)) { const z = walk(y); if (z !== y) (out ??= { ...o })[k] = z; }
+    const ids = o.k === 'schema' && typeof o.id === 'string' ? byId.get(o.id) : undefined;
+    const structs = o.structs as Record<string, unknown> | undefined;
+    if (ids && structs && Object.keys(structs).some((k) => !isPositional(k))) {
+      const next: Record<string, unknown> = {};
+      for (const [k, y] of Object.entries(structs)) next[isPositional(k) ? k : (ids.find((b) => b.replace(POS, '') === k) ?? k)] = y;
+      (out ??= { ...o }).structs = next;
+    }
+    return out ?? v;
+  };
+  return walk(x) as T;
+}

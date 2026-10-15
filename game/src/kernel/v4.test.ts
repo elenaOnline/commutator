@@ -264,7 +264,7 @@ describe('card sockets', () => {
     const q2 = p.step(q, { k: 'rewrite', rule: { k: 'axiom', id: 'unitR' }, dir: 'fwd', at: { side: 'r', path: [], range: [0, 2] }, subst: { x: K.atom('v:x₁') } });
     p.generalize(q2);
     expect(p.res.solved).toBe(false);
-    expect(p.res.sockets[0]!.error).toMatch(/rests on given h/);
+    expect(p.res.sockets[0]!.error).toMatch(/rests on the given h/);
     const ok = new Player({ ...c, level: { ...c.level, sockets: [{ id: 's', target: law(['u'], M(U, a), U), allowedGivens: ['h'] }] } });
     ok.graph = p.graph; ok.res = K.check(p.graph, ok.ctx);
     expect(ok.res.solved).toBe(true);

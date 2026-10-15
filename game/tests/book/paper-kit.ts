@@ -30,6 +30,7 @@ export function checkPaper(f: Floor, comp: F.Compiled) {
       const { st } = paperOfFloor(f, comp);
       writeFileSync(`/tmp/paper/${id}.json`, JSON.stringify({ nodes: st.graph.nodes, tr: buildTranscript(st).items }, null, 1));
     }
+    writeFileSync(`/tmp/paper/${id}.canvas.json`, JSON.stringify(f.c));
     writeFileSync(`/tmp/paper/${id}.txt`, paperText(html.replace(/<\/div>|<\/p>/g, '\n')).replace(/\n\s+/g, '\n'));
   }
   expect(p.solved, `${id}: the paper is complete`).toBe(true);

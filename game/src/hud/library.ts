@@ -2,13 +2,13 @@
 // Groups (review 2026-10): Operations · Group laws · Given here · Theorems · Saved · Imported · Made here.
 // No origin notes. Mirror pairs and the insert-pair orientations are ONE row each; the toggle that picks the
 // side / orientation lives in the lens's recipe section (merge.ts).
-import { hasDistinctMirror, libraryRefs, libName as libNameF, mapsInScope, structChoices, subgroupsInScope } from '../factory/catalog';
+import { hasDistinctMirror, libCard as libCardF, libraryRefs, libName as libNameF, mapsInScope, structChoices, subgroupsInScope } from '../factory/catalog';
 import { eulerBlobHTML } from '../ui/euler';
 import * as K from '../kernel';
 import type { Card, Fact, Family, Term } from '../kernel/types';
 import { FAMILY } from '../ui/tokens';
 import type { JoinerRecipe, LibRef, MachineKind, OperatorRecipe, RewriteRecipe, TheoremRecipe } from '../factory/types';
-import { REGISTRY, esc, fH, labelsAll, nameHTML, safe, type S } from './util';
+import { REGISTRY, esc, fH, labelsAll, nameHTML, posName, safe, type S } from './util';
 import { stripEl, transformEl, type Rails } from './strip';
 import { h } from './util';
 import { entryKeyOf, familyName, sideName } from './merge';
@@ -72,11 +72,11 @@ const joinDemo = (ins: Rails[], out: Rails | string, family: Family, L = DL, sma
  * A membership card as a demo strip: x ∈ (H), y ∈ (H) ⟹ xy ∈ (H) — terms as beads, the subgroup as its Euler set,
  * the conclusion's term tinted in the subgroup ink.
  */
-const memDemo = (card: Card) => (): HTMLElement => {
+const memDemo = (card: Card, Lx: Record<string, string> = {}) => (): HTMLElement => {
   const el = h('span', { class: 'h3-tf h3-join small h3-memdemo' });
   const one = (p: { k: string; t?: Term; l?: Term; r?: Term; sub?: { id: string } }, concl: boolean) => {
     if (p.k !== 'mem' || !p.t) return h('span', { class: 'math', html: fH(p as never, DL) });
-    const label = p.sub!.id;
+    const label = Lx[p.sub!.id] ?? posName(p.sub!.id); // a positional binder ($0:H) by its name, a bound one by its instance
     return h('span', { class: 'h3-memend' }, stripEl({ l: p.t }, DL, DH, { vars: DV, ...(concl ? { range: 'all', ink: '#325D4E', which: 'l' } : {}) }),
       h('span', { class: 'h3-rung math' }, '∈'), h('span', { class: 'h3-blob', html: eulerBlobHTML(label, 13) }));
   };
@@ -101,10 +101,7 @@ export function libCard(s: S, ref: LibRef): Fact | null {
       if (!sc) return null;
       return ref.mirror ? safe(() => K.mirrorCard(sc.card), sc.card) : sc.card;
     }
-    case 'lagrange': {
-      const n = sizeOf(s);
-      return n ? safe(() => K.pressCard(n), null) : null;
-    }
+    case 'lagrange': return safe(() => libCardF(s.ctx, ref), null); // per group: its own order and e (Lagrange in K)
   }
 }
 export const sizeOf = (s: S): number | null => {
@@ -137,10 +134,14 @@ function sideLabel(card: Card, mirrored: Card): [string, string] {
 export function libraryFor(s: S, kind: MachineKind): LibEntry[] {
   const L = labelsAll(s);
   const out: LibEntry[] = [];
+  // every row shows its statement: a strip where one exists, memberships as term ∈ (set), else the typeset maths —
+  // never an empty figure (a saved lemma's lens showed only its toggle, #10)
   const demoOf = (f: Fact, family: Family, Lx: Record<string, string>): (() => HTMLElement) | undefined =>
     f.k === 'eq' || f.k === 'law' ? lawDemo(f.l, f.r, family, Lx)
     : f.k === 'cond' && f.premises.every((p) => p.k === 'eq' || p.k === 'neq') && (f.concl.k === 'eq' || f.concl.k === 'neq')
       ? joinDemo(f.premises.map((p) => ({ l: (p as { l: Term }).l, rel: p.k === 'neq' ? '≠' : '=', r: (p as { r: Term }).r }) as Rails), { l: f.concl.l, rel: f.concl.k === 'neq' ? '≠' : '=', r: f.concl.r }, family, Lx)
+      : f.k === 'cond' && [...f.premises, f.concl].some((p) => p.k === 'mem') ? memDemo(f)
+      : f.k === 'cond' ? () => h('span', { class: 'math h3-stmtdemo', html: fH(f, { ...L, ...Lx }) })
       : undefined;
   const givenEntry = (g: { id: string; name: string; fact: Fact }, recipe: AnyRecipe): LibEntry => ({
     key: `given:${g.id}`, group: 'Given here', name: `${g.name} ${safe(() => K.factText(g.fact as never, L), '')}`,
@@ -148,31 +149,45 @@ export function libraryFor(s: S, kind: MachineKind): LibEntry[] {
     demo: demoOf(g.fact, 'given', L),
   });
   /** One row per schema; a distinct mirror makes it a merged row (named by its SIDE_PAIRS family). */
-  const schemaEntry = (sc: { id: string; name: string; textbook: string; card: Card; origin: string; mirrorable: boolean }, recipe: AnyRecipe, merge: boolean): LibEntry => {
-    const group: Group = sc.origin === 'authored' ? 'Saved' : 'Theorems';
+  // every picker merges: a law with a distinct mirror (power of a conjugate, cancellation) is one row whose side is
+  // toggled in the lens, in Rewriters and Card Docks as in Theorems (reachability gap P16.s3)
+  const schemaEntry = (sc: { id: string; name: string; textbook: string; card: Card; origin: string; mirrorable: boolean }, recipe: AnyRecipe, merge: boolean, o: { group?: Group; words?: string } = {}): LibEntry => {
+    const group: Group = o.group ?? (sc.origin === 'authored' ? 'Saved' : 'Theorems');
     const mirrored = merge && sc.mirrorable && safe(() => hasDistinctMirror(sc.card), true) ? safe(() => K.mirrorCard(sc.card), null) : null;
-    const base: LibEntry = { key: `schema:${sc.id}`, group, name: `${sc.name} ${sc.textbook}`, nameHTML: esc(sc.name), stmt: stmt(sc.card, {}), recipe, ref: { k: 'schema', id: sc.id }, demo: demoOf(sc.card, 'lemma', {}) };
+    const base: LibEntry = { key: `schema:${sc.id}`, group, name: `${sc.name} ${sc.textbook}${o.words ? ` ${o.words}` : ''}`, nameHTML: esc(sc.name), stmt: stmt(sc.card, {}), recipe, ref: { k: 'schema', id: sc.id }, demo: demoOf(sc.card, 'lemma', {}) };
     if (!mirrored) return base;
     const [pl, ol] = sideLabel(sc.card, mirrored);
     const plain = sideName(sc.id, false, sc.name), op = sideName(sc.id, true, `${sc.name} (mirror)`);
     const fam = familyName(sc.id, sc.name);
-    return { ...base, name: `${fam} ${plain} ${op} ${sc.textbook}`, nameHTML: esc(fam),
+    return { ...base, name: `${fam} ${plain} ${op} ${sc.textbook}${o.words ? ` ${o.words}` : ''}`, nameHTML: esc(fam),
       sides: { k: 'mirror', id: sc.id, plain: { name: plain, label: pl }, op: { name: op, label: ol } },
       demoFor: (m) => (demoOf(m ? mirrored : sc.card, 'lemma', {}) ?? (() => h('span', {})))() };
   };
   const n = sizeOf(s);
-  const lagrange = (recipe: AnyRecipe): LibEntry | null => n ? ({
-    key: 'lagrange', group: 'Imported', name: `Lagrange x^${n} = e order`, nameHTML: 'Lagrange', stmt: stmt(safe(() => K.pressCard(n), law(e, e)), {}),
-    recipe, ref: { k: 'lagrange' }, demo: demoOf(safe(() => K.pressCard(n), law(e, e)), 'lemma', {}),
-  }) : null;
+  void n;
+  /**
+   * Lagrange, once per group with an order given (playtest W10–14 #1): "Lagrange in K", its figure yyy = e_K. The
+   * catalogue lists one ref per sort; a one-group level keeps the plain "Lagrange".
+   */
+  const lagranges = (mk: (ref: LibRef) => AnyRecipe): LibEntry[] => safe(() => libraryRefs(s.ctx, 'rule', s.canvas as never), [] as LibRef[])
+    .filter((r): r is Extract<LibRef, { k: 'lagrange' }> => r.k === 'lagrange')
+    .flatMap((ref) => {
+      const card = safe(() => libCardF(s.ctx, ref), null);
+      if (!card) return [];
+      const sortL = ref.sort ? (labelsAll(s)[ref.sort] ?? ref.sort) : '';
+      const nm = sortL ? `Lagrange in ${sortL}` : 'Lagrange';
+      // the Book earns Lagrange in P13.1: a theorem there; the main campaign imports it (architect, 2026-10-15)
+      return [{ key: recipeKey(mk(ref)), group: (s.level.campaign === 'book' ? 'Theorems' : 'Imported') as Group, name: `${nm} order`, nameHTML: sortL ? `Lagrange in <i>${esc(sortL)}</i>` : 'Lagrange', stmt: stmt(card, labelsAll(s)),
+        recipe: mk(ref), ref, demo: demoOf(card, 'lemma', labelsAll(s)) }];
+    });
 
   // imported power laws (Phase B): only those the level lists ('power.literal' enables the literal family)
   const listed = new Set([...s.level.tools.schemas, ...s.ctx.level.tools.schemas]);
   const powerEntries = (mk: (ref: LibRef) => AnyRecipe): LibEntry[] => {
     const out2: LibEntry[] = [];
     for (const [id, sc] of Object.entries(safe(() => K.POWER_SCHEMAS, {} as typeof K.POWER_SCHEMAS))) {
-      if (!listed.has(id)) continue;
-      out2.push({ key: `schema:${id}`, group: 'Imported', name: `${sc.name} ${sc.textbook} power exponent`, nameHTML: esc(sc.name), stmt: stmt(sc.card, {}), recipe: mk({ k: 'schema', id }), ref: { k: 'schema', id }, demo: demoOf(sc.card, 'lemma', {}) });
+      if (!listed.has(id) || /^(hom|act)\./.test(id)) continue; // map laws are listed once, per map, under Maps (#1)
+      out2.push(schemaEntry({ ...sc, id }, mk({ k: 'schema', id }), true, { group: 'Imported', words: 'power exponent' }));
     }
     for (const id of listed) {
       const r = /^power\.literal:(\d+)$/.exec(id)?.[1];
@@ -217,7 +232,7 @@ export function libraryFor(s: S, kind: MachineKind): LibEntry[] {
         demo: () => pairDemo(false), sides: { k: 'orient' }, demoFor: pairDemo },
     );
     for (const g of s.level.givens) if (g.fact.k === 'eq' || g.fact.k === 'law') out.push(givenEntry(g, { k: 'law', ref: { k: 'given', givenId: g.id } }));
-    for (const sc of usableSchemas(s)) if (sc.card.k === 'law') out.push(schemaEntry(sc, { k: 'law', ref: { k: 'schema', id: sc.id } }, false));
+    for (const sc of usableSchemas(s)) if (sc.card.k === 'law') out.push(schemaEntry(sc, { k: 'law', ref: { k: 'schema', id: sc.id } }, true));
     // Book phase C: the map kinds' laws (the homomorphism law, the action laws), listed once per hom or action in scope
     for (const ref of safe(() => libraryRefs(s.ctx, 'rule', s.canvas as never), [] as LibRef[])) {
       if (ref.k !== 'schema' || !/^(hom|act)\./.test(ref.id)) continue;
@@ -226,8 +241,7 @@ export function libraryFor(s: S, kind: MachineKind): LibEntry[] {
       const nm = safe(() => libNameF(s.ctx, ref), sc.name);
       out.push({ key: recipeKey({ k: 'law', ref }), group: 'Maps', name: `${nm} ${sc.textbook}`, nameHTML: esc(nm), stmt: stmt(sc.card, {}), recipe: { k: 'law', ref }, ref });
     }
-    const lg = lagrange({ k: 'law', ref: { k: 'lagrange' } });
-    if (lg) out.push(lg);
+    out.push(...lagranges((ref) => ({ k: 'law', ref })));
     out.push(...powerEntries((ref) => ({ k: 'law', ref })));
     out.push({ key: 'routed', group: 'Made here', name: 'the rule port routed made here', nameHTML: 'the rule port', stmt: '', note: 'route an equation into the rule port', recipe: { k: 'routed' } });
   } else if (kind === 'operator') {
@@ -245,6 +259,13 @@ export function libraryFor(s: S, kind: MachineKind): LibEntry[] {
     for (const mp of safe(() => mapsInScope(s.ctx, s.canvas as never), [])) {
       const nm = `<i>${nameHTML(mp.label)}</i>`;
       const two = mp.args.length > 1;
+      if (mp.kind === 'action') {
+        // an action reads g(p): "act on both sides", u = v gives g(u) = g(v) — the symbol σ is never shown (W4–9)
+        out.push({ key: `apply:${mp.id}`, group: 'Maps', name: `act on both sides action apply ${mp.label}`, nameHTML: 'act on both sides', stmt: '',
+          note: 'choose the group element below', recipe: { k: 'apply', fn: mp.id, slot: 1 } as AnyRecipe,
+          demo: () => h('span', { class: 'math h3-applydemo', html: `<i>p</i> <span class="m-rel">=</span> <i>q</i> &ensp;<span class="h3-dim">gives</span>&ensp; <i>g</i>(<i>p</i>) <span class="m-rel">=</span> <i>g</i>(<i>q</i>)` }) });
+        continue;
+      }
       out.push({ key: `apply:${mp.id}`, group: 'Maps', name: `apply ${mp.label} to both sides map`, nameHTML: `apply ${nm}`, stmt: '',
         note: two ? 'the equation fills one argument; choose the other below' : undefined,
         recipe: { k: 'apply', fn: mp.id } as AnyRecipe,
@@ -263,13 +284,14 @@ export function libraryFor(s: S, kind: MachineKind): LibEntry[] {
     out.push({ key: 'routed', group: 'Made here', name: 'the card port routed made here', nameHTML: 'the card port', stmt: '', note: 'route a theorem into the card port', recipe: { k: 'routed' } });
   } else if (kind === 'carddock') {
     for (const g of s.level.givens) if (g.fact.k === 'law' || g.fact.k === 'cond') out.push(givenEntry(g, { k: 'ref', ref: { k: 'given', givenId: g.id } }));
-    for (const sc of usableSchemas(s)) out.push(schemaEntry(sc, { k: 'ref', ref: { k: 'schema', id: sc.id } }, false));
+    for (const sc of usableSchemas(s)) out.push(schemaEntry(sc, { k: 'ref', ref: { k: 'schema', id: sc.id } }, true));
     out.push(...subEntries((ref) => ({ k: 'ref', ref })));
-    const lg = lagrange({ k: 'ref', ref: { k: 'lagrange' } });
-    if (lg) out.push(lg);
+    out.push(...lagranges((ref) => ({ k: 'ref', ref })));
     out.push(...powerEntries((ref) => ({ k: 'ref', ref })));
   }
-  return out;
+  // one row per recipe: the same law reachable two ways (hom.pow as an import and as a map law) is listed once (#1)
+  const seen = new Set<string>();
+  return out.filter((x) => (seen.has(x.key) ? false : (seen.add(x.key), true)));
 }
 
 export const GROUP_ORDER: Group[] = ['Operations', 'Group laws', 'Subgroup', 'Maps', 'Given here', 'Theorems', 'Saved', 'Imported', 'Made here'];
@@ -278,7 +300,7 @@ export const GROUP_ORDER: Group[] = ['Operations', 'Group laws', 'Subgroup', 'Ma
 export function recipeKey(r: AnyRecipe | null | undefined): string {
   if (!r) return '';
   const o = r as { k: string; ref?: LibRef; side?: string; inv?: boolean };
-  if (o.ref) return o.ref.k === 'given' ? `given:${o.ref.givenId}` : o.ref.k === 'schema' ? `schema:${o.ref.id.startsWith('power.literal:') ? 'power.literal' : o.ref.id}${o.ref.mirror ? ':op' : ''}${/^(hom|act)\./.test(o.ref.id) && o.ref.structs ? `@${Object.values(o.ref.structs).join(',')}` : ''}` : o.ref.k === 'lagrange' ? 'lagrange' : `axiom:${o.ref.id}`;
+  if (o.ref) return o.ref.k === 'given' ? `given:${o.ref.givenId}` : o.ref.k === 'schema' ? `schema:${o.ref.id.startsWith('power.literal:') ? 'power.literal' : o.ref.id}${o.ref.mirror ? ':op' : ''}${/^(hom|act)\./.test(o.ref.id) && o.ref.structs ? `@${Object.values(o.ref.structs).join(',')}` : ''}` : o.ref.k === 'lagrange' ? (o.ref.sort ? `lagrange:${o.ref.sort}` : 'lagrange') : `axiom:${o.ref.id}`;
   if (o.k === 'apply') return `apply:${(r as { fn: string }).fn}`;
   if (o.k === 'insertPair') return o.inv ? 'pairInv' : 'pair';
   if (o.k === 'multiply') return o.side === 'left' ? 'mulL' : 'mulR';

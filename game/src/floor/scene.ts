@@ -47,7 +47,8 @@ export function roomHeading(kind: Room['kind'], l: Room['l'] | null, r: Room['r'
     if (!l || !r) return { tag: 'ASSUME', math: `<tspan font-style="italic" fill-opacity=".6">choose P</tspan>` };
     const Q = q ? factSVG(q, L) : `<tspan font-style="italic" fill-opacity=".55">Q</tspan>`;
     // Book phase A: a multi-desk room assumes P₁, P₂ (, P₃), one per numbered desk ⊢₁ ⊢₂ …, and exports P₁, P₂ ⟹ Q
-    const ps: Pallet[] = assumes && assumes.length > 1
+    // a membership is stated as itself even on a single desk (its l / r are only placeholders)
+    const ps: Pallet[] = assumes && (assumes.length > 1 || assumes.some((a) => a.rel === 'mem'))
       ? assumes.map((a): Pallet => (a.rel === 'mem' ? { k: 'mem', t: a.t, sub: a.sub } : { k: a.rel, l: a.l, r: a.r }))
       : [rel === 'neq' ? { k: 'neq', l, r } : { k: 'eq', l, r }];
     const list = ps.map((p) => factSVG(p, L)).join('<tspan>, </tspan>');

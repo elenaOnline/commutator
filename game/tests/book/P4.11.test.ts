@@ -28,7 +28,7 @@ describe('P4.11 Three Self-Inverse Elements', () => {
     const r1 = f.add(lawRw(given('ha')));
     f.wire(cn, flip1, 'p0'); f.wire(flip1, u1, 'p0'); f.wire(u1, r1); f.wire(r1, f.socket('s'));
     // cut ab | c
-    const flip2 = f.add(thm(schema(ONE_SIDED_ID), 0, { x: kn(P(a, b)), y: kn(c) }));
+    const flip2 = f.add(thm(schema(ONE_SIDED_ID), 1)); // the second cut: x = ab, y = c
     const u2 = f.add(thm(schema('witness', true), 0, { u: kn(b), v: kn(P(c, a)) }));
     const r2 = f.add(lawRw(given('hb')));
     f.wire(cn, flip2, 'p0'); f.wire(flip2, u2, 'p0'); f.wire(u2, r2); f.wire(r2, f.socket('t'));

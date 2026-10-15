@@ -26,7 +26,7 @@ describe('P4.5 Shoes and Socks', () => {
     const sp = f.add(spool(P(x1, y1, I(y1), I(x1))));
     const c1 = f.add(cancel());
     const c2 = f.add(cancel());
-    const t = f.add(thm({ k: 'schema', id: 'witness' }, 0, { u: kn(P(x1, y1)), v: kn(P(I(y1), I(x1))) }));
+    const t = f.add(thm({ k: 'schema', id: 'witness' }, 1)); // the second cut: u = x₁y₁, v = y₁⁻¹x₁⁻¹
     const all = f.add({ kind: 'forall' });
     f.wire(sp, c1); f.wire(c1, c2); f.wire(c2, t, 'p0'); f.wire(t, all); f.wire(all, f.socket());
     deliver(f);

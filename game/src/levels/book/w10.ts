@@ -10,6 +10,7 @@
 // Toolset: lift, merge, suppose, the earned cancel / witness / socks; P12.s1 also lists the power imports handed out by P10.4.
 import type { Card, HoleDecl, LevelManifest, Monomial, Pallet, PatFact, Poly, StructBinder, SubRef, Term, Toolset } from '../../kernel/types';
 import type { AtomSpec, ConceptCard } from '../cards';
+import { letterSlot } from '../../ui/letters';
 
 const A = (id: string): Term => ({ k: 'atom', id });
 const M = (id: string): Term => ({ k: 'meta', id });
@@ -131,9 +132,9 @@ export const LEVELS: LevelManifest[] = [
   },
 ];
 
-/** Illustrative letters: AT('abc') → a, b, c in shape slots 0, 1, 2 (+ shift). */
-const AT = (s: string, shift = 0): AtomSpec[] => [...s].map((id, i) => ({ id, label: id, hue: i + shift }));
-void y; void z; void AT;
+/** Card letters: AT('pq') → p, q, each in its own shape (ui/letters: a letter keeps its shape on every card and floor). */
+const AT = (s: string): AtomSpec[] => [...s].map((id) => ({ id, label: id, hue: letterSlot(id) }));
+void y; void z;
 
 /** Concept cards for this world's levels, keyed by level id. */
 export const CARDS: Record<string, ConceptCard[]> = {
@@ -145,22 +146,25 @@ export const CARDS: Record<string, ConceptCard[]> = {
     },
     {
       title: 'Related by a subgroup',
-      body: 'Let $H$ be a subgroup of $G$. Call $u$ and $v$ related when $uv^{-1} \\in H$. The set of all elements related to $v$ is the **coset** $Hv$, the set of all products $hv$ with $h \\in H$. Cosets are the classes of this relation. The next chapter counts them.',
+      body: 'Let $H$ be a subgroup of $G$. Call $p$ and $q$ related when $pq^{-1} \\in H$. The set of all elements related to $q$ is the **coset** $Hq$, the set of all products $hq$ with $h \\in H$. Cosets are the classes of this relation. The next chapter counts them.',
+      figures: [{ k: 'math', atoms: AT('pq'), rows: [
+        { seq: ['pq^-1', '∈', 'H'], why: '$p$ and $q$ are related: $p$ lies in the coset $Hq$.' },
+      ] }],
     },
     {
       title: 'A Subgroup Tower',
-      body: 'To prove a statement for every subgroup, place a Subgroup Tower. It declares one subgroup $H_1$ of $G$ about which you know only the definition, and it broadcasts it like an element Tower. A ∀ machine binds it, so a saved lemma reads “for every subgroup $H$”. When you use that lemma, the lens asks which subgroup plays $H$.',
+      body: 'To prove a statement for every subgroup, place a Subgroup Tower. It declares one subgroup $H_1$ of $G$, written $H_1 \\le G$ and read “$H_1$ is a subgroup of $G$”. You know nothing about $H_1$ beyond the definition. A ∀ machine binds it, so a saved lemma reads “for every subgroup $H$”. When you use that lemma, the lens asks which subgroup plays $H$.',
     },
   ],
 
   'P12.2': [
     {
       title: 'Conjugate elements',
-      body: 'Elements $u$ and $v$ of a group are **conjugate** when $u = gvg^{-1}$ for some element $g$. The group splits into classes of conjugate elements. In each dock the element $g$ is left blank, shown as ?, and the same blank stands for the same element each time. You fill it by proving the equation for one particular $g$ built from the letters you have.',
+      body: 'Elements $u$ and $v$ of a group are **conjugate** when $u = gvg^{-1}$ for some element $g$. In each dock the element $g$ is left blank, shown as ?, and the same blank stands for the same element each time. You fill it by proving the equation for one particular $g$ built from the letters you have.',
     },
     {
-      title: 'Equivalence relations',
-      body: 'A relation is an **equivalence relation** when it is reflexive (everything is related to itself), symmetric (if $u$ is related to $v$, then $v$ is related to $u$) and transitive (if $u$ is related to $v$ and $v$ to $w$, then $u$ to $w$). Conjugacy is one. Each dock checks one of the three properties.',
+      title: 'Conjugacy classes',
+      body: 'Conjugacy is an equivalence relation, so it splits a group into classes. In S₃ there are three: $e$ alone, the three flips $(12)$, $(13)$ and $(23)$, and the two rotations $(123)$ and $(132)$. Each dock checks one of the three properties of an equivalence relation.',
     },
   ],
 

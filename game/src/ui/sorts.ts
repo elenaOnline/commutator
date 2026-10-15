@@ -70,8 +70,12 @@ export function styleOfTerm(t: Term, c: SortCtx = sortCtx.cur): SortStyle | null
   const st = s ? c.styles.get(s) : undefined;
   return st && !st.plain ? st : null;
 }
+/** While a card is typeset, its group parameters' display names (S → G, T → K): identity tags follow them. */
+export const eAliases: { cur: Record<string, string> } = { cur: {} };
 /** The subscript an identity shows: its own sort, or the base group's when two groups are in play. */
 export function eTag(t: { k: 'e'; s?: string }, c: SortCtx = sortCtx.cur): string | null {
-  if (t.s) return c.styles.get(t.s)?.label ?? c.env?.label(t.s) ?? t.s;
+  // a positional Lemma Book binder ($1:K) prints by its name (#6)
+  if (t.s && eAliases.cur[t.s]) return eAliases.cur[t.s]!;
+  if (t.s) return c.styles.get(t.s)?.label ?? (c.env?.sorts.has(t.s) ? c.env.label(t.s) : null) ?? t.s.replace(/^\$\d+:/, '');
   return c.eTags ? (c.styles.get(c.base)?.label ?? c.base) : null;
 }

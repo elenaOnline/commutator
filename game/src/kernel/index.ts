@@ -71,6 +71,10 @@ export function labelsOf(atoms: AtomDecl[]): Labels {
 /** Unicode text, e.g. "(ab)⁻¹ = b⁻¹a⁻¹". Powers of a single atom run ≥ 3 may compress to a³. */
 export function termText(t: Term, L: Labels): string { return P.termText(t, L); }
 export function factText(f: Fact, L: Labels): string { return P.factText(f, L); }
+/** Source text that parseTerm reads back as the same term (text fields pre-fill with it): `a^(6)`, `σ(g, p)`, `e_K`. */
+export function termSource(t: Term, L: Labels): string { return P.termSource(t, L); }
+/** Source text of an eq/neq/mem pallet; each side round-trips through parseTerm. */
+export function factSource(f: Fact, L: Labels): string { return P.factSource(f, L); }
 /** v4 Phase B: an exponent polynomial as text ("5k₁", "n₁k₁", "-3") or TeX ("5k_{1}"). */
 export function exponentText(p: import('./types').Poly, L: Labels, tex = false): string { return P.exponentText(p, L, tex); }
 /** TeX, e.g. "(ab)^{-1} = b^{-1}a^{-1}". */

@@ -11,6 +11,7 @@
 // sub.e and sub.pow where a subgroup is in scope; hom.pow where a homomorphism is.
 import type { Card, LevelManifest, Monomial, Pallet, PatFact, Poly, SubRef, Term, Toolset } from '../../kernel/types';
 import type { AtomSpec, ConceptCard } from '../cards';
+import { letterSlot } from '../../ui/letters';
 
 const A = (id: string): Term => ({ k: 'atom', id });
 const M = (id: string): Term => ({ k: 'meta', id });
@@ -121,9 +122,8 @@ export const LEVELS: LevelManifest[] = [
   },
 ];
 
-/** Illustrative letters: AT('abc') → a, b, c in shape slots 0, 1, 2 (+ shift). */
-const AT = (s: string, shift = 0): AtomSpec[] => [...s].map((id, i) => ({ id, label: id, hue: i + shift }));
-void AT;
+/** Card letters: AT('pq') → p, q, each in its own shape (ui/letters). A name before a bracket that is not a letter here is a map. */
+const AT = (s: string): AtomSpec[] => [...s].map((id) => ({ id, label: id, hue: letterSlot(id) }));
 
 /** Concept cards for this world's levels, keyed by level id. */
 export const CARDS: Record<string, ConceptCard[]> = {
@@ -131,7 +131,10 @@ export const CARDS: Record<string, ConceptCard[]> = {
   'P15.1': [
     {
       title: 'Cosets as memberships',
-      body: 'For a subgroup $N$ of $G$, the **coset** $Na$ is the set of all products $na$ with $n$ in $N$. Two cosets are equal, $Na = Nc$, exactly when $ac^{-1} \\in N$. So every statement about equal cosets can be written as a membership, and that is how this world states them.',
+      body: 'For a subgroup $N$ of $G$, the **coset** $Na$ is the set of all products $na$ with $n$ in $N$. Two cosets are equal, $Na = Nc$, exactly when $ac^{-1} \\in N$. So every statement about equal cosets can be written as a membership, and that is how this world states them. A Normal Subgroup Tower declares $N_1 \\trianglelefteq G$.',
+      figures: [{ k: 'math', atoms: AT('pq'), rows: [
+        { seq: ['pq^-1', '∈', '⊴N'], why: 'says that the cosets $Np$ and $Nq$ are equal' },
+      ] }],
     },
     {
       title: 'Multiplying cosets',
@@ -146,29 +149,24 @@ export const CARDS: Record<string, ConceptCard[]> = {
     },
     {
       title: 'Abelian quotients',
-      body: 'A group is **abelian** when any two of its elements commute. The given $D$ says that $\\pi$ sends every commutator $xyx^{-1}y^{-1}$ to $e_Q$, that is, $N$ contains every commutator. The dock says that any two images commute, which is what “$G/N$ is abelian” means. Your chapter 4 lemmas hold in every group, so they hold in $Q$.',
+      body: 'A group is **abelian** when any two of its elements commute. The given “commutators in $\\ker \\pi$” says that $\\pi$ sends every commutator $xyx^{-1}y^{-1}$ to $e_Q$, that is, $N$ contains every commutator. The dock says that any two images commute, which is what “$G/N$ is abelian” means. Every lemma you saved about one group applies in any group, $Q$ included.',
     },
   ],
 
   'P15.3': [
     {
       title: 'The converse',
-      body: 'The last order went from commutators in the kernel to an abelian quotient. This one goes back. Together they say that $G/N$ is abelian exactly when $N$ contains every commutator of $G$. A law can be used backwards by a Rewriter, so the homomorphism law can also join $\\pi(u)\\pi(v)$ into $\\pi(uv)$.',
+      body: 'The last order went from commutators in the kernel to an abelian quotient. This one goes back. Together they say that $G/N$ is abelian exactly when $N$ contains every commutator of $G$. A Rewriter can use the homomorphism law backwards, to join two images into one. With other letters:',
+      figures: [{ k: 'math', atoms: AT('pq'), rows: [
+        { seq: ['h(p)h(q)', '=', 'h(pq)'], why: 'The homomorphism law, read from right to left.' },
+      ] }],
     },
   ],
 
   'P15.4': [
     {
-      title: 'Central elements',
-      body: 'An element that commutes with every element is **central**. Its law, $\\forall z.\; pz = zp$, can be applied at any term, including a power such as $u^m$. With other letters, for a central $p$:',
-      figures: [{ k: 'math', atoms: [{ id: 'p', label: 'p', hue: 0 }, { id: 'z', label: 'z', hue: 1 }, { id: 'u', label: 'u', hue: 2 }, { id: 'm', label: 'm', hue: 3, sort: 'Z' }], rows: [
-        { label: 'the law', seq: ['pz', '=', 'zp'] },
-        { label: 'at $z = u^m$', seq: [{ t: 'pu^(m)', br: [[1, 2, '$z$', 'over']] }, '=', { t: 'u^(m)p', br: [[0, 1, '$z$', 'over']] }] },
-      ] }],
-    },
-    {
       title: 'Cyclic over the centre',
-      body: 'Let $Z$ be the set of central elements of $G$. Suppose every element of $G$ has the form $za^m$ with $z$ in $Z$, which is what “$G$ modulo $Z$ is cyclic” means. Then $G$ is abelian. This level proves the key step, that two such elements commute, with $c$ and $d$ standing for the central parts.',
+      body: 'Let $Z$ be the centre of $G$, the set of its central elements. Suppose every element of $G$ has the form $za^m$ with $z$ in $Z$, which is what “$G$ modulo $Z$ is cyclic” means. Then $G$ is abelian. This level proves the key step, that two such elements commute, with $c$ and $d$ standing for the central parts.',
     },
   ],
 };

@@ -41,7 +41,7 @@ export { initialCanvas, INITIAL_GAP } from './editor';
 /** Machine/belt at a tile (top-most), for picking. */
 export {
   place, moveMachines, rotateMachine, remove, setConfig, setConfigCtx, route, routeOrWhy, connect, connectVia, extendTo, routeOpenOrWhy, branch, branchAt, autoLinks, spliceCandidates,
-  paintRoom, resizeRoom, setRoomAssumptions, deskCount, hit, portFacing, roomAt, roomOfMachine, freshId, copySelection, paste, repairBelts, placementWhy,
+  paintRoom, resizeRoom, setRoomAssumptions, deskCount, MIN_ROOM, hit, portFacing, roomAt, roomOfMachine, freshId, copySelection, paste, repairBelts, placementWhy,
 } from './editor';
 
 export type { Splice, Why } from './editor';

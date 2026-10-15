@@ -1,11 +1,14 @@
 // LEMMA WORKS v3 — the order chip (top-left, floating, compact): level, title, goal(s) in Latin Modern,
 // givens; expands to the memo. "Suppose …" arms the Room tool with that assumption. Map button.
+import { assumePresetButton, assumePresets } from './roomedit';
+import { displayTitles } from './paper';
+import type { DeskAssumption } from '../kernel/types';
 import type { Pallet } from '../kernel/types';
-import { givenPrefixHTML, camp, campaignOf, displayNo, dockAnswers, openView, esc, fH, h, ideaOf, isSolved, labels, nameHTML, nextLevel, richHTML, type S, type Store } from './util';
+import { givenPrefixHTML, subgroupsOf, towerVars, camp, campaignOf, displayNo, dockAnswers, openView, esc, fH, h, ideaOf, isSolved, labels, nameHTML, nextLevel, richHTML, type S, type Store } from './util';
 
 export interface OrderApi { render: (s: S) => void; el: HTMLElement; addPlan: (p: Pallet) => void; plans: () => Pallet[] }
 
-export function mountOrder(layer: HTMLElement, store: Store, hooks: { armRoom: (kind: 'suppose' | 'classical', l: Pallet & { k: 'eq' | 'neq' }) => void }): OrderApi {
+export function mountOrder(layer: HTMLElement, store: Store, hooks: { armRoom: (kind: 'suppose' | 'classical', l: Pallet & { k: 'eq' | 'neq' }) => void; armAssume?: (as: DeskAssumption[]) => void }): OrderApi {
   const el = h('section', { class: 'h3-order', 'aria-label': 'Work order' });
   layer.append(el);
   let open = false;
@@ -14,7 +17,7 @@ export function mountOrder(layer: HTMLElement, store: Store, hooks: { armRoom: (
 
   const render = (s: S) => {
     const del = s.run?.delivered ?? {};
-    const key = JSON.stringify([s.level.id, open, s.level.sockets.map((k) => del[k.id] !== undefined), isSolved(s.save, s.level.id), (plans.get(s.level.id) ?? []).length, camp(s).earned.length]);
+    const key = JSON.stringify([s.level.id, open, s.level.sockets.map((k) => del[k.id] !== undefined), isSolved(s.save, s.level.id), (plans.get(s.level.id) ?? []).length, camp(s).earned.length, towerVars(s).map((v) => v.label), subgroupsOf(s).map((g) => g.label)]);
     if (key === lastKey) return;
     lastKey = key;
     const lv = s.level;
@@ -73,11 +76,13 @@ export function mountOrder(layer: HTMLElement, store: Store, hooks: { armRoom: (
       b.addEventListener('click', () => hooks.armRoom(g.k === 'neq' ? 'suppose' : 'classical', g));
       presets.append(b);
     }
+    // "Assume xy⁻¹ ∈ H₁": a dock's if-then premises, played by the floor's Towers (W10–14 #4)
+    if (hooks.armAssume) for (const p of assumePresets(s)) presets.append(assumePresetButton(store, p, hooks.armAssume));
     if (presets.childElementCount) el.append(presets);
 
     if (open) {
-      el.append(h('p', { class: 'h3-memo' }, lv.memo));
-      if (lv.idea) el.append(h('p', { class: 'h3-idea', html: `${book ? '' : '<span class="h3-label">New idea</span> '}${richHTML(ideaOf(lv), lv)}` }));
+      el.append(h('p', { class: 'h3-memo' }, displayTitles(lv.memo)));
+      if (lv.idea) el.append(h('p', { class: 'h3-idea', html: `${book ? '' : '<span class="h3-label">New idea</span> '}${richHTML(displayTitles(ideaOf(lv)), lv)}` }));
       const pl = plans.get(lv.id) ?? [];
       if (pl.length) {
         const box = h('div', { class: 'h3-plans' }, h('span', { class: 'h3-label' }, 'Planning targets · not proven'));
@@ -96,6 +101,21 @@ export function mountOrder(layer: HTMLElement, store: Store, hooks: { armRoom: (
       const fo = h('button', { class: 'lw-key small', title: 'Trace this proof on the floor' }, 'Follow');
       fo.addEventListener('click', () => store.setUI({ follow: s.ui.follow ? null : lv.sockets[0]?.id ?? null }));
       el.append(h('div', { class: 'h3-proven' }, h('span', { class: 'h3-label', html: '<span class="tomb"></span> Proven' }), h('span', { class: 'h3-flex' }), fo, b));
+    }
+    requestAnimationFrame(fitGoals);
+  };
+  /** Nothing clips (NORMS): a long statement is set smaller to fit; failing that it wraps (between its parts, at spaces). */
+  const fitGoals = () => {
+    el.style.removeProperty('max-width');
+    const goals = [...el.querySelectorAll<HTMLElement>('.h3-goal')];
+    for (const g of goals) { g.style.removeProperty('font-size'); g.style.removeProperty('white-space'); }
+    if (!goals.some((g) => g.scrollWidth > g.clientWidth + 1)) return;
+    el.style.maxWidth = 'min(620px, 46vw)'; // a long statement first gets room
+    for (const g of goals) {
+      if (g.scrollWidth <= g.clientWidth + 1) continue;
+      const full = parseFloat(getComputedStyle(g).fontSize);
+      g.style.fontSize = `${Math.max(14, Math.floor(full * (g.clientWidth / g.scrollWidth) * 10) / 10)}px`;
+      if (g.scrollWidth > g.clientWidth + 1) g.style.whiteSpace = 'normal'; // last resort: it wraps rather than clips
     }
   };
   const addPlan = (p: Pallet) => {

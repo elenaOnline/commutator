@@ -41,7 +41,12 @@ export type SpanTarget =
   | { k: 'pin'; side: 'l' | 'r'; selected: Term; neighbours: Neighbours; ancestors: Anchor[]; last?: Addr };
 export type GapTarget =
   | { k: 'first' }
-  | { k: 'pin'; side: 'l' | 'r'; neighbours: Neighbours; ancestors: Anchor[]; last?: GapAddr };
+  | { k: 'pin'; side: 'l' | 'r'; neighbours: Neighbours; ancestors: Anchor[]; last?: GapAddr }
+  /**
+   * Playtest W4–9 #13: a rule whose source side is e may also act on an e already in the word (a bracket on
+   * that e, not a caret). The lens writes the span pin it made for the clicked brace into `gap`.
+   */
+  | (Extract<SpanTarget, { k: 'pin' }>);
 
 /** A parameter: typed on the machine (knob) or supplied by a term belt into a port. */
 export type Param = { k: 'knob'; term: Term | null } | { k: 'port' };

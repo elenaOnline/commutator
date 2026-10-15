@@ -1,5 +1,5 @@
 // Concept-card lint for Book worlds 12–14, phase B/C levels (design/NORMS.md): coverage, copy rules, real figures, no spoilers,
-// new symbols defined where they first appear. Cards are text-led (figures cannot draw f(x) or ∈ yet).
+// new symbols defined where they first appear. Figures may draw memberships (p ∈ ⊴N) and map terms (h(pq)).
 import { describe, expect, it } from 'vitest';
 import * as K from '../../src/kernel';
 import type { AtomDecl } from '../../src/kernel/types';
@@ -8,7 +8,7 @@ import { CARDS as C12, PENDING } from '../../src/levels/book/w12';
 import { CARDS as C13 } from '../../src/levels/book/w13';
 import { CARDS as C14 } from '../../src/levels/book/w14';
 import type { ConceptCard } from '../../src/levels/cards';
-import { parseDisplay } from '../../src/hud/figures/parse';
+import { parseDisplay, parseSubgroup } from '../../src/hud/figures/parse';
 import { WZ_IDS } from './wZ-ids';
 import { lvZ } from './kit-w1214';
 
@@ -76,7 +76,8 @@ describe('Worlds 12–14 (phase B/C) · concept cards', () => {
           const atoms: AtomDecl[] = (f.atoms ?? []).map((a) => ({ id: a.id, label: a.label, hue: a.hue }));
           for (const r of f.rows) for (const x of r.seq) {
             const t = typeof x === 'string' ? x : x.t;
-            if (['=', '≠', '⟹', ','].includes(t)) continue;
+            if (['=', '≠', '⟹', ',', '∈'].includes(t)) continue;
+            if (r.seq[r.seq.indexOf(x) - 1] === '∈' && parseSubgroup(t)) continue; // a subgroup, drawn as its Euler set
             expect(parseDisplay(t, atoms), `${id}: ${t}`).not.toBeNull();
           }
         }

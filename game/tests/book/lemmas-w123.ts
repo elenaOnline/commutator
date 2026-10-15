@@ -91,7 +91,7 @@ export function buildOneSided() {
   // t: h: bac = a⁻¹ → multiply right by a → cancel → (ba)(ca) = e → the card xy = e ⟹ yx = e at x = ba, y = ca → unique left inverse at cab·a = e
   const m = f.add(mult('right', a), { x: 20, y: 24 });
   const c1 = f.add(cancel(), { x: 26, y: 24 });
-  const rot = f.add(thm('routed', 0, { x: kn(P(b, a)), y: kn(P(c, a)) }), { x: 32, y: 24 });
+  const rot = f.add(thm('routed', 1), { x: 32, y: 24 }); // the second cut: x = ba, y = ca
   const un = f.add(thm({ k: 'schema', id: 'witness', mirror: true }, 0, { u: kn(a), v: kn(P(c, a, b)) }), { x: 40, y: 24 });
   f.wire(f.given('h'), m); f.wire(m, c1); f.wire(c1, rot, 'p0'); f.wire(all1, rot, 'card'); f.wire(rot, un, 'p0'); f.wire(un, f.socket('t'));
   const lemma = saveLemma(f, all1, ONE_SIDED_ID, lv('P4.10').lemmaNames![0]!, 5);

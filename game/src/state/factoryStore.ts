@@ -12,7 +12,7 @@ import { REGISTRY } from '../levels/levels';
 import { ALL_LEVELS, CAMPAIGNS, CAMPAIGN_LEVELS, LEVEL_BY_ID, campaignOf, type Campaign } from '../levels/campaigns';
 
 export type { Campaign };
-import { positional } from './lemmas';
+import { positional, positionalRefs } from './lemmas';
 
 export type Tool =
   | { k: 'select' }
@@ -250,7 +250,12 @@ export class FactoryStore {
    */
   static positionalLemmas(save: FSave): FSave {
     let out = save;
-    for (const c of CAMPAIGNS) out = withCamp(out, c, (cs) => ({ ...cs, lemmas: cs.lemmas.map((l) => ({ ...l, card: positional(l.card) })) }));
+    for (const c of CAMPAIGNS) out = withCamp(out, c, (cs) => {
+      const lemmas = cs.lemmas.map((l) => ({ ...l, card: positional(l.card) }));
+      // floors that apply a record under its old binder names keep compiling (structs keys → `$i:name`)
+      const levels = Object.fromEntries(Object.entries(cs.levels).map(([id, p]) => [id, p && { ...p, canvas: positionalRefs(p.canvas, lemmas) }]));
+      return { ...cs, levels, lemmas: lemmas.map((l) => ({ ...l, canvas: positionalRefs(l.canvas, lemmas) })) };
+    });
     return out;
   }
   /**
@@ -345,7 +350,7 @@ export class FactoryStore {
   }
 
   place(kind: MachineKind, at: Tile, opts: { rot?: Rot; config?: MachineConfig } = {}) {
-    return this.apply(F.place(this.s.canvas, kind, at, opts.rot ?? this.s.ui.rot, this.s.ctx, opts.config));
+    return this.apply(F.place(this.s.canvas, kind, at, opts.rot ?? this.s.ui.rot, this.s.ctx, opts.config && positionalRefs(opts.config, this.camp().lemmas)));
   }
   move(ids: string[], delta: Tile) { return this.apply(F.moveMachines(this.s.canvas, ids, delta, this.s.ctx)); }
   rotate(id: string) { return this.apply(F.rotateMachine(this.s.canvas, id, this.s.ctx)); }
@@ -354,7 +359,7 @@ export class FactoryStore {
     if (r.ok) this.setUI({ selection: this.s.ui.selection.filter((x) => !ids.includes(x)), lens: ids.includes(this.s.ui.lens ?? '') ? null : this.s.ui.lens });
     return r;
   }
-  configure(id: string, config: MachineConfig) { return this.apply(F.setConfigCtx(this.s.canvas, id, config, this.s.ctx)); }
+  configure(id: string, config: MachineConfig) { return this.apply(F.setConfigCtx(this.s.canvas, id, positionalRefs(config, this.camp().lemmas), this.s.ctx)); }
   connect(from: Endpoint, to: Endpoint, path?: Tile[]) { return this.apply(F.connect(this.s.canvas, from, to, this.s.ctx, path)); }
   branch(belt: string, to: Endpoint) { return this.apply(F.branch(this.s.canvas, belt, to, this.s.ctx)); }
   /** v4.1: drag from an output (or an open belt's end) to a floor cell (open belt) or to an input (completes it). */
@@ -364,7 +369,7 @@ export class FactoryStore {
   /** Branch from the exact belt cell the player dragged off. */
   branchAt(belt: string, i: number, to: Endpoint) { return this.apply(F.branchAt(this.s.canvas, belt, i, to, this.s.ctx)); }
   /** Book phase A: `assumes` (2–3 assumptions) paints a multi-desk Assume room, one numbered desk each. */
-  paintRoom(rect: Rect, kind: Room['kind'], l: Room['l'], r: Room['r'], rel?: Room['rel'], assumes?: Assumption[]) { return this.apply(F.paintRoom(this.s.canvas, rect, kind, l, r, this.s.ctx, rel, assumes && assumes.length > 1 ? (assumes as Parameters<typeof F.paintRoom>[7]) : undefined)); }
+  paintRoom(rect: Rect, kind: Room['kind'], l: Room['l'], r: Room['r'], rel?: Room['rel'], assumes?: Assumption[]) { return this.apply(F.paintRoom(this.s.canvas, rect, kind, l, r, this.s.ctx, rel, assumes && (assumes.length > 1 || assumes.some((a) => a.rel === 'mem')) ? (assumes as Parameters<typeof F.paintRoom>[7]) : undefined)); }
   /** Book phase A: change an Assume room's assumptions (1–3); desks are added or removed to match. */
   setRoomAssumptions(id: string, assumes: Assumption[]) { return this.apply(F.setRoomAssumptions(this.s.canvas, id, assumes as Parameters<typeof F.setRoomAssumptions>[2], this.s.ctx)); }
   resizeRoom(id: string, rect: Rect) { return this.apply(F.resizeRoom(this.s.canvas, id, rect, this.s.ctx)); }

@@ -4,7 +4,8 @@
 // An empty slot has a dashed outline in the family accent and a grey placeholder letter; text that does not
 // read shows in red with "That doesn't read as a term." Parsing lives in slotparse.ts (shared with the tests).
 import { eulerBlobHTML } from '../ui/euler';
-import { parseExtra } from './slotparse';
+import { parseExtra, slotFlags } from './slotparse';
+import { sortCtx } from '../ui/sorts';
 import * as K from '../kernel';
 import type { AtomDecl, Term } from '../kernel/types';
 import { beads } from './beads';
@@ -25,6 +26,8 @@ export interface TermSlotOpts {
   inv?: boolean;
   /** Show the `name :=` label in front (single slots). */
   label?: boolean;
+  /** Offer the power chip ^( ) (default: where integer exponents exist on this floor). */
+  ints?: boolean;
   atoms: AtomDecl[];
   L: Labels;
   H: Hues;
@@ -42,7 +45,8 @@ export interface TermSlotOpts {
   key: string;
 }
 
-const textOf = (t: Term | null, L: Labels) => (t ? safe(() => K.termText(t, L), '') : '');
+// source text (K.termSource), never display text: `a^6` displays a literal power but reads back as the word aaaaaa
+const textOf = (t: Term | null, L: Labels) => (t ? safe(() => K.termSource(t, L), '') : '');
 
 /** A term knob drawn as slots. Returns the knob element (class h3-knob). */
 export function termSlot(o: TermSlotOpts): HTMLElement {
@@ -69,7 +73,9 @@ export function termSlot(o: TermSlotOpts): HTMLElement {
       const invBox = h('span', { class: 'h3-slot-inv' }, h('span', { class: 'h3-slot-par math' }, '('), box(), h('span', { class: 'h3-slot-par math' }, ')'), h('span', { class: 'h3-slot-sup math' }, '−1'));
       if (o.inv) boxes.append(invBox, box()); else boxes.append(box(), invBox);
     }
-    msg.textContent = read.k === 'bad' ? BAD_TERM : '';
+    // x^2 is the word xx, x^(2) a power: say which one this is while typing (W4–9)
+    const caret = /\^(\d+)(?!\))/.exec(input.value);
+    msg.textContent = read.k === 'bad' ? BAD_TERM : caret && (o.ints ?? slotFlags.ints) ? `^${caret[1]} writes the letters out; for a power use ^(${caret[1]}).` : '';
     msg.title = read.k === 'bad' ? read.error : '';
     row.classList.toggle('unset', read.k !== 'ok');
     row.classList.toggle('bad', read.k === 'bad');
@@ -102,11 +108,15 @@ export function termSlot(o: TermSlotOpts): HTMLElement {
     chip(`append ${textOf(t, o.L)}`, markVarBeads(beads(t, o.L, o.H), o.vars), isVar ? 'h3-var' : '', () => { input.value = slotAppend(input.value, textOf(t, o.L)); });
   }
   // Book phase C: a map's chip opens its frame f( … ); identities of the other groups (e_K)
-  const maps = parseExtra.cur?.maps ?? [];
+  const maps = (parseExtra.cur?.maps ?? []).filter((m) => m.kind !== 'action');
   for (const m of maps) chip(`apply ${m.label}: type its argument inside`, h('span', { class: 'math h3-fnchip', html: `<i>${esc(m.label)}</i>(&thinsp;)` }), 'txt', () => { input.value = `${input.value}${m.label}(`; });
+  for (const g of actionChips(o.chips, o.L)) chip(`apply ${g} to a point: type the point inside`, h('span', { class: 'math h3-fnchip', html: `<i>${esc(g)}</i>(&thinsp;)` }), 'txt', () => { input.value = `${input.value}${g}(`; });
+  // a power is its own chip: ^( ) raises the term before it to an integer power (x^(2) is x², x^2 would read xx) (W4–9)
+  if (o.ints ?? slotFlags.ints) chip('raise to a power: type the integer inside', h('span', { class: 'math h3-fnchip', html: '□<sup>( )</sup>' }), 'txt', () => { input.value = `${input.value}^(`; });
   if (maps.length) chip('close the bracket', h('span', { class: 'math' }, ')'), 'txt', () => { input.value = `${input.value})`; });
-  const groups = (parseExtra.cur?.sorts ?? []).filter((x) => x.kind === 'group');
-  if (groups.length > 1) for (const g of groups) chip(`append e of ${g.label}`, h('span', { class: 'math', html: `<i>e</i><sub>${esc(g.label)}</sub>` }), 'txt', () => { input.value = slotAppend(input.value, `e_${g.label}`); });
+  // the plain e chip already gives the base group's identity (and settles to the term's group): no duplicate (#13)
+  const groups = (parseExtra.cur?.sorts ?? []).filter((x) => x.kind === 'group' && x.id !== sortCtx.cur.base);
+  if (groups.length) for (const g of groups) chip(`append e of ${g.label}`, h('span', { class: 'math', html: `<i>e</i><sub>${esc(g.label)}</sub>` }), 'txt', () => { input.value = slotAppend(input.value, `e_${g.label}`); });
   chip('delete last', '⌫', 'txt', () => { input.value = slotBackspace(input.value); });
   for (const q of o.quick ?? []) chip(`copy the incoming ${q.label} (syntax only)`, `= ${q.label}`, 'txt', () => { input.value = textOf(q.term, o.L); });
   if (o.onPort) {
@@ -152,6 +162,14 @@ export function bareSlot(o: {
   return { el: wrap, input, read: () => read, set: (text) => { input.value = text; draw(); } };
 }
 
+/** The group elements an action can be applied with (α, β … of the acting group), when the floor has an action. */
+function actionChips(terms: Term[], L: Labels): string[] {
+  const acts = (parseExtra.cur?.maps ?? []).filter((m) => m.kind === 'action');
+  if (!acts.length) return [];
+  const groups = new Set(acts.map((a) => a.args[0]));
+  const env = sortCtx.cur.env;
+  return terms.filter((t) => t.k === 'atom' && groups.has(env?.atomSort.get(t.id) ?? 'G')).map((t) => L[(t as { id: string }).id] ?? (t as { id: string }).id);
+}
 /** Chips (a b a⁻¹ b⁻¹ e ⌫) that edit whichever slot `target()` names. */
 export function slotChips(target: () => BareSlot, terms: Term[], L: Labels, H: Hues, vars: Map<string, 'G' | 'Z'>): HTMLElement {
   const chips = h('div', { class: 'h3-chips' });
@@ -163,12 +181,15 @@ export function slotChips(target: () => BareSlot, terms: Term[], L: Labels, H: H
   };
   for (const t of terms) chip(`append ${textOf(t, L)}`, markVarBeads(beads(t, L, H), vars), '', (sl) => sl.set(slotAppend(sl.input.value, textOf(t, L))));
   // Book phase C: a map's chip opens its frame, f( … ) — type the argument, then ")" (or the ) chip) closes it
-  const maps = parseExtra.cur?.maps ?? [];
+  const maps = (parseExtra.cur?.maps ?? []).filter((m) => m.kind !== 'action');
   for (const m of maps) chip(`apply ${m.label}: type its argument inside`, h('span', { class: 'math h3-fnchip', html: `<i>${esc(m.label)}</i>(&thinsp;)` }), 'txt', (sl) => sl.set(`${sl.input.value}${m.label}(`));
+  // an action is entered as Pinter writes it: α( ), then the point (W4–9)
+  for (const g of actionChips(terms, L)) chip(`apply ${g} to a point: type the point inside`, h('span', { class: 'math h3-fnchip', html: `<i>${esc(g)}</i>(&thinsp;)` }), 'txt', (sl) => sl.set(`${sl.input.value}${g}(`));
   if (maps.length) chip('close the bracket', h('span', { class: 'math' }, ')'), 'txt', (sl) => sl.set(`${sl.input.value})`));
   // identities of the other groups (e_K)
-  const groups = (parseExtra.cur?.sorts ?? []).filter((x) => x.kind === 'group');
-  if (groups.length > 1) for (const g of groups) chip(`append e of ${g.label}`, h('span', { class: 'math', html: `<i>e</i><sub>${esc(g.label)}</sub>` }), 'txt', (sl) => sl.set(slotAppend(sl.input.value, `e_${g.label}`)));
+  // the plain e chip already gives the base group's identity (and settles to the term's group): no duplicate (#13)
+  const groups = (parseExtra.cur?.sorts ?? []).filter((x) => x.kind === 'group' && x.id !== sortCtx.cur.base);
+  if (groups.length) for (const g of groups) chip(`append e of ${g.label}`, h('span', { class: 'math', html: `<i>e</i><sub>${esc(g.label)}</sub>` }), 'txt', (sl) => sl.set(slotAppend(sl.input.value, `e_${g.label}`)));
   chip('delete last', '⌫', 'txt', (sl) => sl.set(slotBackspace(sl.input.value)));
   return chips;
 }
@@ -179,6 +200,8 @@ export interface NameSlotOpts {
   sort: 'G' | 'Z';
   /** Book phase B: a Subgroup Tower's name (H₁, N₁), drawn as its Euler set. */
   sub?: 'sub' | 'normal';
+  /** The letters offered as chips (groups G, K; homomorphisms f, g; …); default by sort. */
+  letters?: string[];
   hue: number;
   /** Commit a new label (the lens makes it unique on the floor). */
   commit: (label: string) => void;
@@ -187,7 +210,7 @@ export interface NameSlotOpts {
 
 /** The Tower's name: a slot drawn as the variable itself (violet ∈G, teal ∈ℤ), with letter and subscript chips. */
 export function nameSlot(o: NameSlotOpts): { slot: HTMLElement; chips: HTMLElement } {
-  const letters = o.sub ? (o.sub === 'normal' ? ['N', 'M'] : ['H', 'K', 'L']) : o.sort === 'Z' ? ['n', 'm', 'k'] : ['x', 'y', 'z', 'u'];
+  const letters = o.letters ?? (o.sub ? (o.sub === 'normal' ? ['N', 'M'] : ['H', 'K', 'L']) : o.sort === 'Z' ? ['n', 'm', 'k'] : ['x', 'y', 'z', 'u']);
   const input = h('input', { class: 'h3-slot-in', value: o.label, 'aria-label': 'variable name', autocomplete: 'off', spellcheck: 'false', autocapitalize: 'off' });
   const boxes = h('span', { class: 'h3-slotboxes' });
   const slots = h('span', { class: 'h3-slots', 'data-slot': o.key }, boxes, input);

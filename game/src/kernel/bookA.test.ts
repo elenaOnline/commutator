@@ -76,7 +76,7 @@ describe('open docks: solve for d (pallet targets)', () => {
     const p = new Player(ctxWith(target, holes, [given('g', eq(d, a))], []));
     const s = sock(p);
     expect(s.ok).toBe(false);
-    expect(s.error).toContain('rests on given g');
+    expect(s.error).toContain('rests on the given g');
   });
 
   it('a hole never binds a free Tower variable', () => {

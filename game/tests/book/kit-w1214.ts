@@ -1,6 +1,7 @@
 // Shared helpers for the reference-solution tests of Book worlds 12–14 (P14.x, P15.1–P15.3, P16.1, P16.2): Hom Towers,
 // two-group levels, memberships. Not a test file.
 import { checkPaper } from './paper-kit';
+import { assertPointerReachable } from './reach-kit';
 import { expect } from 'vitest';
 import * as K from '../../src/kernel';
 import * as F from '../../src/factory';
@@ -54,6 +55,7 @@ export function outText(f: Floor, comp: F.Compiled, id: string): string {
 export function deliverZ(f: Floor, opts: { parParts?: boolean } = {}) {
   const level = f.level;
   const { comp, s, metrics } = f.run(800);
+  assertPointerReachable(f, comp); // the real HUD could have built this floor (reach-kit.ts)
   const detail = JSON.stringify({ sockets: comp.sockets, beltErrors: comp.beltErrors, jams: Object.entries(comp.machines).filter(([, m]) => m.status.k !== 'ok').map(([id, m]) => [id, m.status]) });
   expect(comp.solvable, detail).toBe(true);
   for (const sock of level.sockets) expect(s.delivered[sock.id], `socket ${sock.id} delivered; ${detail}`).toBeDefined();

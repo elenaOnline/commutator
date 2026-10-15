@@ -48,7 +48,7 @@ const plate = (title: string, label: string, kind: 'gold' | 'hatch' = 'gold', ta
 });
 const neutral = (label: string, glyph = '?'): Look => ({ fam: 'lemma', ...NEUTRAL, glyph, label, neutral: true });
 
-export interface LookCtx { level: LevelManifest; registry: Record<string, Schema> }
+export interface LookCtx { level: LevelManifest; registry: Record<string, Schema>; /** labels of the floor's Towers (H₁, f₁), when known */ labels?: Record<string, string> }
 
 const givenName = (lc: LookCtx, id: string) => lc.level.givens.find((g) => g.id === id)?.name ?? id;
 /** The schema's real name — dynamic imported laws too ('power.literal:5' → "Literal Power 5"), never a raw id. */
@@ -143,7 +143,12 @@ export function lookOf(m: Machine, lc: LookCtx): Look {
       if (r.k === 'multiply') return fam('structure', r.side === 'left' ? 't*' : '*t', r.side === 'left' ? 'MULTIPLY LEFT' : 'MULTIPLY RIGHT');
       if (r.k === 'invert') return fam('inverse', '( )⁻¹', 'INVERT');
       // Book phase C: apply f to both sides — a structure operation like multiply, its glyph the frame f( )
-      if (r.k === 'apply') { const mp = lc.level.maps?.find((x) => x.id === r.fn); const n = mp?.label ?? r.fn; return fam('structure', `${n}( )`, `APPLY ${n.toUpperCase()}`); }
+      if (r.k === 'apply') {
+        const mp = lc.level.maps?.find((x) => x.id === r.fn); const n = mp?.label ?? r.fn;
+        // an action is never named by its symbol: it acts — g( ) on both sides (W4–9)
+        if (mp?.kind === 'action') return fam('structure', 'g( )', 'ACT ON BOTH SIDES');
+        return fam('structure', `${n}( )`, `APPLY ${n.toUpperCase()}`);
+      }
       return fam('equation', '=', 'SWAP');
     }
     case 'joiner': {
@@ -157,7 +162,11 @@ export function lookOf(m: Machine, lc: LookCtx): Look {
       const r = c.recipe;
       if (!r) return neutral('THEOREM');
       if (r.k === 'routed') return fam('equation', '⟹', 'ROUTED CARD');
-      return libLook(lc, r.ref, true);
+      // the face names the instance it is used at ("fibre lemma ⟹ at π", "… at N"), once chosen (#5, #10)
+      const structs = { ...(r.ref.k === 'schema' ? r.ref.structs ?? {} : {}), ...(c.structs ?? {}) };
+      const lk = libLook(lc, Object.keys(structs).length && r.ref.k === 'schema' ? { ...r.ref, structs } : r.ref, true);
+      const at = Object.values(structs).map((id) => lc.level.maps?.find((x) => x.id === id)?.label ?? lc.level.subgroups?.find((x) => x.id === id)?.label ?? lc.labels?.[id] ?? id);
+      return at.length && lk.plate && lk.title ? { ...lk, title: `${lk.title} at ${at.join(', ')}` } : lk;
     }
   }
 }

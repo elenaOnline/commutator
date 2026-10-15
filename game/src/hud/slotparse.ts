@@ -22,12 +22,57 @@ export function normaliseSlot(src: string): string {
 
 /** Book phase C: the maps and sorts in scope (level declarations + group and Hom Towers), so slots read f(x) and e_H. */
 export const parseExtra: { cur: K.ParseExtra | undefined } = { cur: undefined };
+/** Whether integer powers exist on this floor (the power chip is offered). Set by the app on every render. */
+export const slotFlags = { ints: false };
+/** Typed names for Greek letters (#13): pi → π, alpha → α … — only where the letter is in play. */
+const GREEK: Record<string, string> = { alpha: 'α', beta: 'β', gamma: 'γ', delta: 'δ', pi: 'π', rho: 'ρ', sigma: 'σ', tau: 'τ', phi: 'φ', psi: 'ψ', omega: 'ω' };
+function greek(text: string, atoms: AtomDecl[]): string {
+  const known = new Set([...atoms.map((a) => a.label), ...(parseExtra.cur?.maps ?? []).map((m) => m.label)]);
+  return text.replace(/[a-z]{2,5}/g, (w) => (GREEK[w] && known.has(GREEK[w]!) ? GREEK[w]! : w));
+}
+const parse = (text: string, atoms: AtomDecl[]): { ok: true; term: Term } | { ok: false; error: string } => {
+  try { return K.parseTerm(text, atoms, parseExtra.cur); } catch (e) { return { ok: false, error: e instanceof Error ? e.message : String(e) }; }
+};
+const sortsOk = (t: Term, atoms: AtomDecl[]): boolean => {
+  const ex = parseExtra.cur;
+  if (!ex?.maps?.length && !ex?.sorts?.length) return true;
+  try { K.sortOf(t, K.sortEnv({ sorts: ex.sorts, maps: ex.maps, atoms } as never)); return true; } catch { return false; }
+};
+/**
+ * An action applied is typed as Pinter writes it, α(p) or (αβ)(p): when the plain reading is a product that mixes
+ * a group and a set, the bracket after a group element is read as the action (σ(α, p)) (W4–9: actions).
+ */
+function asAction(text: string, atoms: AtomDecl[]): Term | null {
+  const acts = (parseExtra.cur?.maps ?? []).filter((m) => m.kind === 'action');
+  if (acts.length !== 1) return null;
+  const sg = acts[0]!.label;
+  const rewritten = text.replace(/(\([^()]*\)|[^\s(),]+?)\(([^()]*)\)/g, (_m, g: string, p: string) => `${sg}(${g.replace(/^\((.*)\)$/, '$1')}, ${p})`);
+  if (rewritten === text) return null;
+  const r = parse(rewritten, atoms);
+  return r.ok && sortsOk(r.term, atoms) ? r.term : null;
+}
+/** A bare e takes the group of what it stands beside (e·π(b) is e in K), never a group absent from the floor (#3). */
+function settleE(t: Term, atoms: AtomDecl[]): Term {
+  const ex = parseExtra.cur;
+  if (!ex?.sorts?.length) return t;
+  const env = K.sortEnv({ sorts: ex.sorts, maps: ex.maps, atoms } as never);
+  const others = (t.k === 'mul' ? t.fs : [t]).filter((f) => f.k !== 'e');
+  let s: string | null = null;
+  for (const f of others) { try { s = K.sortOf(f, env); break; } catch { /* unsortable alone */ } }
+  if (!s) { const groups = ex.sorts.filter((x) => x.kind === 'group'); if (!groups.some((g) => g.id === K.DEFAULT_GROUP) && groups.length) s = groups[0]!.id; }
+  if (!s || s === K.DEFAULT_GROUP) return t;
+  const fix = (x: Term): Term => (x.k === 'e' && !x.s ? { k: 'e', s } : x.k === 'mul' ? { ...x, fs: x.fs.map(fix) } : x.k === 'inv' ? { ...x, arg: fix(x.arg) } : x);
+  return fix(t);
+}
 /** Read a slot's text against the atoms in scope (level atoms + Tower variables). */
 export function readSlot(src: string, atoms: AtomDecl[]): SlotRead {
-  const text = normaliseSlot(src).trim();
+  const text = greek(normaliseSlot(src).trim(), atoms);
   if (!text) return { k: 'empty' };
-  let r: { ok: true; term: Term } | { ok: false; error: string };
-  try { r = K.parseTerm(text, atoms, parseExtra.cur); } catch (e) { r = { ok: false, error: e instanceof Error ? e.message : String(e) }; }
+  const r = parse(text, atoms);
+  if (r.ok && sortsOk(r.term, atoms)) return { k: 'ok', term: settleE(r.term, atoms) };
+  const act = asAction(text, atoms);
+  if (act) return { k: 'ok', term: act };
+  if (r.ok) { const fixed = settleE(r.term, atoms); if (sortsOk(fixed, atoms)) return { k: 'ok', term: fixed }; }
   return r.ok ? { k: 'ok', term: r.term } : { k: 'bad', text, error: r.error };
 }
 
@@ -35,6 +80,10 @@ export function readSlot(src: string, atoms: AtomDecl[]): SlotRead {
 export function slotBackspace(src: string): string {
   const s = src.trimEnd();
   if (s.endsWith('⁻¹')) return s.slice(0, -2);
+  const eK = /e_[A-Za-zΑ-Ωα-ω][₀-₉]*$/.exec(s);
+  if (eK) return s.slice(0, -eK[0].length); // e_K is one token (#13)
+  const pw = /\^\([^()]*\)$/.exec(s);
+  if (pw) return s.slice(0, -pw[0].length); // a power's exponent ^(n) goes as a whole
   if (s.endsWith('^-1')) return s.slice(0, -3);
   const m = /[A-Za-z][₀-₉]+$/.exec(s);
   if (m) return s.slice(0, -m[0].length); // x₁ is one name: it goes as a whole
@@ -63,7 +112,7 @@ export function withLetter(label: string, letter: string): string {
   return letter + sub;
 }
 
-/** Add a subscript digit to a Tower name (□₁ / □₂ chips): x → x₁, x₁ → x₁₂. An empty name takes `fallback`. */
+/** Set a Tower name's subscript (the x₁ / x₂ chips): x → x₁, x₁ → x₂, never x₁₂ (G₁ chip on G₂ gave G₂₁, #3). */
 export function withSubscript(label: string, digit: number, fallback: string): string {
-  return (label || fallback) + SUBS[digit]!;
+  return (label.replace(/[₀-₉]+$/, '') || fallback) + SUBS[digit]!;
 }

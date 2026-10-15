@@ -3,19 +3,20 @@
 // A slot is always a thing to place, never an instruction. Sorted by family, never by "legal right now".
 import * as F from '../factory';
 import * as K from '../kernel';
-import type { Assumption, Family, Term } from '../kernel/types';
+import type { DeskAssumption, Family, SubRef, Term } from '../kernel/types';
 import type { MachineKind } from '../factory/types';
 import type { Tool } from '../state/factoryStore';
 import { FAMILY } from '../ui/tokens';
 import { glyphHTML } from '../ui/glyph';
 import {
-  FAMILY_ORDER, IO, KIND_WORD, atomsAll, towerLabelSet, drawerKinds, esc, fH, h, hotbarKinds, huesAll, labelsAll, richHTML, safe, spec, tH, varSortsOf,
+  FAMILY_ORDER, IO, KIND_WORD, atomsAll, deskFact, subgroupsOf, towerLabelSet, drawerKinds, esc, fH, h, hotbarKinds, huesAll, labelsAll, richHTML, safe, spec, tH, varSortsOf,
   type S, type Store,
 } from './util';
 import { bareSlot, slotChips, type BareSlot } from './slot';
 import { libCard } from './library';
 import { hasDistinctMirror } from '../factory/catalog';
 import { sideName } from './merge';
+import { assumePresetButton, assumePresets } from './roomedit';
 import { armPreset, earnedPresets, hotbarPresets, pending, pinned, presetKey, type Preset } from './presets';
 
 export interface HotbarApi {
@@ -26,6 +27,8 @@ export interface HotbarApi {
   closePopovers: () => boolean;
   /** Arm the room tool with an assumption (order chip preset). */
   armRoom: (kind: 'suppose' | 'classical' | 'assume', l: Term, r: Term, rel?: 'eq' | 'neq') => void;
+  /** Arm an Assume room with these assumptions (the order chip's "Assume …" presets). */
+  armAssume: (as: DeskAssumption[]) => void;
   openRoomPopover: () => void;
 }
 
@@ -60,7 +63,8 @@ export function mountHotbar(layer: HTMLElement, store: Store): HotbarApi {
     if (both) for (const p of earnedPresets(s)) {
       const ref = (p.recipe as { ref?: { k: string; id?: string } }).ref;
       const sc = ref?.k === 'schema' && ref.id ? s.ctx.registry[ref.id] : undefined;
-      if (p.kind === 'theorem' && sc?.mirrorable && safe(() => hasDistinctMirror(sc.card), true)) {
+      // a mirrored side is listed when it has a standard name (left / right cancellation …), never "(mirror)" of a lemma
+      if (p.kind === 'theorem' && sc?.mirrorable && sc.origin !== 'authored' && safe(() => hasDistinctMirror(sc.card), true)) {
         const r = { k: 'library' as const, ref: { k: 'schema' as const, id: ref!.id!, mirror: true } };
         ps.push({ key: presetKey('theorem', r), kind: 'theorem', recipe: r, label: sideName(ref!.id!, true, `${p.label} (mirror)`), earned: true });
       }
@@ -82,7 +86,7 @@ export function mountHotbar(layer: HTMLElement, store: Store): HotbarApi {
     const b = h('button', { class: `h3-slot${e.earned ? ' earned' : ''}${e.preset ? ' preset' : ''}`, 'data-key': e.key, 'aria-label': `${e.name}${e.hotkey ? ` (${e.hotkey})` : ''}` },
       e.hotkey && e.hotkey.length === 1 ? h('span', { class: 'h3-hk' }, e.hotkey) : null,
       e.earned ? h('span', { class: 'h3-band' }) : null,
-      glyph(e), h('span', { class: 'h3-name' }, e.name));
+      glyph(e), h('span', { class: 'h3-name', title: e.name }, e.preset ? midEllipsis(e.name) : e.name));
     b.addEventListener('click', () => {
       if (onClick) { onClick(); return; }
       if (e.preset) armPreset(store, e.preset); else { pending.preset = null; store.setTool(e.tool); }
@@ -208,21 +212,26 @@ export function mountHotbar(layer: HTMLElement, store: Store): HotbarApi {
 
   // ───────── room popover: Suppose / Classical / Assume ─────────
   type RK = 'suppose' | 'classical' | 'assume';
+  type Rel = 'eq' | 'neq' | 'mem';
   let roomKind: RK = 'suppose';
-  let assumeRel: 'eq' | 'neq' = 'eq';
+  let assumeRel: Rel = 'eq';
+  // ∈ (Book phase B) is offered where there is a subgroup to belong to: a level subgroup or a Subgroup Tower
+  let subs: { ref: SubRef; label: string }[] = [];
+  let sub0: SubRef | null = null;
+  let popLevel = '';
   // the assumption's LHS and RHS are term slots (review 2026-10: every input that takes a term), one chip row
   let slotL: BareSlot | null = null, slotR: BareSlot | null = null, lastSlot: 'l' | 'r' = 'l';
   // Book phase A: an Assume room may hold a 2nd and 3rd assumption, each on its own numbered desk (⊢₁ ⊢₂ ⊢₃)
-  type Extra = { l: BareSlot; r: BareSlot; rel: 'eq' | 'neq'; el: HTMLElement };
+  type Extra = { l: BareSlot; r: BareSlot; rel: Rel; sub: SubRef | null; pick: HTMLElement; rb: HTMLButtonElement; el: HTMLElement };
   let extras: Extra[] = [];
   let lastFocus: BareSlot | null = null;
   const MAXA = 3;
-  const SUBN = '₀₁₂₃₄₅₆₇₈₉';
   const roomRow = h('div', { class: 'h3-roomrow' });
   const extraRows = h('div', { class: 'h3-roomextras' });
   const addA = h('button', { class: 'lw-key small ghost h3-addassume', title: 'Assume one more statement: it gets its own desk in the room' }, '+ Another assumption');
   const roomChips = h('div', { class: 'h3-roomchips' });
-  const rel = h('button', { class: 'h3-rel math', title: 'For an Assume room: assume = or ≠' }, '=');
+  const rel = h('button', { class: 'h3-rel math', title: 'For an Assume room: assume =, ≠ or ∈' }, '=');
+  const pick0 = h('span', { class: 'h3-subpick' });
   const kSup = h('button', { class: 'h3-seg on', title: 'A clash proves the opposite.' }, 'Suppose');
   const kCls = h('button', { class: 'h3-seg', title: 'A clash proves P (classical).' }, 'Classical');
   const kAsm = h('button', { class: 'h3-seg', title: 'Exports P ⟹ Q.' }, 'Assume');
@@ -235,6 +244,16 @@ export function mountHotbar(layer: HTMLElement, store: Store): HotbarApi {
     roomRow, extraRows, addA, roomChips,
     roomMsg, presetRow, h('div', { class: 'h3-roomfoot' }, arm, h('span', { class: 'h3-dim' }, 'then drag a rectangle')));
   const termOf = (sl: BareSlot | null): Term | null => { const r = sl?.read(); return r && r.k === 'ok' ? r.term : null; };
+  const relGlyph = (r: Rel) => (r === 'eq' ? '=' : r === 'neq' ? '≠' : '∈');
+  const rels = (): Rel[] => (subs.length ? ['eq', 'neq', 'mem'] : ['eq', 'neq']);
+  /** Subgroup pills (in the subgroup ink) for an ∈ row. */
+  const drawPick = (el: HTMLElement, cur: () => SubRef | null, set: (r: SubRef) => void) => {
+    el.replaceChildren(...subs.map((g) => {
+      const b = h('button', { class: `h3-subpill math${cur()?.id === g.ref.id ? ' on' : ''}`, html: `<i>${esc(g.label)}</i>`, title: `assume it belongs to ${g.label}` });
+      b.addEventListener('click', () => { set(g.ref); drawPick(el, cur, set); updateRoom(); });
+      return b;
+    }));
+  };
   const mkSlot = (side: 'l' | 'r', value: string, label: string, onFocus: () => void) => {
     const s = store.get();
     const sl = bareSlot({
@@ -244,8 +263,6 @@ export function mountHotbar(layer: HTMLElement, store: Store): HotbarApi {
     sl.input.setAttribute('aria-label', label);
     return sl;
   };
-  const pLabel = (i: number) => h('span', { class: 'h3-dim math', html: `<i>P</i><sub class="m-sub">${i + 1}</sub>` }); // Latin Modern has no ₁ glyph
-  void SUBN;
   const buildSlots = (lv: string, rv: string) => {
     const s = store.get();
     const L = labelsAll(s), H = huesAll(s), vars = varSortsOf(s);
@@ -259,64 +276,79 @@ export function mountHotbar(layer: HTMLElement, store: Store): HotbarApi {
     const chips: Term[] = [...els.map((a) => ({ k: 'atom', id: a.id } as Term)), ...grp.map((a) => ({ k: 'inv', arg: { k: 'atom', id: a.id } } as Term)), { k: 'e' }];
     roomChips.replaceChildren(slotChips(() => lastFocus ?? (lastSlot === 'l' ? slotL! : slotR!), chips, L, H, vars));
   };
-  const multi = () => roomKind === 'assume' && extras.length > 0;
+  const multi = () => roomKind === 'assume' && (extras.length > 0 || assumeRel === 'mem');
   // Typing must stay fluid: the row's nodes are moved only when the slots themselves are new. Re-appending a
   // focused input blurs it, which is what made every keystroke drop focus (playtest W1–3, blocker 1).
-  const rowLab = h('span', { class: 'h3-dim math' });
+  const rowLab = h('span', { class: 'h3-dim' });
   const layoutRows = () => {
     if (!slotL || !slotR) return;
     const kids = roomRow.children;
-    if (kids[0] !== rowLab || kids[1] !== slotL.el || kids[2] !== rel || kids[3] !== slotR.el) roomRow.replaceChildren(rowLab, slotL.el, rel, slotR.el);
-    const lab = multi() ? 'p1' : 'assume';
+    if (kids[0] !== rowLab || kids[1] !== slotL.el || kids[2] !== rel || kids[3] !== slotR.el || kids[4] !== pick0) roomRow.replaceChildren(rowLab, slotL.el, rel, slotR.el, pick0);
+    const many = roomKind === 'assume' && extras.length > 0;
+    const lab = many ? 'p1' : 'assume';
     if (rowLab.dataset.k !== lab) {
       rowLab.dataset.k = lab;
-      if (multi()) rowLab.innerHTML = '<i>P</i><sub class="m-sub">1</sub>'; else rowLab.textContent = 'assume';
+      rowLab.classList.toggle('math', many);
+      if (many) rowLab.innerHTML = '<i>P</i><sub class="m-sub">1</sub>'; else rowLab.textContent = 'assume';
     }
-    extraRows.hidden = !multi();
+    const mem0 = roomKind === 'assume' && assumeRel === 'mem';
+    slotR.el.hidden = mem0; pick0.hidden = !mem0;
+    extraRows.hidden = !(roomKind === 'assume' && extras.length > 0);
     // the popover keeps one height across Suppose / Classical / Assume (it never jumps under the pointer)
     addA.hidden = extras.length >= MAXA - 1;
     addA.style.visibility = roomKind === 'assume' ? '' : 'hidden';
     addA.tabIndex = roomKind === 'assume' ? 0 : -1;
   };
-  const addAssumption = (lv = '', rv = '', relv: 'eq' | 'neq' = 'eq') => {
+  const pLabel = (i: number) => h('span', { class: 'h3-dim math', html: `<i>P</i><sub class="m-sub">${i + 1}</sub>` }); // Latin Modern has no ₁ glyph
+  const addAssumption = (lv = '', rv = '', relv: Rel = 'eq', subv: SubRef | null = null, focus = true) => {
     if (extras.length >= MAXA - 1) return;
     const i = extras.length + 1;
-    const ex: Extra = { l: mkSlot('l', lv, `LHS of assumption ${i + 1}`, () => undefined), r: mkSlot('r', rv, `RHS of assumption ${i + 1}`, () => undefined), rel: relv, el: h('div', { class: 'h3-roomrow' }) };
-    const rb = h('button', { class: 'h3-rel math live', title: 'Assume = or ≠' }, relv === 'eq' ? '=' : '≠');
-    rb.addEventListener('click', () => { ex.rel = ex.rel === 'eq' ? 'neq' : 'eq'; rb.textContent = ex.rel === 'eq' ? '=' : '≠'; updateRoom(); });
+    const rb = h('button', { class: 'h3-rel math live', title: subs.length ? 'Assume =, ≠ or ∈' : 'Assume = or ≠' }, relGlyph(relv)) as HTMLButtonElement;
+    const ex: Extra = { l: mkSlot('l', lv, `LHS of assumption ${i + 1}`, () => undefined), r: mkSlot('r', rv, `RHS of assumption ${i + 1}`, () => undefined), rel: relv, sub: subv ?? subs[0]?.ref ?? null, pick: h('span', { class: 'h3-subpick' }), rb, el: h('div', { class: 'h3-roomrow' }) };
+    const drawEx = () => { ex.r.el.hidden = ex.rel === 'mem'; ex.pick.hidden = ex.rel !== 'mem'; drawPick(ex.pick, () => ex.sub, (r) => { ex.sub = r; }); };
+    rb.addEventListener('click', () => { const rs = rels(); ex.rel = rs[(rs.indexOf(ex.rel) + 1) % rs.length]!; rb.textContent = relGlyph(ex.rel); drawEx(); updateRoom(); });
     const rm = h('button', { class: 'h3-x', 'aria-label': `Remove assumption ${i + 1}`, title: 'Remove this assumption' }, '×');
     rm.addEventListener('click', () => { extras = extras.filter((x) => x !== ex); ex.el.remove(); renumber(); layoutRows(); updateRoom(); });
-    ex.el.append(pLabel(i), ex.l.el, rb, ex.r.el, rm);
+    ex.el.append(pLabel(i), ex.l.el, rb, ex.r.el, ex.pick, rm);
+    drawEx();
     extras.push(ex); extraRows.append(ex.el);
     layoutRows(); updateRoom();
-    ex.l.input.focus({ preventScroll: true });
+    if (focus) ex.l.input.focus({ preventScroll: true });
   };
   const renumber = () => extras.forEach((ex, j) => { const lab = ex.el.firstElementChild; if (lab) lab.replaceWith(pLabel(j + 1)); });
   addA.addEventListener('click', () => addAssumption());
   /** The Assume room's assumptions in desk order, when every slot reads; null while one is incomplete. */
-  const assumptions = (): Assumption[] | null => {
-    const l = termOf(slotL), r = termOf(slotR);
-    if (!l || !r) return null;
-    const out: Assumption[] = [{ rel: assumeRel, l, r }];
-    for (const ex of extras) { const a = termOf(ex.l), b = termOf(ex.r); if (!a || !b) return null; out.push({ rel: ex.rel, l: a, r: b }); }
+  const assumptions = (): DeskAssumption[] | null => {
+    const l = termOf(slotL);
+    if (!l) return null;
+    const out: DeskAssumption[] = [];
+    if (assumeRel === 'mem') { if (!sub0) return null; out.push({ rel: 'mem', t: l, sub: sub0 }); }
+    else { const r = termOf(slotR); if (!r) return null; out.push({ rel: assumeRel, l, r }); }
+    for (const ex of extras) {
+      const a = termOf(ex.l); if (!a) return null;
+      if (ex.rel === 'mem') { if (!ex.sub) return null; out.push({ rel: 'mem', t: a, sub: ex.sub }); continue; }
+      const b = termOf(ex.r); if (!b) return null;
+      out.push({ rel: ex.rel, l: a, r: b });
+    }
     return out;
   };
-  const assumedRel = () => (roomKind === 'suppose' ? 'eq' : roomKind === 'classical' ? 'neq' : assumeRel);
+  const assumedRel = (): 'eq' | 'neq' => (roomKind === 'suppose' ? 'eq' : roomKind === 'classical' ? 'neq' : assumeRel === 'neq' ? 'neq' : 'eq');
   const updateRoom = () => {
-    rel.textContent = assumedRel() === 'eq' ? '=' : '≠';
+    if (roomKind !== 'assume' && assumeRel === 'mem') { /* ∈ is an Assume room's; the other kinds read = */ }
+    rel.textContent = roomKind === 'assume' ? relGlyph(assumeRel) : assumedRel() === 'eq' ? '=' : '≠';
     rel.classList.toggle('live', roomKind === 'assume');
     kSup.classList.toggle('on', roomKind === 'suppose'); kCls.classList.toggle('on', roomKind === 'classical'); kAsm.classList.toggle('on', roomKind === 'assume');
     layoutRows();
-    const l = termOf(slotL), r = termOf(slotR);
     const L = labelsAll(store.get());
-    const as = multi() ? assumptions() : null;
     if (multi()) {
+      const as = assumptions();
       roomMsg.innerHTML = as
-        ? `exports <span class="math">${as.map((a) => `${tH(a.l, L)} <span class="m-rel">${a.rel === 'eq' ? '=' : '≠'}</span> ${tH(a.r, L)}`).join(', ')} <span class="m-rel">⟹</span> <i>Q</i></span>`
+        ? `exports <span class="math">${as.map((a) => fH(deskFact(a), L)).join(', ')} <span class="m-rel">⟹</span> <i>Q</i></span>`
         : '';
       arm.disabled = !as;
       return;
     }
+    const l = termOf(slotL), r = termOf(slotR);
     if (l && r) {
       const P = `${tH(l, L)} <span class="m-rel">${assumedRel() === 'eq' ? '=' : '≠'}</span> ${tH(r, L)}`;
       roomMsg.innerHTML = roomKind === 'assume'
@@ -328,33 +360,54 @@ export function mountHotbar(layer: HTMLElement, store: Store): HotbarApi {
   kSup.addEventListener('click', () => { roomKind = 'suppose'; updateRoom(); });
   kCls.addEventListener('click', () => { roomKind = 'classical'; updateRoom(); });
   kAsm.addEventListener('click', () => { roomKind = 'assume'; updateRoom(); });
-  rel.addEventListener('click', () => { if (roomKind === 'assume') { assumeRel = assumeRel === 'eq' ? 'neq' : 'eq'; updateRoom(); } });
+  rel.addEventListener('click', () => {
+    if (roomKind !== 'assume') return;
+    const rs = rels(); assumeRel = rs[(rs.indexOf(assumeRel) + 1) % rs.length]!;
+    if (assumeRel === 'mem' && !sub0) sub0 = subs[0]?.ref ?? null;
+    drawPick(pick0, () => sub0, (r) => { sub0 = r; });
+    updateRoom();
+  });
   arm.addEventListener('click', () => {
+    if (multi()) { const as = assumptions(); if (as) { const a0 = as[0]!; const l = a0.rel === 'mem' ? a0.t : a0.l, r = a0.rel === 'mem' ? a0.t : a0.r; armRoom('assume', l, r, a0.rel === 'neq' ? 'neq' : 'eq', as); } return; }
     const l = termOf(slotL), r = termOf(slotR);
     if (!l || !r) return;
-    if (multi()) { const as = assumptions(); if (as) armRoom('assume', l, r, assumeRel, as); return; }
-    armRoom(roomKind, l, r, roomKind === 'assume' ? assumeRel : undefined);
+    armRoom(roomKind, l, r, roomKind === 'assume' ? assumedRel() : undefined);
   });
-  const armRoom = (kind: RK, l: Term, r: Term, relv?: 'eq' | 'neq', assumes?: Assumption[]) => {
+  const armRoom = (kind: RK, l: Term, r: Term, relv?: 'eq' | 'neq', assumes?: DeskAssumption[]) => {
     roomPop.hidden = true;
-    const many = assumes && assumes.length > 1 ? { assumes } : {};
+    const many = assumes && (assumes.length > 1 || assumes.some((a) => a.rel === 'mem')) ? { assumes } : {};
     store.setTool({ k: 'room', kind, l, r, ...(relv ? { rel: relv } : {}), ...many });
-    const st = store as unknown as { setRoomSpec?: (x: { l: Term; r: Term; rel?: 'eq' | 'neq'; assumes?: Assumption[] } | null) => void };
+    const st = store as unknown as { setRoomSpec?: (x: { l: Term; r: Term; rel?: 'eq' | 'neq'; assumes?: DeskAssumption[] } | null) => void };
     st.setRoomSpec?.({ l, r, ...(relv ? { rel: relv } : {}), ...many });
+  };
+  /** Arm an Assume room with these assumptions (order-chip and popover presets). */
+  const armAssume = (as: DeskAssumption[]) => {
+    const a0 = as[0]!;
+    armRoom('assume', a0.rel === 'mem' ? a0.t : a0.l, a0.rel === 'mem' ? a0.t : a0.r, a0.rel === 'neq' ? 'neq' : 'eq', as);
   };
   const openRoomPopover = () => {
     const s = store.get();
     drawer.hidden = true; hideCard();
     const L = labelsAll(s);
+    subs = subgroupsOf(s).map((g) => ({ ref: { k: 'sub', id: g.id } as SubRef, label: g.label }));
+    // a room belongs to its level: a new level starts blank (never the last level's assumptions), in the kind it trains
+    const fresh = s.level.id !== popLevel;
+    if (fresh) {
+      popLevel = s.level.id;
+      roomKind = s.level.tools.suppose ? 'suppose' : s.level.tools.classical ? 'classical' : 'assume';
+      assumeRel = 'eq'; sub0 = null; extras = []; slotL = slotR = null;
+    }
+    if (assumeRel === 'mem' && !subs.some((g) => g.ref.id === sub0?.id)) { assumeRel = 'eq'; sub0 = null; }
     const t = s.ui.tool;
     const keep = t.k === 'room' && t.l && t.r;
     if (keep) roomKind = t.kind;
-    const kept = extras.map((ex) => ({ l: ex.l.input.value, r: ex.r.input.value, rel: ex.rel }));
-    buildSlots(keep ? safe(() => K.termText(t.l!, L), '') : slotL?.input.value ?? '', keep ? safe(() => K.termText(t.r!, L), '') : slotR?.input.value ?? '');
+    const kept = extras.map((ex) => ({ l: ex.l.input.value, r: ex.r.input.value, rel: ex.rel, sub: ex.sub }));
+    buildSlots(keep ? safe(() => K.termSource(t.l!, L), '') : slotL?.input.value ?? '', keep ? safe(() => K.termSource(t.r!, L), '') : slotR?.input.value ?? '');
     const again = keep && t.k === 'room' && t.assumes && t.assumes.length > 1
-      ? t.assumes.slice(1).flatMap((a) => (a.rel === 'mem' ? [] : [{ l: safe(() => K.termText(a.l, L), ''), r: safe(() => K.termText(a.r, L), ''), rel: a.rel }]))
+      ? t.assumes.slice(1).map((a) => (a.rel === 'mem' ? { l: safe(() => K.termSource(a.t, L), ''), r: '', rel: 'mem' as Rel, sub: a.sub } : { l: safe(() => K.termSource(a.l, L), ''), r: safe(() => K.termSource(a.r, L), ''), rel: a.rel as Rel, sub: null }))
       : kept;
-    for (const x of again) addAssumption(x.l, x.r, x.rel);
+    for (const x of again) addAssumption(x.l, x.r, x.rel, x.sub, false);
+    drawPick(pick0, () => sub0, (r) => { sub0 = r; });
     lastFocus = null;
     presetRow.innerHTML = '';
     for (const sk of s.level.sockets) {
@@ -366,6 +419,8 @@ export function mountHotbar(layer: HTMLElement, store: Store): HotbarApi {
       b.addEventListener('click', () => armRoom(kind, g.l, g.r));
       presetRow.append(b);
     }
+    // the docks' if-then statements: "Assume xy⁻¹ ∈ H₁", with the floor's Towers standing for x and y
+    for (const p of assumePresets(s)) presetRow.append(assumePresetButton(store, p, armAssume));
     roomPop.hidden = false;
     placeAbove(roomPop, slotEls.get('room')!);
     updateRoom();
@@ -430,7 +485,7 @@ export function mountHotbar(layer: HTMLElement, store: Store): HotbarApi {
     }
     return slotEls.get(kind)?.getBoundingClientRect() ?? null;
   };
-  return { render, slotRect, closePopovers, armRoom, openRoomPopover };
+  return { render, slotRect, closePopovers, armRoom: (k, l, r, rv) => armRoom(k, l, r, rv), armAssume, openRoomPopover };
 }
 
 /** Tiny top-down footprint: w×h cells, in-ports as notches pointing in, the out-port pointing out. */
@@ -450,4 +505,12 @@ function footprintSVG(lay: { w: number; h: number; ports: { x: number; y: number
     s += `<path d="M${tip[0]},${tip[1]}L${b1[0]},${b1[1]}L${b2[0]},${b2[1]}Z" fill="${fill}"/>`;
   }
   return s + '</svg>';
+}
+
+/** Saved names stay tellable apart on a slot: "kernel closed under products" → "kernel clos…der products" (the ends differ). */
+export function midEllipsis(name: string, max = 28): string {
+  const cs = [...name];
+  if (cs.length <= max) return name;
+  const head = Math.ceil((max - 1) / 2), tail = Math.floor((max - 1) / 2);
+  return `${cs.slice(0, head).join('').trimEnd()}…${cs.slice(cs.length - tail).join('').trimStart()}`;
 }

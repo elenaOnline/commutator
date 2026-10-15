@@ -2,9 +2,11 @@
 // beat, ∎ stamps in, the specific statement retypesets as "Lemma n. For all …", and any earned machine
 // card flies into the hotbar. Then: Next work order. Click or Esc skips to the end state.
 import { reducedMotion } from '../ui/tokens';
-import { paperOf } from './paper';
+import { fullStatementHTML, paperOf } from './paper';
+import { unlocksPress } from './proof';
 import * as F from '../factory';
 import type { Card, LevelManifest } from '../kernel/types';
+import { sameStatement } from './presets';
 import { dockAnswers, openView, CAMPAIGN_LEVELS, CAMPAIGN_NAMES, LEVEL_BY_ID, REGISTRY, camp, campaignOf, displayNo, fH, h, isSolved, labels, nextLevel, progressOf, safe, schemaNames, statementOf, tH, towerVars, type S, type Store } from './util';
 
 const HOLD_MS = 650;
@@ -24,15 +26,50 @@ function conditionalHTML(lv: LevelManifest): string {
   return `${pre}${pre ? 'if' : 'If'} ${hyps.join(' and ')}, then ${goals}.`;
 }
 const hasCardGoal = (lv: LevelManifest) => lv.sockets.some((k) => k.target.k === 'law' || k.target.k === 'cond');
-/** The ∀ / gate machine whose output the Lemma Book could take (the one feeding a dock first). */
-function savableOf(s: S): { machine: string; card: Card } | null {
-  const feeding = Object.values(s.compiled?.sockets ?? {}).map((x) => x.by).filter(Boolean) as string[];
-  const ms = s.canvas.machines.filter((m) => m.kind === 'forall' || m.kind === 'gate').sort((a, b) => Number(feeding.includes(b.id)) - Number(feeding.includes(a.id)));
-  for (const m of ms) {
+/** A savable card on the floor, the dock it answers (index in the level's docks, or -1), and its default name. */
+export interface Savable { machine: string; card: Card; dock: number; name: string }
+
+/** Plain text of a card's statement without its binders: "xy = e ⟹ yx = e". */
+function statementText(card: Card): string {
+  const div = document.createElement('div');
+  div.innerHTML = fH(card, {});
+  // a name field is plain text: superscripts become ⁻¹, ², ⁿ (never "x-1")
+  const SUP: Record<string, string> = { '-': '⁻', '−': '⁻', '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴', '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹', n: 'ⁿ', '+': '⁺' };
+  div.querySelectorAll('sup').forEach((x) => { const t = x.textContent ?? ''; x.textContent = [...t].every((c) => SUP[c]) ? [...t].map((c) => SUP[c]).join('') : `^${t}`; });
+  return (div.textContent ?? '').replace(/^∀[^.]*\.\s*/, '').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * The standard name a lemma is saved under: the author's `lemmaNames` in dock order; else the standard name of
+ * a theorem with the same statement; else the statement itself. Never the level's title.
+ */
+export function lemmaNameFor(s: S, card: Card, dock: number, only = false): string {
+  const lv = s.level;
+  const authored = dock >= 0 ? lv.lemmaNames?.[dock] : only && lv.lemmaNames?.length === 1 ? lv.lemmaNames[0] : undefined;
+  if (authored) return authored;
+  if (only && SUGGESTED[lv.id]) return SUGGESTED[lv.id]!;
+  const known = Object.values(REGISTRY).find((sc) => sc && sameStatement(sc.card, card));
+  if (known) return known.name;
+  return statementText(card) || 'lemma';
+}
+
+/** Every closed ∀ card (∀ machine or Assume gate) on the floor the Lemma Book could take: one per statement, in dock order. */
+export function savablesOf(s: S, skip: Card[] = []): Savable[] {
+  const docks = s.level.sockets;
+  const byDock = new Map<string, number>(); // machine → the dock it feeds
+  docks.forEach((d, i) => { const by = s.compiled?.sockets?.[d.id]?.by; if (by && !byDock.has(by)) byDock.set(by, i); });
+  const out: Omit<Savable, 'name'>[] = [];
+  for (const m of s.canvas.machines) {
+    if (m.kind !== 'forall' && m.kind !== 'gate') continue;
     const r = safe(() => F.lemmaFrom(s.compiled, s.canvas, m.id, s.ctx), null);
-    if (r?.ok) return { machine: m.id, card: r.card };
+    if (!r?.ok) continue;
+    if (skip.some((c) => sameStatement(c, r.card)) || out.some((x) => sameStatement(x.card, r.card))) continue;
+    let dock = byDock.get(m.id) ?? -1;
+    if (dock < 0) dock = docks.findIndex((d) => (d.target.k === 'law' || d.target.k === 'cond') && sameStatement(d.target as Card, r.card));
+    out.push({ machine: m.id, card: r.card, dock });
   }
-  return null;
+  out.sort((a, b) => (a.dock < 0 ? 1e9 : a.dock) - (b.dock < 0 ? 1e9 : b.dock));
+  return out.map((x) => ({ ...x, name: lemmaNameFor(s, x.card, x.dock, out.length === 1) }));
 }
 
 export function mountCeremony(layer: HTMLElement, store: Store, hooks: { dest: () => DOMRect | null }) {
@@ -84,7 +121,8 @@ export function mountCeremony(layer: HTMLElement, store: Store, hooks: { dest: (
     const cardGoal = hasCardGoal(lv);
     const cond = ov.chips(conditionalHTML(lv));
     const specific = h('div', { class: 'qed-specific', html: cardGoal ? `<span class="math">${st.plainHTML}</span>` : cond });
-    const lemma = h('div', { class: 'qed-lemma' }, h('span', { class: 'qed-lemma-no' }, `Lemma ${no}.`), ' ', h('span', { class: 'qed-lemma-st', html: cardGoal ? st.html : cond }));
+    // every dock is stated: a level with a law dock and a dock about its own elements says both
+    const lemma = h('div', { class: 'qed-lemma' }, h('span', { class: 'qed-lemma-no' }, `Lemma ${no}.`), ' ', h('span', { class: 'qed-lemma-st', html: ov.chips(fullStatementHTML(lv, { any: true })) })); // the exact theorem: every hypothesis, every dock
     // "arbitrary" is said only of Tower variables; level constants a, b are particular elements
     const s0 = store.get();
     const tv = towerVars(s0).map((v) => tH({ k: 'atom', id: v.id }, Object.fromEntries(towerVars(s0).map((w) => [w.id, w.label]))));
@@ -95,28 +133,38 @@ export function mountCeremony(layer: HTMLElement, store: Store, hooks: { dest: (
     const note = h('div', { class: 'qed-note', html: cardGoal
       ? (tv.length ? `<span class="math">${tv.join(', ')}</span> could be anything. So it holds for all.` : 'It holds in every group.')
       : 'Proven for these elements. Towers and ∀ make laws.' });
-    // the Lemma Book, right here: a savable card on the floor is offered with a name
-    const sv = savableOf(s0);
+    // the Lemma Book, right here: every savable card on the floor is offered, each with its standard name.
+    // A statement this order already earns as a machine is not offered again (it is on the hotbar already).
+    const earnedCards = unlocked.map((u) => REGISTRY[u]?.card).filter((c): c is Card => !!c);
+    const svs = savablesOf(s0, earnedCards);
     let saveRow: HTMLElement | null = null;
-    if (sv) {
-      const already = camp(s0).lemmas.some((l) => JSON.stringify(l.card) === JSON.stringify(sv.card));
-      const suggested = SUGGESTED[lv.id] ?? (lv.unlocks.map((u) => REGISTRY[u]?.name).find(Boolean)) ?? lv.title;
-      const plate = h('div', { class: 'qed-plate' }, h('span', { class: 'machine-band' }), h('span', { class: 'qed-m-kicker' }, already ? 'In your Lemma Book' : 'Your own theorem'), h('span', { class: 'machine-stmt math', html: fH(sv.card, {}) }));
-      if (already) saveRow = h('div', { class: 'qed-save' }, plate);
-      else {
-        const name = h('input', { class: 'h3-term qed-name', value: suggested, 'aria-label': 'name for the Lemma Book', autocomplete: 'off', spellcheck: 'false' });
+    if (svs.length) {
+      const rowsEl: HTMLElement[] = [];
+      const note = h('div', { class: 'qed-save-note' }, 'Save it, and it becomes a recipe in every later order.');
+      let saved = 0, offered = 0;
+      for (const sv of svs) {
+        const already = camp(s0).lemmas.some((l) => sameStatement(l.card, sv.card));
+        const plate = h('div', { class: 'qed-plate' }, h('span', { class: 'machine-band' }), h('span', { class: 'qed-m-kicker' }, already ? 'In your Lemma Book' : 'Your own theorem'), h('span', { class: 'machine-stmt math', html: fH(sv.card, {}) }));
+        if (already) { rowsEl.push(h('div', { class: 'qed-save' }, plate)); continue; }
+        offered++;
+        const name = h('input', { class: 'h3-term qed-name', value: sv.name, 'aria-label': 'name for the Lemma Book', autocomplete: 'off', spellcheck: 'false' });
         const btn = h('button', { class: 'lw-key primary' }, 'Save to Lemma Book');
         const doSave = () => {
-          const r = store.saveLemma(sv.machine, name.value.trim() || suggested);
+          const nm = name.value.trim() || sv.name;
+          const r = store.saveLemma(sv.machine, nm);
           if (!r.ok) return;
           btn.textContent = 'Saved ✓'; btn.disabled = true; name.disabled = true;
-          plate.querySelector('.qed-m-kicker')!.textContent = `${name.value.trim() || suggested} · in your Lemma Book`;
+          plate.querySelector('.qed-m-kicker')!.textContent = 'In your Lemma Book'; // its name is in the field below (an uppercase kicker would mangle maths names)
+          saved++;
+          note.textContent = saved === offered ? `Saved. ${offered > 1 ? 'They are recipes' : 'It is a recipe'} in every later order.` : 'Saved. It is a recipe in every later order.';
           flyPlate(plate);
         };
         btn.addEventListener('click', doSave);
         name.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); doSave(); } });
-        saveRow = h('div', { class: 'qed-save' }, plate, h('div', { class: 'qed-save-form' }, name, btn), h('div', { class: 'qed-save-note' }, 'Saved, it is a recipe in every later order.'));
+        rowsEl.push(h('div', { class: 'qed-save' }, plate, h('div', { class: 'qed-save-form' }, name, btn)));
       }
+      if (offered > 1) note.textContent = 'Save them, and they become recipes in every later order.';
+      saveRow = h('div', { class: 'qed-saves' }, ...rowsEl, offered ? note : null);
     }
     const machines = h('div', { class: 'qed-machines' });
     for (const id of unlocked) {
@@ -130,6 +178,16 @@ export function mountCeremony(layer: HTMLElement, store: Store, hooks: { dest: (
         h('span', { class: 'machine-tb' }, `Lemma ${no} · ${nm.textbook}`),
         h('span', { class: 'machine-stmt math', html: fH(sc.card, {}).replace(/^∀[^.]*\.&ensp;/, '') }),
         h('span', { class: 'qed-m-mirror' }, sc.mirrorable ? 'both sides · on your hotbar from the next work order' : 'on your hotbar from the next work order')));
+    }
+    // P13.1 hands out Lagrange's theorem: say so, honestly (its algebraic core is what this order proved)
+    if (unlocksPress(lv0)) {
+      machines.append(h('div', { class: 'qed-machine qed-unlock', 'data-schema': 'lagrange' },
+        h('span', { class: 'machine-band' }),
+        h('span', { class: 'qed-m-kicker' }, 'Theorem unlocked'),
+        h('span', { class: 'machine-name' }, 'Lagrange’s theorem'),
+        h('span', { class: 'machine-stmt math', html: '<i>x</i><sup class="m-sup">|<i>G</i>|</sup> <span class="m-rel">=</span> <i>e</i>' }),
+        h('span', { class: 'machine-tb' }, 'You proved its algebraic core. The counting step is on the card.'),
+        h('span', { class: 'qed-m-mirror' }, 'a Rewriter recipe from the next work order')));
     }
     const save = store.get().save;
     const campLevels = CAMPAIGN_LEVELS[campaignOf(lv)];
@@ -200,7 +258,7 @@ export function mountCeremony(layer: HTMLElement, store: Store, hooks: { dest: (
       el.classList.remove('waiting');
       requestAnimationFrame(() => card.classList.add('s1'));
       later(650, () => card.classList.add('s2'));
-      if (unlocked.length) { later(1250, () => card.classList.add('s3')); later(1900, () => fly(false)); later(2650, finish); }
+      if (unlocked.length || unlocksPress(lv0)) { later(1250, () => card.classList.add('s3')); later(1900, () => fly(false)); later(2650, finish); }
       else later(1500, finish);
     });
   };

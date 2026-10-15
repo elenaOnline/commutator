@@ -11,6 +11,7 @@ import { oracleCheck } from '../../src/groups/oracle';
 import type { LevelManifest } from '../../src/kernel/types';
 import { Floor } from '../../src/factory/compiler.testkit';
 import { checkPaper } from './paper-kit';
+import { assertPointerReachable } from './reach-kit';
 import { LEVELS as W01 } from '../../src/levels/book/w01';
 import { LEVELS as W02 } from '../../src/levels/book/w02';
 import { LEVELS as W03 } from '../../src/levels/book/w03';
@@ -51,6 +52,7 @@ export function saveLemma(f: Floor, machine: string, id: string, name: string, s
 export function deliver(f: Floor, opts: { parParts?: boolean } = {}) {
   const level = f.level;
   const { comp, s, metrics } = f.run(600);
+  assertPointerReachable(f, comp); // the real HUD could have built this floor (reach-kit.ts)
   const detail = JSON.stringify({ sockets: comp.sockets, beltErrors: comp.beltErrors, jams: Object.entries(comp.machines).filter(([, m]) => m.status.k !== 'ok').map(([id, m]) => [id, m.status]) });
   expect(comp.solvable, detail).toBe(true);
   for (const sock of level.sockets) expect(s.delivered[sock.id], `socket ${sock.id} delivered; ${detail}`).toBeDefined();

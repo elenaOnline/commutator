@@ -28,7 +28,7 @@ import { mountPaper } from './paper';
 import { pending, withRecipe } from './presets';
 import { rectToScreen } from '../floor/project';
 import { setSortCtx } from '../ui/sorts';
-import { parseExtra } from './slotparse';
+import { parseExtra, slotFlags } from './slotparse';
 
 export interface AppOpts {
   /** Override the floor (dev harness). Defaults to ../floor's mountFloor. */
@@ -104,7 +104,7 @@ export function mountApp(root: HTMLElement, store: FactoryStore, opts: AppOpts =
   // ── HUD pieces
   const follow = mountFollow(layer, store);
   const hotbar = mountHotbar(layer, store);
-  const order = mountOrder(layer, store, { armRoom: (kind, g) => hotbar.armRoom(kind, g.l, g.r) });
+  const order = mountOrder(layer, store, { armRoom: (kind, g) => hotbar.armRoom(kind, g.l, g.r), armAssume: (as) => hotbar.armAssume(as) });
   const labEl = h('div', {});
   layer.append(labEl);
   let labOpen = false;
@@ -132,6 +132,7 @@ export function mountApp(root: HTMLElement, store: FactoryStore, opts: AppOpts =
   const render = (s: S) => {
     varRegistry.labels = new Map(towerVars(s).map((v) => [v.label, v.sort]));
     const sc = setSortCtx(s.ctx, s.compiled?.graph); // Book phase C: which sorts items wear (NORMS › Sorts)
+    slotFlags.ints = s.level.tools.schemas.some((id) => id.startsWith('power.') || id === 'sub.pow' || id === 'hom.pow') || s.ctx.level.tools.schemas.some((id) => id.startsWith('power.'));
     parseExtra.cur = sc.env?.multi ? { maps: [...sc.env.maps.values()], sorts: [...sc.env.sorts.values()] } : undefined;
     if (s.ui.screen !== lastScreen) {
       lastScreen = s.ui.screen;
@@ -140,13 +141,15 @@ export function mountApp(root: HTMLElement, store: FactoryStore, opts: AppOpts =
       floorEl.hidden = layer.hidden = s.ui.screen === 'map';
     }
     document.title = s.ui.screen === 'map' ? 'Commutator · theorem map' : `Commutator · ${campaignOf(s.level) === 'book' ? displayNo(s.level) : s.level.index} ${s.level.title}`;
-    if (s.ui.screen === 'map') { try { renderMap(s); } catch (err) { console.warn('[hud] map', err); } return; }
+    if (s.ui.screen === 'map') { toastEl.classList.remove('on'); try { renderMap(s); } catch (err) { console.warn('[hud] map', err); } return; }
     labEl.style.top = `${below(run.el, 140)}px`;
     for (const [name, fn] of [['hotbar', hotbar.render], ['order', order.render], ['run', run.render], ['lens', lens.render], ['transcript', transcript.render],
       ['hints', hints.render], ['lab', lab.render], ['ceremony', renderCeremony], ['follow', follow.render], ['lemma book', book.render], ['cards', concepts.render], ['paper', paper.render]] as const) {
       try { fn(s); } catch (err) { console.warn(`[hud] ${name} render failed`, err); }
     }
-    if (s.ui.toast && s.ui.toast !== lastToast) { toastEl.dataset.kind = s.ui.toast.kind ?? 'refused'; toast(s.ui.toast.text); }
+    // a toast belongs to the moment it was said: a stale one (older than a few seconds) is never shown
+    if (s.ui.toast && s.ui.toast !== lastToast && !(s.ui.toast.t && Date.now() - s.ui.toast.t > 4000)) { toastEl.dataset.kind = s.ui.toast.kind ?? 'refused'; toast(s.ui.toast.text); }
+    if (!s.ui.toast && lastToast) { clearTimeout(toastT); toastEl.classList.remove('on'); } // withdrawn (the floor moved on)
     lastToast = s.ui.toast;
   };
   store.subscribe(render);
@@ -155,6 +158,9 @@ export function mountApp(root: HTMLElement, store: FactoryStore, opts: AppOpts =
   store.on((e) => {
     if (e.type === 'level-opened') {
       lab.toggle(false); hotbar.closePopovers(); pending.preset = null;
+      // a level starts clean: no toast from the last one, and the proof panels closed (they would cover its givens)
+      clearTimeout(toastT); toastEl.classList.remove('on'); store.clearToast();
+      if (store.get().ui.transcriptOpen || store.get().ui.paperOpen) store.setUI({ transcriptOpen: false, paperOpen: false });
       known = new Set(store.get().canvas.machines.map((m) => m.id));
       if (store.get().ui.follow) store.setUI({ follow: null });
       return;
@@ -227,7 +233,8 @@ export function mountApp(root: HTMLElement, store: FactoryStore, opts: AppOpts =
     if (k.toLowerCase() === 'g') { e.preventDefault(); hotbar.openRoomPopover(); return; }
     if (/^[0-9]$/.test(k)) {
       const kind = hotbarKinds().find((x) => spec(x).hotkey === k);
-      if (kind) { e.preventDefault(); store.setTool({ k: 'place', kind }); }
+      // a hotkey places the bare machine: never the last preset's recipe (#14)
+      if (kind) { e.preventDefault(); pending.preset = null; store.setTool({ k: 'place', kind }); }
     }
   });
   addEventListener('keyup', (e) => {

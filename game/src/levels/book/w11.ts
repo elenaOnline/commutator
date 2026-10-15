@@ -11,6 +11,7 @@
 // Toolset: lift, merge, suppose, press, the earned cancel / witness / socks.
 import type { LevelManifest, Pallet, PatFact, SubRef, Term, Toolset } from '../../kernel/types';
 import type { AtomSpec, ConceptCard } from '../cards';
+import { letterSlot } from '../../ui/letters';
 
 const A = (id: string): Term => ({ k: 'atom', id });
 const e: Term = { k: 'e' };
@@ -46,7 +47,7 @@ export const LEVELS: LevelManifest[] = [
     // transitive again on hx⁻¹ ∈ H and xb⁻¹ ∈ H: hb⁻¹ ∈ H · gate · ∀. The lemmas are the player's own (P12.1). Unlocks Lagrange (press) for the next levels.
     id: 'P13.1', index: 53, campaign: 'book', world: 11, chapter: 13, title: 'Cosets Are Equal or Disjoint',
     method: 'Equivalence relation', source: 'Pinter 13, Theorem 1',
-    insight: 'The relation of P12.1 used twice: x joins a and b, so everything related to a is related to b.',
+    insight: 'The relation of Same Coset used twice: x joins a and b, so everything related to a is related to b.',
     memo: 'x lies in both Ha and Hb. Show everything in Ha lies in Hb.',
     atoms: [], subgroups: [{ id: 'H', label: 'H' }], givens: [],
     sockets: [{
@@ -131,9 +132,8 @@ export const LEVELS: LevelManifest[] = [
   },
 ];
 
-/** Illustrative letters: AT('abc') → a, b, c in shape slots 0, 1, 2 (+ shift). */
-const AT = (s: string, shift = 0): AtomSpec[] => [...s].map((id, i) => ({ id, label: id, hue: i + shift }));
-void AT;
+/** Card letters: AT('pq') → p, q, each in its own shape (ui/letters: a letter keeps its shape on every card and floor). */
+const AT = (s: string): AtomSpec[] => [...s].map((id) => ({ id, label: id, hue: letterSlot(id) }));
 
 /** Concept cards for this world's levels, keyed by level id. */
 export const CARDS: Record<string, ConceptCard[]> = {
@@ -146,7 +146,7 @@ export const CARDS: Record<string, ConceptCard[]> = {
     {
       title: 'Lagrange’s theorem',
       long: true,
-      body: 'Finishing this order unlocks **Lagrange’s theorem**. It is proved by counting. Two cosets of $H$ with an element in common are equal, so the cosets of $H$ split $G$ into blocks that do not overlap. Multiplying the elements of $H$ on the right by $a$ gives a block with as many elements as $H$, because right cancellation keeps different elements different. So every block has $|H|$ elements, and $|G|$, the size of $G$, is the number of blocks times $|H|$. Hence $|H|$ divides $|G|$. For an element $x$, the powers of $x$ form a subgroup whose size $n$ is the order of $x$. Then $n$ divides $|G|$, so $x^{|G|} = e$. From the next order on, the Rewriter has a Lagrange recipe. It needs a given that states $|G|$.',
+      body: 'Finishing this order unlocks **Lagrange’s theorem** as a recipe. You have proved its algebraic core. Two cosets of $H$ with an element in common are equal, so the cosets split $G$ into blocks that do not overlap. Sending each $h$ in $H$ to $ha$ is one-to-one, by right cancellation, so every block has as many elements as $H$.\n\nOne step is left, and no machine checks it: counting. The size of $G$, written $|G|$, is the number of blocks times $|H|$, so $|H|$ divides $|G|$. The powers of an element $x$ form a subgroup whose size is the order of $x$, so that order divides $|G|$ and $x^{|G|} = e$. From the next order on, the Rewriter has this Lagrange recipe. It needs a given that states $|G|$.',
     },
   ],
 
@@ -160,16 +160,15 @@ export const CARDS: Record<string, ConceptCard[]> = {
 
   'P13.3': [
     {
-      title: 'Moving a letter past another',
-      body: 'A relation such as $vu = uuuv$ moves $v$ to the right of $u$, at the cost of extra copies of $u$. Using it again and again collects the copies of $u$ on one side, where a power relation or cancellation can shorten them. With other letters, one use of it reads:',
-      figures: [{ k: 'math', atoms: AT('xuv'), rows: [{ seq: [{ t: 'xvu', br: [[1, 3, '$vu$ rewritten', 'over']] }, '=', 'xuuuv'] }] }],
+      title: 'A group of eight elements',
+      body: 'By Lagrange’s theorem, the order of every element of a group of eight elements divides 8. The relations here say that $a^4 = e$ and how $b$ trades places with $a$. The dock shows that together they force $aa = e$. Rewriting with a relation works as before: its left side may be replaced wherever it appears.',
     },
   ],
 
   'P13.4': [
     {
-      title: 'Normal forms',
-      body: 'When relations let you move letters past each other, every word can be rewritten so that all copies of one letter come first. Such a word is in **normal form**. Two words with the same normal form are equal, and a power relation can shorten a normal form further. Keep rewriting until no relation applies.',
+      title: 'A group of ten elements',
+      body: 'In a group of ten elements, every order divides 10, so it is 1, 2, 5 or 10. Here $aa = e$ and $b^5 = e$, and a third relation says how $b$ trades places with $a$. The dock shows that this relation leaves no room for $b$: it forces $b = e$.',
     },
   ],
 

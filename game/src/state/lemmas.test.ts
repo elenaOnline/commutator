@@ -2,7 +2,7 @@
 // "every homomorphism f" can never be read as a law about a level's plain map that happens to be called f.
 import { describe, expect, it } from 'vitest';
 import * as K from '../kernel';
-import { positional, isPositional } from './lemmas';
+import { positional, positionalRefs, isPositional } from './lemmas';
 import { FactoryStore, freshSave, type SavedLemma } from './factoryStore';
 
 const app = (fn: string, ...args: K.Term[]): K.Term => ({ k: 'app', fn, args });
@@ -43,6 +43,18 @@ describe('positional Lemma Book records', () => {
     expect(out.campaigns.book.lemmas.map((l) => l.card.binds?.map((b) => b.id))).toEqual([['$0:S', '$1:T', '$2:f'], ['$0:H']]);
     expect(out.campaigns.main.lemmas[0]!.card).toEqual(s.campaigns.main.lemmas[0]!.card);
     expect(FactoryStore.upgrade(JSON.parse(JSON.stringify(out)))).toEqual(out);
+  });
+  it('rewrites floors that apply a record under its old binder names (P14.3 used f(e) = e as structs { f })', () => {
+    const s = freshSave();
+    const ref = { k: 'schema', id: 'lemma:fe-1', structs: { f: 'g' } };
+    const canvas = { version: 3, levelId: 'P14.3', machines: [{ id: 'rewriter3', kind: 'rewriter', config: { kind: 'rewriter', recipe: { k: 'law', ref } } }], belts: [], rooms: [] };
+    s.campaigns.book.lemmas = [{ id: 'lemma:fe-1', name: 'f(e) = e', card: P91, levelId: 'P9.1', canvas: canvas as never, machine: 'm', savedAt: 1 }];
+    s.campaigns.book.levels['P14.3'] = { canvas: canvas as never, history: [] } as never;
+    const out = FactoryStore.upgrade(JSON.parse(JSON.stringify(s)));
+    const structsOf = (c: unknown) => (c as typeof canvas).machines[0]!.config.recipe.ref.structs;
+    expect(structsOf(out.campaigns.book.levels['P14.3']!.canvas)).toEqual({ '$2:f': 'g' });
+    expect(structsOf(out.campaigns.book.lemmas[0]!.canvas)).toEqual({ '$2:f': 'g' });
+    expect(positionalRefs(out, out.campaigns.book.lemmas)).toBe(out);
   });
 });
 

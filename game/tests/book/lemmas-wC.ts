@@ -4,7 +4,7 @@ import * as F from '../../src/factory';
 import type * as K from '../../src/kernel';
 import type { SavedLemma } from '../../src/state/factoryStore';
 import { buildIdempotent } from './lemmas-w123';
-import { bookFloor, lvC, saveLemma, spool, lawRw, thm, op, schema, app, eS, eq, towerIn } from './kit-wC';
+import { bookFloor, lvC, saveLemma, spool, lawRw, insertE, thm, op, schema, app, eS, eq, towerIn } from './kit-wC';
 
 export const EARNED = ['cancel', 'witness', 'socks'];
 export const FE_ID = 'lemma:f-of-e-1';
@@ -21,7 +21,7 @@ export function buildFE() {
   f.add(homTower('f1', 'f₁', 'G1', 'H1'), { x: 6, y: 30 });
   const fE = app('f1', eS('G1'));
   const sp = f.add(spool(fE));
-  const ee = f.add(lawRw({ k: 'axiom', id: 'unitL' }, { dir: 'rev', target: F.pinFromAddr(eq(fE, fE), { side: 'r', path: [0] })! }));
+  const ee = f.add(insertE(F.pinFromGap(eq(fE, fE), { side: 'r', path: [0], gap: 0 })!)); // e ⟶ ee inside f₁: the HUD's insert e
   const hm = f.add(lawRw(schema('hom.mul')));
   const sw = f.add(op({ k: 'swap' }));
   const id = f.add(thm(schema(idem.id)));

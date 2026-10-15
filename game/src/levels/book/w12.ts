@@ -9,6 +9,7 @@
 // sub.e (earned in P5.1) and sub.pow (imported in ch. 11) where a subgroup is in scope, and hom.pow from P14.3 on.
 import type { Card, LevelManifest, Pallet, PatFact, SortRef, StructBinder, SubRef, Term, Toolset } from '../../kernel/types';
 import type { AtomSpec, ConceptCard } from '../cards';
+import { letterSlot } from '../../ui/letters';
 
 const A = (id: string): Term => ({ k: 'atom', id });
 const M = (id: string): Term => ({ k: 'meta', id });
@@ -150,16 +151,16 @@ export const LEVELS: LevelManifest[] = [
 export const PENDING: LevelManifest[] = [];
 void y; void g; void PW;
 
-/** Illustrative letters: AT('abc') → a, b, c in shape slots 0, 1, 2 (+ shift). */
-const AT = (s: string, shift = 0): AtomSpec[] => [...s].map((id, i) => ({ id, label: id, hue: i + shift }));
+/** Card letters: AT('pq') → p, q, each in its own shape (ui/letters: a letter keeps its shape on every card and floor). */
+const AT = (s: string): AtomSpec[] => [...s].map((id) => ({ id, label: id, hue: letterSlot(id) }));
 
-/** Concept cards for this world's levels, keyed by level id. Text-led: card figures cannot draw f(x) or ∈ yet. */
+/** Concept cards for this world's levels, keyed by level id. */
 export const CARDS: Record<string, ConceptCard[]> = {
 
   'P14.1': [
     {
-      title: 'Homomorphisms',
-      body: 'A **homomorphism** is a map $f: G → K$ between two groups with $f(xy) = f(x)f(y)$ for all $x$ and $y$ in $G$. These are the product-preserving maps of chapter 9. There you proved, without using one-to-one or onto, that $f(e_G) = e_K$ and $f(x^{-1}) = f(x)^{-1}$. Here $e_G$ and $e_K$ are the identities of $G$ and $K$.',
+      title: 'Homomorphisms again',
+      body: 'Chapter 9 introduced **homomorphisms**: maps $f: G → K$ between groups with $f(xy) = f(x)f(y)$ for all $x$ and $y$ in $G$. There you proved, without using one-to-one or onto, that $f(e_G) = e_K$ and $f(x^{-1}) = f(x)^{-1}$. Pinter names homomorphisms in this chapter, and this world studies them.',
     },
     {
       title: 'The kernel',
@@ -174,33 +175,11 @@ export const CARDS: Record<string, ConceptCard[]> = {
   'P14.2': [
     {
       title: 'One-to-one',
-      body: 'A map $f$ is **one-to-one** when $f(a) = f(b)$ forces $a = b$. The kernel of a homomorphism always contains $e_G$. The given $T$ says it contains nothing else: the kernel is **trivial**, written $\\ker f = \\{e\\}$. This order asks whether that is enough to make $f$ one-to-one.',
+      body: 'A map $f$ is **one-to-one** when $f(a) = f(b)$ forces $a = b$. The kernel of a homomorphism always contains $e_G$. The given “$\\ker f = \\{e\\}$” says it contains nothing else: the kernel is **trivial**. This order asks whether that is enough to make $f$ one-to-one.',
     },
     {
       title: 'A homomorphism of the level',
       body: 'Here $f: G → K$ is a homomorphism declared by the order, not by a Tower. Its homomorphism law is available as a recipe, and your lemmas saved for every homomorphism apply at $f$ as well. A result about $f$ itself cannot be saved, because $f$ belongs to this order.',
-    },
-  ],
-
-  'P14.4': [
-    {
-      title: 'Two normal subgroups',
-      body: 'Here $M$ and $N$ are normal subgroups of $G$. The given $I$ says that $e$ is the only element in both. In symbols, $M \\cap N = \\{e\\}$, where $M \\cap N$ is the set of elements common to $M$ and $N$. The commutator of $u$ and $v$ is $uvu^{-1}v^{-1}$. In chapter 4 you proved that it equals $e$ exactly when $u$ and $v$ commute.',
-    },
-    {
-      title: 'One word, two groupings',
-      body: 'Brackets do not change a product, so one element can be built in two ways. With other letters, suppose $pq$ and $r$ lie in a subgroup $A$, while $p$ and $qr$ lie in a subgroup $B$. Closure under products puts the same element in both.',
-      figures: [{ k: 'math', atoms: AT('pqr'), rows: [
-        { label: 'in $A$', seq: [{ t: '(pq)r', br: [[0, 1, '$\\in A$'], [1, 2, '$\\in A$']] }] },
-        { label: 'in $B$', seq: [{ t: 'p(qr)', br: [[0, 1, '$\\in B$'], [1, 2, '$\\in B$']] }] },
-      ] }],
-    },
-  ],
-
-  'P14.s1': [
-    {
-      title: 'Commutators in a subgroup',
-      body: 'The given $C$ says that the subgroup $H$ contains every commutator $uvu^{-1}v^{-1}$, for all $u$ and $v$ in $G$. The dock asks that $H$ contains every conjugate $xax^{-1}$ of its member $a$. A subgroup that contains every conjugate of each of its members is normal.',
     },
   ],
 
@@ -211,7 +190,27 @@ export const CARDS: Record<string, ConceptCard[]> = {
     },
     {
       title: 'Powers through a homomorphism',
-      body: 'For a homomorphism $f$ and any integer $n$, $f(x^n) = f(x)^n$. For positive $n$ this is the homomorphism law used $n - 1$ times. For $n \\le 0$ it also uses $f(e) = e$ and $f(x^{-1}) = f(x)^{-1}$. The game imports it as a recipe.',
+      body: 'For a homomorphism $f$ and any integer $n$, $f(x^n) = f(x)^n$. For positive $n$ this is the homomorphism law used $n − 1$ times. For zero and negative $n$ it also uses $f(e) = e$ and $f(x^{-1}) = f(x)^{-1}$. The game imports it as a recipe.',
+    },
+  ],
+
+  'P14.4': [
+    {
+      title: 'Two normal subgroups',
+      body: 'Here $M$ and $N$ are normal subgroups of $G$, written $M \\trianglelefteq G$ and read “$M$ is a normal subgroup of $G$”. On the floor a normal subgroup has a second outline inside. The given “$M \\cap N = \\{e\\}$” says that $e$ is the only element in both, where $M \\cap N$ is the set of elements common to $M$ and $N$.',
+      figures: [{ k: 'math', atoms: AT('p'), rows: [{ seq: ['p', '∈', '⊴N'], why: 'a member of a normal subgroup' }] }],
+    },
+    {
+      title: 'Closed under conjugation',
+      body: 'A normal subgroup has one more recipe than other subgroups, **closed under conjugation**: a member conjugated by any element of $G$ is again a member.',
+      figures: [{ k: 'math', atoms: AT('gp'), rows: [{ seq: ['p', '∈', '⊴N', '⟹', 'gpg^-1', '∈', '⊴N'], why: 'for every $g$' }] }],
+    },
+  ],
+
+  'P14.s1': [
+    {
+      title: 'Commutators in a subgroup',
+      body: 'The given “commutators” says that the subgroup $H$ contains every commutator $uvu^{-1}v^{-1}$, for all $u$ and $v$ in $G$. The dock asks that $H$ contains every conjugate $xax^{-1}$ of its member $a$. A subgroup that contains every conjugate of each of its members is normal.',
     },
   ],
 };

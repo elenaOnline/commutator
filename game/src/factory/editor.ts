@@ -15,7 +15,7 @@ import type { Blueprint, Edit } from './index';
 import { SORT_SEQ, SPECS, defaultConfig, libName, schemaOf, sortBase, splitLabel, subscript, varLabel } from './catalog';
 import { MAX_DESKS, POWER_LITERAL_FAMILY } from '../kernel';
 import { LEVEL_BY_ID, REGISTRY } from '../levels/levels';
-import { FACE_DELTA, FACES, OPPOSITE, addTile, footprint, frontOf, inRect, portsOf, rectOf, sizeOf, tileEq, tileKey } from './geometry';
+import { DOCK_PORTS, FACE_DELTA, FACES, OPPOSITE, addTile, footprint, frontOf, inRect, portsOf, rectOf, sizeOf, tileEq, tileKey } from './geometry';
 
 // ───────────────────────────── small helpers ─────────────────────────────
 
@@ -308,9 +308,20 @@ function resolveEnds(c: Canvas, from: Endpoint, to: Endpoint, ctx: KernelCtx): E
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 /** 'h₄' for a given inlet, 'the Canceller' otherwise. */
+/**
+ * A machine named by its role or recipe (playtest W10–14 #7), never by coordinates: 'the cancel Rewriter',
+ * 'the Theorem (closed under products)', 'Assumption Desk 2', 'the dock', 'h₁'. Blockers ids let the UI highlight it.
+ */
 function who(m: Machine, ctx: KernelCtx): string {
-  if (m.config.kind === 'given') { const id = m.config.givenId; return ctx.level.givens.find((g) => g.id === id)?.name ?? 'the Given Inlet'; }
-  return `the ${nameOf(m)}`;
+  const c = m.config;
+  if (c.kind === 'given') { const id = c.givenId; return ctx.level.givens.find((g) => g.id === id)?.name ?? 'the Given Inlet'; }
+  if (c.kind === 'socket') return 'the dock';
+  if (c.kind === 'desk') return c.slot ? `Assumption Desk ${c.slot + 1}` : 'the Assumption Desk';
+  if (c.kind === 'tower') return `the ${c.label} Tower`;
+  const p = plate(m, ctx);
+  if (!p) return `the ${nameOf(m)}`;
+  // a short recipe word reads before the machine ('the cancel Rewriter'); a theorem's name reads after it
+  return /^[A-Z][A-Z e]*$/.test(p) ? `the ${p.toLowerCase()} ${nameOf(m)}` : `the ${nameOf(m)} (${p})`;
 }
 function portName(m: Machine, p: Port, ctx: KernelCtx): string {
   const plain = p.label === 'in' || p.label === 'out' ? '' : `${p.label} `;
@@ -333,17 +344,12 @@ function plate(m: Machine, ctx: KernelCtx): string {
     default: return '';
   }
 }
-/** Unambiguous name for blame: 'the CANCEL Rewriter at (12,4)', 'h₄', 'the Hopper at (0,0)'. */
-function whoAt(m: Machine, ctx: KernelCtx): string {
-  if (m.config.kind === 'given') return who(m, ctx);
-  const p = plate(m, ctx);
-  return `the ${p ? `${p} ` : ''}${nameOf(m)} at (${m.at.x},${m.at.y})`;
-}
+/** Name for blame: the role name (no coordinates — the blocker ids let the UI highlight the machine or belt). */
+function whoAt(m: Machine, ctx: KernelCtx): string { return who(m, ctx); }
 function beltName(c: Canvas, b: Belt, ctx: KernelCtx): string {
   const m = c.machines.find((x) => x.id === b.from.m);
   return m ? `the belt from ${whoAt(m, ctx)}` : 'a belt';
 }
-const at = (t: Tile) => `(${t.x},${t.y})`;
 
 // ───── scope on belts: a belt stays in its source's scope and may only step inward toward its target ─────
 
@@ -435,6 +441,19 @@ function frontIndex(c: Canvas, ctx: KernelCtx): Map<string, { m: Machine; p: Por
 }
 const isEnd = (m: Machine, p: Port, e: Endpoint) => m.id === e.m && p.id === e.port;
 
+/**
+ * Playtest W4–9 / W10–14 #7 (dense rooms): a belt may run straight ACROSS a free port's doorstep, along the
+ * machine's face (perpendicular to the port's facing) — it passes the door, never enters it. The doorstep's own
+ * belt, when it comes, ends there exclusively, so the passing belt is ripped up and re-laid around it.
+ */
+function passesDoor(path: Tile[], i: number, p: Port): boolean {
+  if (i <= 0 || i >= path.length - 1) return false;
+  const din = dirOf(path[i - 1]!, path[i]!), dout = dirOf(path[i]!, path[i + 1]!);
+  return din === dout && axisOf(din) !== axisOf(p.face);
+}
+/** Cost of passing a free doorstep: a detour of a few tiles is nicer. */
+const DOOR = 40;
+
 /** Touching ports: each one's front cell is the other's cell. */
 function touching(e: Ends): boolean {
   return tileEq(frontOf(e.fromP), e.toP.tile) && tileEq(frontOf(e.toP), e.fromP.tile);
@@ -501,7 +520,7 @@ function pathWhy(B: BeltCtx, belts: Belt[], from: Endpoint, to: Endpoint | null,
     const owner = occ.get(k);
     if (owner !== undefined) { const m = c.machines.find((x) => x.id === owner)!; return why(`${cap(who(m, ctx))} is in the way.`, [owner]); }
     const f = fronts.get(k);
-    if (f && !isEnd(f.m, f.p, from) && !isEnd(f.m, f.p, to)) return why(`That would block ${portName(f.m, f.p, ctx)} — its doorstep stays free.`, [f.m.id]);
+    if (f && !isEnd(f.m, f.p, from) && !isEnd(f.m, f.p, to) && !passesDoor(path, i, f.p)) return why(`That would block ${portName(f.m, f.p, ctx)} — its doorstep stays free.`, [f.m.id]);
   }
   const layer = new Layer(belts);
   const network = belts.filter((b) => !b.broken && netOf(b) === net);
@@ -636,7 +655,10 @@ function relay(B: BeltCtx, belts: Belt[], b: Belt): Routed {
  * on any free approach of the input. Cells: off footprints, off other ports' doorsteps, crossing other belts
  * only straight and perpendicular, inside the scope chain. On failure the reason blames the real blocker(s).
  */
-function routeWhy(B: BeltCtx, belts: Belt[], from: Endpoint, to: Endpoint, via: Tile[] = [], leaveAt?: Tile): Routed {
+/** Negotiated routing (rip-up with congestion costs): other belts are passable at a price, plus a cell history. */
+interface Soft { belt: number; hist: Map<string, number> }
+
+function routeWhy(B: BeltCtx, belts: Belt[], from: Endpoint, to: Endpoint, via: Tile[] = [], leaveAt?: Tile, soft?: Soft): Routed {
   const { c, ctx, occ, fronts } = B;
   const ends = resolveEnds(c, from, to, ctx);
   if (typeof ends === 'string') return why(ends);
@@ -656,7 +678,7 @@ function routeWhy(B: BeltCtx, belts: Belt[], from: Endpoint, to: Endpoint, via: 
     if (owner !== undefined) { const o = c.machines.find((x) => x.id === owner)!; return why(`${who(o, ctx)}`, [owner]); }
     if (sc.ok && !sc.allow(t)) return why('the room wall', [roomAt(c, t)?.id ?? roomOfMachine(c, startCell ? fromM : toM, ctx)?.id ?? (startCell ? fromM : toM).id]);
     if (isOtherDoorstep(k)) { const f = fronts.get(k)!; return why(`${portName(f.m, f.p, ctx)}`, [f.m.id]); }
-    const os = layer.others(t, net);
+    const os = soft ? [] : layer.others(t, net);
     if (os.length) { const b = live.find((x) => x.id === os[0]!.belts[0])!; return why(beltName(c, b, ctx), os.flatMap((o) => o.belts)); }
     if (!startCell && layer.own(t, net)) return why('its own belt', []);
     return null;
@@ -679,7 +701,7 @@ function routeWhy(B: BeltCtx, belts: Belt[], from: Endpoint, to: Endpoint, via: 
   const seen = new Set<string>();
   for (const b of network) b.path.forEach((t, i) => {
     const k = tileKey(t); if (seen.has(k)) return; seen.add(k);
-    if (layer.others(t, net).length || isOtherDoorstep(k) || (sc.ok && !sc.allow(t))) return;
+    if ((!soft && layer.others(t, net).length) || isOtherDoorstep(k) || (sc.ok && !sc.allow(t))) return;
     seeds.push({ tile: t, dir: i === 0 ? dirOf(fromP.tile, t) : dirOf(b.path[i - 1]!, t), prefix: b.path.slice(0, i) });
   });
   const dep = sides ? depAll : depAll.slice(0, 1);
@@ -703,7 +725,7 @@ function routeWhy(B: BeltCtx, belts: Belt[], from: Endpoint, to: Endpoint, via: 
   }
 
   // weights: null = hard; numbers = relaxed costs used only to find the fewest blockers when no route exists.
-  type W = { belt: number | null; machine: number | null };
+  type W = { belt: number | null; machine: number | null; own?: 'hard'; doors?: boolean };
   const search = (w: W, extra: Set<string>): Tile[] | null => {
     const targets: Map<string, { dir: Face | null; cost: number }>[] = [
       ...via.map((t) => new Map([[tileKey(t), { dir: null as Face | null, cost: 0 }]])),
@@ -718,10 +740,14 @@ function routeWhy(B: BeltCtx, belts: Belt[], from: Endpoint, to: Endpoint, via: 
         const k = tileKey(t);
         if (used.has(k)) return null;
         if (sc.ok && !sc.step(a, t)) return null;
-        let cost = hug.has(k) ? WRAP : 0;
+        let cost = (hug.has(k) ? WRAP : 0) + (soft?.hist.get(k) ?? 0);
         if (approach.has(k)) cost += APPROACH;
-        if (occ.has(k) || isOtherDoorstep(k)) { if (w.machine === null) return null; cost += w.machine; }
-        if (layer.own(t, net)) { if (w.belt === null) return null; cost += w.belt; } // never rejoin the own tree (relaxed: blame it)
+        if (occ.has(k)) { if (w.machine === null) return null; cost += w.machine; }
+        else if (isOtherDoorstep(k)) {
+          // pass along the door (straight, perpendicular to its facing), never on a goal or seed cell
+          if (!w.doors || target.has(k) || axisOf(d) === axisOf(fronts.get(k)!.p.face)) { if (w.machine === null) return null; cost += w.machine; } else cost += DOOR;
+        }
+        if (layer.own(t, net)) { if (w.belt === null || w.own) return null; cost += w.belt; } // never rejoin the own tree (relaxed: blame it)
         const os = layer.others(t, net);
         if (os.length) {
           const crossable = !target.has(k) && os.length === 1 && os[0]!.mode !== 'X' && os[0]!.mode !== axisOf(d);
@@ -729,7 +755,11 @@ function routeWhy(B: BeltCtx, belts: Belt[], from: Endpoint, to: Endpoint, via: 
         }
         return cost;
       };
-      const straight = (t: Tile) => { if (w.belt !== null) return false; const os = layer.others(t, net); return os.length === 1 && os[0]!.mode !== 'X'; };
+      const straight = (t: Tile) => {
+        const k = tileKey(t);
+        if (w.doors && !occ.has(k) && isOtherDoorstep(k)) return true; // passing a doorstep: straight through
+        if (w.belt !== null && !w.own) return false; const os = layer.others(t, net); return os.length === 1 && os[0]!.mode !== 'X';
+      };
       const r = astar(sd, target, bounds, enter, straight);
       if (!r) return null;
       acc = r.path;
@@ -767,6 +797,10 @@ function routeWhy(B: BeltCtx, belts: Belt[], from: Endpoint, to: Endpoint, via: 
     if (isEnd(f.m, f.p, from) || isEnd(f.m, f.p, to) || usedEnds.has(endKey({ m: f.m.id, port: f.p.id })) || occ.has(k)) continue;
     freeFronts.push(frontOf(f.p));
   }
+  if (soft) {
+    const p = search({ belt: soft.belt, machine: null, own: 'hard', doors: true }, new Set());
+    return p ? { path: p } : why('no route inside the room walls between these ports.');
+  }
   const extra = new Set<string>();
   let firstPath: Tile[] | null = null;
   for (let tries = 0; tries < 4; tries++) {
@@ -783,9 +817,12 @@ function routeWhy(B: BeltCtx, belts: Belt[], from: Endpoint, to: Endpoint, via: 
     if (!sealed) return { path: p };
   }
   if (firstPath) return { path: firstPath };
+  // dense rooms: only when nothing else routes, run straight across a free port's doorstep (passesDoor)
+  const across = search({ belt: null, machine: null, doors: true }, new Set());
+  if (across) return { path: across };
 
   // No route. Find the fewest things in the way: belts are cheaper to blame than machines.
-  const relaxed = search({ belt: 400, machine: 4000 }, new Set());
+  const relaxed = search({ belt: 400, machine: 4000, doors: true }, new Set());
   if (relaxed) {
     const beltIds: string[] = [];
     const machineIds: string[] = [];
@@ -795,7 +832,7 @@ function routeWhy(B: BeltCtx, belts: Belt[], from: Endpoint, to: Endpoint, via: 
       const k = tileKey(t);
       const mid = occ.get(k);
       if (mid !== undefined && !machineIds.includes(mid)) machineIds.push(mid);
-      if (mid === undefined && isOtherDoorstep(k)) { const f = fronts.get(k)!; if (!doors.some((d) => d.m.id === f.m.id && d.p.id === f.p.id)) doors.push(f); }
+      if (mid === undefined && isOtherDoorstep(k) && !passesDoor(relaxed, i, fronts.get(k)!.p)) { const f = fronts.get(k)!; if (!doors.some((d) => d.m.id === f.m.id && d.p.id === f.p.id)) doors.push(f); }
       for (const id of layer.clash(t, net, modes[i]!)) if (!beltIds.includes(id)) beltIds.push(id);
       for (const id of layer.own(t, net)?.belts ?? []) if (!beltIds.includes(id) && !seeds.some((x) => tileEq(x.tile, t))) beltIds.push(id);
     });
@@ -804,9 +841,18 @@ function routeWhy(B: BeltCtx, belts: Belt[], from: Endpoint, to: Endpoint, via: 
       return why(`no route: the only way runs over the doorstep of ${names.join(' and ')} — move one of them a tile.`, [...doors.map((d) => d.m.id), ...beltIds]);
     }
     if (machineIds.length) {
-      const names = [...new Set(machineIds.map((id) => who(c.machines.find((x) => x.id === id)!, ctx)))];
-      const list = names.length > 2 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names.join(' and ');
-      return why(`no route: ${list} wall${names.length > 1 ? '' : 's'} ${who(fromM, ctx)} off from ${who(toM, ctx)} — leave a gap or move one.`, [...machineIds, ...beltIds]);
+      // distinct machines that share a role read "the cancel Rewriter … another cancel Rewriter … a third …"
+      const said = new Map<string, number>();
+      const ORD = ['another', 'a third', 'a fourth', 'a fifth'];
+      const say = (m: Machine) => {
+        const n = who(m, ctx), i = said.get(n) ?? 0;
+        said.set(n, i + 1);
+        return i === 0 || !n.startsWith('the ') ? n : `${ORD[Math.min(i - 1, ORD.length - 1)]} ${n.slice(4)}`;
+      };
+      const fromName = say(fromM), toName = say(toM);
+      const walls = [...new Set(machineIds)].slice(0, 3).map((id) => say(c.machines.find((x) => x.id === id)!));
+      const list = walls.length > 2 ? `${walls.slice(0, -1).join(', ')} and ${walls.at(-1)}` : walls.join(' and ');
+      return why(`no route: ${list} wall${walls.length > 1 ? '' : 's'} ${fromName} off from ${toName} — leave a gap or move one.`, [...machineIds, ...beltIds]);
     }
     if (beltIds.length) {
       const names = [...new Set(beltIds.map((id) => beltName(c, live.find((b) => b.id === id)!, ctx)))];
@@ -816,6 +862,7 @@ function routeWhy(B: BeltCtx, belts: Belt[], from: Endpoint, to: Endpoint, via: 
   const room = roomOfMachine(c, toM, ctx) ?? roomOfMachine(c, fromM, ctx);
   return why(sc.ok ? 'no route inside the room walls between these ports.' : 'no route between these ports.', room ? [room.id] : []);
   };
+  if (soft) return attempt(true); // negotiation weighs the side approaches too
   const first = attempt(false);
   return isWhy(first) ? attempt(true) : first;
 }
@@ -1081,7 +1128,17 @@ export function moveMachines(c: Canvas, ids: string[], delta: Tile, ctx: KernelC
   const suspects = attached(c, moving);
   for (const id of internal) suspects.delete(id);
   // Internal belts are processed after untouched ones but before belts to the outside.
-  const s = settleOrdered({ ...c, machines, rooms, belts }, ctx, internal, suspects);
+  let s = settleOrdered({ ...c, machines, rooms, belts }, ctx, internal, suspects);
+  // Re-route attached belts wherever a route exists (playtest 2026-10-15): a belt that found no route on the first
+  // pass gets routed FIRST on a second pass (the others then route around it); the pass with fewer broken belts wins.
+  // A belt with no route at all stays, dashed, with its reason in the note — never silently dropped.
+  if (s.broken.length) {
+    const first = new Set([...internal, ...s.broken.map((b) => b.id)]);
+    const rest = new Set([...suspects].filter((id) => !first.has(id)));
+    const again = settleOrdered({ ...c, machines, rooms, belts: belts.map((b) => (first.has(b.id) ? { ...b, broken: undefined } : b)) }, ctx, first, rest);
+    const brokenNow = (x: typeof s) => x.canvas.belts.filter((b) => b.broken).length;
+    if (brokenNow(again) < brokenNow(s)) s = again;
+  }
   return okNote(s.canvas, [...moving, ...roomIds], s.broken);
 }
 
@@ -1120,7 +1177,7 @@ export function remove(c: Canvas, ids: string[]): Edit {
     const roomPart = (m.config.kind === 'desk' || m.config.kind === 'gate') ? m.config.room : null;
     if (roomPart !== null && rooms.has(roomPart)) { gone.add(m.id); continue; }
     if (!want.has(m.id)) continue;
-    if (roomPart !== null) { refused = 'The desk and gate belong to their room — remove the room instead.'; continue; }
+    if (roomPart !== null) { refused = 'The desk and gate belong to their room. Select the room and press ⌫, or use Delete room.'; continue; }
     if (m.locked) { refused = `The ${nameOf(m)} is part of this order and stays.`; continue; }
     gone.add(m.id);
   }
@@ -1367,6 +1424,25 @@ export function connect(c: Canvas, from: Endpoint, to: Endpoint, ctx: KernelCtx,
 
 /** Shared by connect / branchAt: replace the old feed, route (with one round of rip-up), retry broken belts. */
 function addBelt(c: Canvas, from: Endpoint, to: Endpoint, ctx: KernelCtx, o: { path?: Tile[]; leaveAt?: Tile }): Edit {
+  // W10–14 #7: a dock's four inlets are interchangeable — take the free one with the shortest route, so a machine
+  // beside the dock never belts round it to the far inlet
+  if (o.path === undefined) {
+    const toM = c.machines.find((m) => m.id === to.m);
+    if (toM?.config.kind === 'socket' && DOCK_PORTS.some((d) => d.id === to.port)) {
+      const B0 = beltCtx(c, ctx);
+      let best: { port: string; len: number } | null = null;
+      for (const d of DOCK_PORTS) {
+        const e = { m: to.m, port: d.id };
+        const fed = c.belts.some((b) => feeds(b, e) && !b.broken);
+        if (fed) continue; // a taken inlet: if no free one routes, the asked one is replaced as before
+        const r = routeWhy(B0, c.belts, from, e, [], o.leaveAt);
+        if (isWhy(r)) continue;
+        const len = r.path.length + (d.id === to.port ? 0 : 1); // ties keep the inlet the player chose
+        if (!best || len < best.len) best = { port: d.id, len };
+      }
+      if (best && best.port !== to.port) to = { m: to.m, port: best.port };
+    }
+  }
   const feeding = c.belts.filter((b) => feeds(b, to));
   const replaced = feeding.filter((b) => !b.broken && !sameEnd(b.from, from));
   if (feeding.some((b) => !b.broken && sameEnd(b.from, from))) return no('That belt is already there.', feeding.map((b) => b.id));
@@ -1402,14 +1478,92 @@ function addBelt(c: Canvas, from: Endpoint, to: Endpoint, ctx: KernelCtx, o: { p
       if (isWhy(rr)) return null;
       belts = [...belts, { ...b, path: rr.path }];
     }
+    return assemble(belts, lift);
+  };
+  const assemble = (belts: Belt[], lift: Set<string>): Canvas => {
     const byId = new Map(belts.map((b) => [b.id, b]));
-    notes.push(`Re-routed ${[...new Set([...lift].map((x) => beltName(c, base.belts.find((b) => b.id === x)!, ctx)))].join(' and ')} to make way.`);
+    const moved = [...lift].filter((x) => { const a = base.belts.find((b) => b.id === x)!, n = byId.get(x)!; return a.path.length !== n.path.length || a.path.some((t, i) => !tileEq(t, n.path[i]!)); });
+    const names = [...new Set(moved.map((x) => beltName(c, base.belts.find((b) => b.id === x)!, ctx)))];
+    if (names.length) notes.push(names.length > 2 ? `Re-routed ${moved.length} belts to make way.` : `Re-routed ${names.join(' and ')} to make way.`);
     return { ...base, belts: [...base.belts.map((b) => byId.get(b.id)!), byId.get(id)!] };
+  };
+  /**
+   * Playtest W4–9 / W10–14 #7: dense rooms. Lift every belt around the new one (its room, or the area between
+   * its ends at the root) and lay them all again, the new one first; a belt that does not fit is promoted to
+   * the front and the round repeats (rip-up and re-route with priorities). Commits only if every belt fits.
+   */
+  const inner = roomOfMachine(base, ends.toM, ctx) ?? roomOfMachine(base, ends.fromM, ctx);
+  const pf = ends.fromP.tile, pt = ends.toP.tile;
+  const region: Rect = inner?.rect ?? { x: Math.min(pf.x, pt.x) - 4, y: Math.min(pf.y, pt.y) - 4, w: Math.abs(pf.x - pt.x) + 9, h: Math.abs(pf.y - pt.y) + 9 };
+  const lifted = base.belts.filter((b) => !b.broken && !!b.to && b.path.length && b.path.some((t) => inRect(t, region)));
+  const tryRelayAll = (): Canvas | null => {
+    if (!lifted.length) return null;
+    const lift = new Set(lifted.map((b) => b.id));
+    const NEW = '\u0000new';
+    let order = [NEW, ...lifted.sort((x, y) => x.path.length - y.path.length).map((b) => b.id)];
+    const tried = new Set<string>();
+    for (let round = 0; round < Math.min(24, 3 * order.length); round++) {
+      const key = order.join('|'); if (tried.has(key)) break; tried.add(key);
+      let belts = base.belts.filter((b) => !lift.has(b.id));
+      let failed: string | null = null;
+      for (const x of order) {
+        if (x === NEW) {
+          const r2 = routeWhy(B, belts, from, to, [], o.leaveAt);
+          if (isWhy(r2)) { failed = x; break; }
+          belts = [...belts, { id, from: { ...from }, to: { ...to }, path: r2.path }];
+        } else {
+          const b = lifted.find((y) => y.id === x)!;
+          const rr = relay(B, belts, b);
+          if (isWhy(rr)) { failed = x; break; }
+          belts = [...belts, { ...b, path: rr.path }];
+        }
+      }
+      if (!failed) return assemble(belts, lift);
+      order = [failed, ...order.filter((y) => y !== failed)];
+    }
+    return null;
   };
   const live = (x: string) => base.belts.some((b) => b.id === x && !b.broken);
   const blockers = new Set(r.blockers.filter(live));
   const own = new Set(base.belts.filter((b) => !b.broken && [from.m, to.m].some((m) => b.from.m === m || b.to?.m === m)).map((b) => b.id));
-  const ripped = tryRip(blockers) ?? tryRip(new Set([...blockers, ...own]));
+  /**
+   * Last resort, negotiated congestion (PathFinder-style): route the new belt and every lifted one letting belts
+   * overlap at a price that rises each round, plus a history cost on cells that stayed contested; stop when no
+   * cell is shared illegally and every path passes the hard rules.
+   */
+  const tryNegotiate = (): Canvas | null => {
+    if (!lifted.length) return null;
+    const lift = new Set(lifted.map((b) => b.id));
+    const fixed = base.belts.filter((b) => !lift.has(b.id));
+    const nets: Belt[] = [{ id, from: { ...from }, to: { ...to }, path: [] }, ...lifted];
+    const cur = new Map<string, Tile[]>(lifted.map((b) => [b.id, b.path]));
+    const hist = new Map<string, number>();
+    for (let it = 0; it < 40; it++) {
+      const pres = 12 + it * 10;
+      for (const b of nets) {
+        const others = [...fixed, ...nets.filter((x) => x.id !== b.id && cur.has(x.id)).map((x) => ({ ...x, path: cur.get(x.id)! }))];
+        const r2 = routeWhy(B, others, b.from, b.to!, [], b.id === id ? o.leaveAt : undefined, { belt: pres, hist });
+        if (isWhy(r2)) { return null; }
+        cur.set(b.id, r2.path);
+      }
+      const all = [...fixed, ...nets.map((x) => ({ ...x, path: cur.get(x.id)! }))];
+      // contested cells: shared by several outputs other than as one straight crossing
+      const layer = new Layer(all);
+      let contested = 0;
+      for (const [k, m] of layer.cells) {
+        if (m.size < 2) continue;
+        const ms = [...m.values()].map((v) => v.mode);
+        if (m.size === 2 && ms.includes('H') && ms.includes('V')) continue;
+        contested++; hist.set(k, (hist.get(k) ?? 0) + 8);
+      }
+      if (contested) continue;
+      const bad = nets.find((x) => pathWhy(B, all.filter((y) => y.id !== x.id), x.from, x.to!, cur.get(x.id)!));
+      if (bad) { for (const t of cur.get(bad.id)!) hist.set(tileKey(t), (hist.get(tileKey(t)) ?? 0) + 4); continue; }
+      return assemble(all, lift);
+    }
+    return null;
+  };
+  const ripped = tryRip(blockers) ?? tryRip(new Set([...blockers, ...own])) ?? tryRelayAll() ?? tryNegotiate();
   if (ripped) return finish(ripped);
   return noWhy(withLeak(base, from, to, ctx, r));
 }
@@ -1513,7 +1667,8 @@ export function branchAt(c: Canvas, belt: string, i: number, to: Endpoint, ctx: 
 
 // ───────────────────────────── rooms ─────────────────────────────
 
-const MIN_ROOM = { w: 3, h: 3 };
+/** The smallest room the editor paints: a desk with its face tile, the gate with its inner tile, and a machine. */
+export const MIN_ROOM = { w: 3, h: 3 };
 
 function roomSetReason(rooms: Room[]): string | null {
   for (let i = 0; i < rooms.length; i++) for (let j = i + 1; j < rooms.length; j++) {
@@ -1581,6 +1736,19 @@ function seatRoom(c: Canvas, room: Room, rooms: Room[], ctx: KernelCtx, skip: Se
   const g = gate;
   const gIn = inner(g);
   used.add(tileKey(g.at)); used.add(tileKey(gIn));
+  // Playtest W10–14 #7: desks line up along the wall opposite the gate, facing it, one free line between
+  // neighbours (labels never collide; a desk's output never starts walled in by the next desk's belt).
+  const edge = edgeDesks(r, k, g, keepDesks, kept, inOwn, (t) => free(t) && !used.has(tileKey(t)));
+  if (edge) {
+    const out: Machine[] = [];
+    for (let slot = 0; slot < k; slot++) {
+      const keep = keepDesks[slot];
+      if (keep) { out.push({ ...keep, config: deskConfig(room.id, slot) }); continue; }
+      const { at, rot } = edge.get(slot)!;
+      out.push({ id: slot ? `desk:${room.id}/${slot}` : `desk:${room.id}`, kind: 'desk', at, rot, config: deskConfig(room.id, slot), locked: true });
+    }
+    return { desks: out, gate: g };
+  }
   const desks: Machine[] = [];
   for (let slot = 0; slot < k; slot++) {
     const keep = keepDesks[slot];
@@ -1607,6 +1775,46 @@ function seatRoom(c: Canvas, room: Room, rooms: Room[], ctx: KernelCtx, skip: Se
     desks.push(desk);
   }
   return { desks, gate: g };
+}
+
+/**
+ * The new (not kept) desks of a room on the wall opposite its gate, facing the gate: positions along that wall
+ * nearest the gate's line (never on it when there is room), at least two apart from each other and from kept
+ * desks, in slot order from top/left. Tries the wall line, then lines further in. Null when they do not fit.
+ */
+function edgeDesks(r: Rect, k: number, g: Machine, keepDesks: (Machine | undefined)[], kept: Machine[],
+  inOwn: (t: Tile) => boolean, ok: (t: Tile) => boolean): Map<number, { at: Tile; rot: Rot }> | null {
+  const slots = Array.from({ length: k }, (_, i) => i).filter((i) => !keepDesks[i]);
+  if (!slots.length) return new Map();
+  const rot = g.rot as Rot; // desks face the same way as the gate: across the room toward it
+  const horiz = rot === 0 || rot === 2; // gate on the east/west wall: desks stack in a column
+  const len = horiz ? r.h : r.w, depthN = horiz ? r.w : r.h;
+  const lo = horiz ? r.y : r.x;
+  const gateLine = horiz ? g.at.y : g.at.x;
+  const cell = (along: number, depth: number): Tile => {
+    const d = rot === 0 ? r.x + depth : rot === 2 ? r.x + r.w - 1 - depth : rot === 1 ? r.y + depth : r.y + r.h - 1 - depth;
+    return horiz ? { x: d, y: along } : { x: along, y: d };
+  };
+  const front = (t: Tile) => addTile(t, FACE_DELTA[FACES[rot]!]);
+  const keptAlong = kept.map((d) => (horiz ? d.at.y : d.at.x));
+  for (let depth = 0; depth < depthN - 2; depth++) {
+    const order = Array.from({ length: len }, (_, i) => lo + i)
+      .sort((p, q) => Math.abs(p - gateLine) - Math.abs(q - gateLine) || p - q);
+    const avoidGate = len >= 2 * slots.length + 1;
+    const picked: number[] = [];
+    for (const a of order) {
+      if (picked.length === slots.length) break;
+      if (avoidGate && a === gateLine) continue;
+      if ([...picked, ...keptAlong].some((b) => Math.abs(a - b) < 2)) continue;
+      const t = cell(a, depth), f = front(t);
+      if (!ok(t) || !inOwn(f) || !ok(f)) continue;
+      picked.push(a);
+    }
+    if (picked.length < slots.length) continue;
+    picked.sort((p, q) => p - q);
+    return new Map(slots.map((sl, i) => [sl, { at: cell(picked[i]!, depth), rot }]));
+  }
+  return null;
 }
 
 /** Normalize a multi-desk declaration: null = none (single desk), a string = why it is refused. */

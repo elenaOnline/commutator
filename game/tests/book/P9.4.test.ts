@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import * as F from '../../src/factory';
 import type * as K from '../../src/kernel';
-import { bookFloor, deliverC, lvC, nontrivialHoms, nontrivialModels, targetsTrueC, app, schema, towerIn, lawRw, thm, spool, P, I, eq } from './kit-wC';
+import { bookFloor, deliverC, lvC, nontrivialHoms, nontrivialModels, targetsTrueC, app, schema, towerIn, lawRw, thm, spool, P, I, eq, cancel } from './kit-wC';
 import { EARNED, buildFE, groupTower, homTower } from './lemmas-wC';
 
 const L = lvC('P9.4');
@@ -20,7 +20,7 @@ export function buildInv() {
   const sp = f.add(spool(P(fx, fxi)));
   const hr = f.add(lawRw(schema('hom.mul'), { dir: 'rev' }));
   const arrived = eq(P(fx, fxi), app('f1', P(x, I(x))));
-  const cn = f.add(lawRw({ k: 'axiom', id: 'invR' }, { target: F.pinFromAddr(arrived, { side: 'r', path: [0], range: [0, 2] })! }));
+  const cn = f.add(cancel(F.pinFromAddr(arrived, { side: 'r', path: [0], range: [0, 2] })!)); // x₁x₁⁻¹ ⟶ e inside f₁: the HUD's cancel
   const fe = f.add(lawRw(schema(lemma.id)));
   const un = f.add(thm(schema('witness')));
   const all = f.add({ kind: 'forall' });

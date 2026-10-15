@@ -8,6 +8,7 @@
 // Toolset: lift, merge, suppose and the earned cancel / witness / socks. No power laws, no press.
 import type { LevelManifest, Pallet, Term, Toolset } from '../../kernel/types';
 import type { AtomSpec, ConceptCard } from '../cards';
+import { letterSlot } from '../../ui/letters';
 
 const A = (id: string): Term => ({ k: 'atom', id });
 const e: Term = { k: 'e' };
@@ -115,9 +116,8 @@ export const LEVELS: LevelManifest[] = [
   },
 ];
 
-/** Illustrative letters: AT('abc') → a, b, c in shape slots 0, 1, 2 (+ shift). */
-const AT = (s: string, shift = 0): AtomSpec[] => [...s].map((id, i) => ({ id, label: id, hue: i + shift }));
-void AT;
+/** Card letters: AT('pq') → p, q, each in its own shape (ui/letters: a letter keeps its shape on every card and floor). */
+const AT = (s: string): AtomSpec[] => [...s].map((id) => ({ id, label: id, hue: letterSlot(id) }));
 
 /** Concept cards for this world's levels, keyed by level id. */
 export const CARDS: Record<string, ConceptCard[]> = {
@@ -129,7 +129,7 @@ export const CARDS: Record<string, ConceptCard[]> = {
     },
     {
       title: 'Four copies of a letter',
-      body: 'The relation $r^4 = e$ is shorthand for $rrrr = e$. Four copies of $r$ in a row can be deleted wherever they stand in a word, and four copies can be inserted at any gap. A longer run is shortened four letters at a time.',
+      body: 'The relation $r^4 = e$ is shorthand for $rrrr = e$. Four copies of $r$ in a row can be deleted wherever they stand in a word, and four copies can be inserted at any gap. With other letters:',
       figures: [{ k: 'math', atoms: AT('s'), rows: [
         { seq: [{ t: 'ssssss', br: [[0, 4, '$s^4 = e$', 'over']] }, '=', 'ss'] },
       ] }],
@@ -139,11 +139,11 @@ export const CARDS: Record<string, ConceptCard[]> = {
   'P7.2': [
     {
       title: 'A group acting on a set',
-      body: 'A group $G$ **acts** on a set $Ω$ of points when each $g$ in $G$ sends each point $p$ to a point $σ(g, p)$. (Pinter writes $g(p)$.) Two laws come with every action, and the game supplies them: $σ(gh, p) = σ(g, σ(h, p))$, so the product acts with $h$ first and then $g$, and $σ(e, p) = p$.',
+      body: 'A group $G$ **acts** on a set $Ω$ of points when each element $g$ of $G$ moves each point $p$ to a point $g(p)$. Two laws come with every action, and the game supplies them. The first is $(gh)(p) = g(h(p))$: a product acts with $h$ first and then $g$. The second is $e(p) = p$.',
     },
     {
       title: 'The stabilizer',
-      body: 'The **stabilizer** of a point $p$ is the set of all $g$ in $G$ with $σ(g, p) = p$, the elements that leave $p$ where it is. A given $σ(g, p) = p$ says that $g$ is one of them. The docks ask whether a product of two such elements, and the inverse of one, stay in the stabilizer.',
+      body: 'The **stabilizer** of a point $p$ is the set of all $g$ in $G$ with $g(p) = p$, the elements that leave $p$ where it is. A given $g(p) = p$ says that $g$ is one of them. The docks ask whether a product of two such elements, and the inverse of one, stay in the stabilizer.',
     },
   ],
 
@@ -157,7 +157,7 @@ export const CARDS: Record<string, ConceptCard[]> = {
   'P8.2': [
     {
       title: 'Conjugates',
-      body: 'For $π$ and $α$ in $G$, the **conjugate** of $α$ by $π$ is $παπ^{-1}$. A product acts from the right: for $τρτ^{-1}$ act with $τ^{-1}$ first, then $ρ$, then $τ$. In this order the letters $p, q, r, s$ are points of $Ω$, and $π$ and $α$ are elements of $G$.',
+      body: 'For $π$ and $α$ in $G$, the **conjugate** of $α$ by $π$ is $παπ^{-1}$. A product acts from the right: on a point, $τρτ^{-1}$ acts with $τ^{-1}$ first, then $ρ$, then $τ$. In this order the letters $p, q, r, s$ are points of $Ω$, and $π$ and $α$ are elements of $G$.',
     },
   ],
 };

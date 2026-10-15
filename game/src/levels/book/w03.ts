@@ -6,6 +6,7 @@
 // P4.s4 is a WITNESS dock: `∃y. ab = y²`, a hole y that appears twice (the same term both times).
 import type { HoleDecl, LevelManifest, Pallet, PatFact, Term, Toolset } from '../../kernel/types';
 import type { AtomSpec, ConceptCard } from '../cards';
+import { letterSlot } from '../../ui/letters';
 
 const A = (id: string): Term => ({ k: 'atom', id });
 const M = (id: string): Term => ({ k: 'meta', id });
@@ -207,27 +208,21 @@ export const LEVELS: LevelManifest[] = [
   },
 ];
 
-/**
- * Illustrative letters for card figures. One hue per letter across every card of these worlds, matching the level
- * constants (a b c d) on the floor, so a letter keeps its shape: AT('abc') → a, b, c in their own slots.
- */
-const LETTER_HUE: Record<string, number> = { a: 0, b: 1, c: 2, d: 3, p: 0, q: 1, r: 2, s: 3, u: 0, v: 1, w: 2, x: 2, y: 3, z: 4 };
-const AT = (s: string): AtomSpec[] => [...s].map((id) => ({ id, label: id, hue: LETTER_HUE[id]! }));
+/** Card letters: AT('pq') → p, q, each in its own shape (ui/letters: a letter keeps its shape on every card and floor). */
+const AT = (s: string): AtomSpec[] => [...s].map((id) => ({ id, label: id, hue: letterSlot(id) }));
 
 /** Concept cards for this world's levels, keyed by level id. */
 export const CARDS: Record<string, ConceptCard[]> = {
   'P4.6': [
     {
       title: 'Solving for an unknown',
-      body: 'To solve for an unknown, rewrite the equations until it stands alone on one side. What is left on the other side is the answer, and the dock fills in with it. Every move must be a valid one: multiply both sides by the same term, cancel an element beside its inverse, or rewrite with a given. With other letters:',
-      figures: [{ k: 'math', atoms: AT('xyz'), rows: [
-        { seq: ['xy', '=', 'z'], why: 'Solve for $x$ …' },
-        { seq: [{ t: 'xyy^-1', br: [[1, 3, 'times $y^{-1}$']] }, '=', 'zy^-1'] },
-        { seq: ['x', '=', 'zy^-1'], why: '… after cancelling $yy^{-1}$.' },
+      body: 'To solve for an unknown, rewrite the given until the unknown stands alone on one side. The other side is the answer. This dock reads $d = ?$. Any proved equation $d = t$ fills it, as long as $t$ does not mention $d$, and the dock then shows the answer you found. With other letters:',
+      figures: [{ k: 'math', atoms: AT('xrw'), rows: [
+        { seq: ['x', '=', 'rw^-1'], why: 'This fills the dock $x = ?$.' },
+        { seq: ['x', '=', 'xrr^-1'], strike: true, why: 'This does not: the answer still mentions $x$.' },
       ] }],
     },
   ],
-
 
   'P4.7': [
     {
@@ -248,7 +243,7 @@ export const CARDS: Record<string, ConceptCard[]> = {
         items: [{ at: [2, 0.5], t: 'u = v' }, { at: [5.4, 0.5], t: 'wu = wv', place: 'sw' }, { at: [8.4, 0.5], t: 'u = v ⟹ wu = wv', place: 'sw', off: [-4, -16] }],
         notes: [
           { at: [0.7, 0.5, 0.9], text: 'The desk (⊢) hands out $u = v$.' },
-          { at: [3.8, 0.5, 1], text: 'An Operator multiplies both sides by $w$.' },
+          { at: [3.8, 0.5, 1], text: 'An Operator multiplies both sides on the left by $w$.' },
           { at: [6.5, 0.5, 0.8], text: 'The gate (⊣) lets it out as an if–then.' },
         ] } }],
     },
@@ -257,16 +252,13 @@ export const CARDS: Record<string, ConceptCard[]> = {
   'P4.8': [
     {
       title: 'Conjugates',
-      body: '$bab^{-1}$ is the **conjugate** of $a$ by $b$. When two conjugates by the same element are multiplied, the inner pair $b^{-1}b$ cancels. With other letters:',
-      figures: [{ k: 'math', atoms: AT('cd'), rows: [
-        { seq: ['(cdc^-1)(cdc^-1)', '=', { t: 'cd(c^-1c)dc^-1', br: [[2, 3, 'cancels']] }, '=', 'cddc^-1'] },
-      ] }],
+      body: 'For elements $g$ and $u$, the element $gug^{-1}$ is the **conjugate** of $u$ by $g$. Conjugates behave like the elements they come from. This order shows one instance: if $a$ and $b$ commute, then their conjugates by any $x$ commute too.',
     },
     {
       title: 'Insert a pair',
-      body: 'A Rewriter can insert a pair $uu^{-1}$ or $u^{-1}u$ at any gap between factors, and you choose $u$. The pair is $e$, so the value does not change. It lets you put a frame back around a term.',
-      figures: [{ k: 'math', atoms: AT('pqr'), rows: [
-        { seq: ['pq', '=', { t: 'p(r^-1r)q', br: [[1, 2, 'inserted pair']] }] },
+      body: 'A Rewriter can insert a pair $uu^{-1}$ or $u^{-1}u$ at any gap in a word, either end included, and you choose $u$. The pair equals $e$, so the value does not change.',
+      figures: [{ k: 'math', atoms: AT('pq'), rows: [
+        { seq: ['p', '=', { t: 'p(qq^-1)', br: [[1, 2, 'inserted pair']] }] },
       ] }],
     },
   ],
@@ -285,16 +277,12 @@ export const CARDS: Record<string, ConceptCard[]> = {
 
   'P4.10': [
     {
-      title: 'Making a product equal e',
-      body: 'A theorem about “$xy = e$” needs a fact of that shape. To turn a fact into one, multiply both sides by the right term and cancel. With other letters:',
-      figures: [{ k: 'math', atoms: AT('pqrs'), rows: [
-        { seq: ['pqr', '=', 's^-1'] },
-        { seq: [{ t: 'pqrs', br: [[3, 4, 'times $s$']] }, '=', 's^-1s', '=', 'e'], why: 'Both sides were multiplied on the right by $s$.' },
-      ] }],
+      title: 'One-sided inverses',
+      body: 'If $uv = e$, then $v$ is an inverse of $u$ from the right and $u$ is an inverse of $v$ from the left. In a group one side is enough. The first dock says so in a general form: a product of two elements that equals $e$ still equals $e$ when its two factors trade places. The second dock uses the given $h$.',
     },
     {
       title: 'Cards on the floor',
-      body: 'When ∀ finishes, its output is a card: a theorem that now exists on your floor. A belt can carry that card to the card port of a Theorem machine set to “routed”, and the machine applies it where you choose. The same card can also go to a dock.',
+      body: 'When ∀ finishes, its output is a card: a theorem that now exists on your floor. A belt can carry that card to the card port of a Theorem machine set to “routed”, and the machine applies it like any other theorem. The same card can also go to a dock. Equations travel the same way: one belted into a Rewriter’s rule port is used as a rewrite rule.',
       machines: ['theorem'],
     },
   ],
@@ -302,12 +290,12 @@ export const CARDS: Record<string, ConceptCard[]> = {
   'P4.11': [
     {
       title: 'Elements that undo themselves',
-      body: 'An element with $x^{-1} = x$ undoes itself. In V₄ every element is like this, and the product of two different non-identity elements is the third one. Look for that pattern in the table.',
+      body: 'An element with $x^{-1} = x$ undoes itself. In V₄ every element is like this. In its table, the product of any two different elements other than $e$ is the third one.',
       figures: [{ k: 'table', group: 'V₄' }],
     },
     {
       title: 'Reuse your saved lemma',
-      body: 'Your saved lemmas are recipes. Pick one in a Theorem machine and set its variables to the terms you want. The Lemma Book (L) lists them.',
+      body: 'Your saved lemmas are recipes. Pick one in a Theorem machine, just as you pick an earned theorem. The Lemma Book (L) lists them all.',
       machines: ['theorem', 'lemmabook'],
     },
   ],
@@ -321,51 +309,38 @@ export const CARDS: Record<string, ConceptCard[]> = {
     },
     {
       title: 'The Suppose room',
-      body: 'A Suppose room’s desk hands you the supposition. A Joiner set to **clash** takes an equation and its negation and makes ⊥. The gate turns ⊥ into the opposite of the supposition.',
+      body: 'A **Suppose** room’s desk hands you the supposition. A Joiner set to **clash** takes an equation and its negation and makes ⊥. The gate turns ⊥ into the opposite of the supposition.',
       machines: ['room:suppose', 'joiner'],
-      figures: [{ k: 'scene', atoms: AT('pqrs'), spec: {
-        rooms: [{ x0: -0.3, y0: -0.6, x1: 8.5, y1: 2.4, label: 'SUPPOSE', kind: 'suppose' }],
+      figures: [{ k: 'scene', atoms: AT('pqr'), spec: {
+        scale: 0.75,
+        rooms: [{ x0: -0.3, y0: -0.6, x1: 8.5, y1: 2.1, label: 'SUPPOSE', kind: 'suppose' }],
         machines: [
-          { x: 0, y: 0, config: { kind: 'desk' } }, { x: 2, y: 0, config: { kind: 'rewriter', recipe: { k: 'cancel' } } }, { x: 2, y: 1.2, config: { kind: 'given', givenId: 'na' } },
+          { x: 0, y: 0, config: { kind: 'desk' } }, { x: 2, y: 0, config: { kind: 'operator', recipe: { k: 'multiply', side: 'right' } } },
           { x: 5, y: 0, config: { kind: 'joiner', recipe: { k: 'clash' } } }, { x: 8, y: 0, config: { kind: 'gate' } },
         ],
-        belts: [[[1, 0.5], [2, 0.5]], [[4, 0.5], [5, 0.5]], [[3, 1.7], [4.5, 1.7], [4.5, 1.5], [5, 1.5]], [[7, 0.5], [8, 0.5]], [[9, 0.5], [10.4, 0.5]]],
+        belts: [[[1, 0.5], [2, 0.5]], [[4, 0.5], [5, 0.5]], [[3.2, 1.5], [5, 1.5]], [[7, 0.5], [8, 0.5]], [[9, 0.5], [10.4, 0.5]]],
         items: [
-          { at: [1.5, 0.5], t: 'p = q', off: [8, 30] }, { at: [4.5, 0.5], t: 'r = s', off: [8, 22] }, { at: [3.6, 1.7], t: 'r ≠ s', place: 'sw' },
+          { at: [1.5, 0.5], t: 'p = q', off: [8, 30] }, { at: [4.5, 0.5], t: 'pr = qr', off: [8, 22] }, { at: [3.8, 1.5], t: 'pr ≠ qr', place: 'sw' },
           { at: [7.5, 0.5], t: '⊥', off: [10, 22] }, { at: [9.8, 0.5], t: 'p ≠ q', place: 'sw' },
         ],
         notes: [
           { at: [0.5, 0.5, 0.55], text: 'The desk hands out the supposition, $p = q$.' },
-          { at: [3, 0.5, 1], text: 'Work from it as usual until you reach an equation, here $r = s$, …' },
-          { at: [6, 1, 1], text: '… that clashes with a known $r \\neq s$, here from a given. The Joiner makes ⊥.' },
-          { at: [8.5, 0.5, 0.8], text: 'The gate lets out the opposite of the supposition: $p \\neq q$.' },
+          { at: [6, 1, 1], text: 'A result clashes with a known fact, $pr \\neq qr$: the Joiner makes ⊥.' },
+          { at: [8.5, 0.5, 0.8], text: 'The gate lets out the opposite: $p \\neq q$.' },
         ] } }],
-    },
-    {
-      title: 'No repeats in a table',
-      body: 'In a group table, no element appears twice in the same row. That is cancellation again: if $uv = uw$, then $v = w$. The V₄ table shows it.',
-      figures: [{ k: 'table', group: 'V₄' }],
     },
   ],
 
   'P4.13': [
     {
       title: 'Powers are copies',
-      body: '$(pq)^3$ means the block $pq$ written three times, $pqpqpq$. The letters interleave rather than sort. A written-out power is an ordinary word, so any run of neighbouring terms can be read as a group.',
+      body: 'Before chapter 10 a power is shorthand for a word: $(pq)^3$ means the block $pq$ written three times, $pqpqpq$. The letters interleave. They do not sort.',
       figures: [{ k: 'math', atoms: AT('pq'), rows: [
         { seq: ['(pq)^3', '=', { t: '(pq)(pq)(pq)', br: [[0, 3, '3 copies', 'over']] }] },
         { seq: ['(pq)^3', '=', 'p^3q^3'], strike: true, why: 'Only true when $p$ and $q$ commute.' },
       ] }],
     },
-    {
-      title: 'Matching a rule in a word',
-      body: 'A rule matches wherever its left side appears as a run of neighbouring factors, anywhere in the word. A given with left side $pqq$ matches inside $rpqqs$.',
-      figures: [{ k: 'math', atoms: AT('pqrs'), rows: [
-        { seq: [{ t: 'rpqqs', br: [[1, 4, 'matches $pqq$']] }] },
-      ] }],
-    },
   ],
-
 
   'P4.s1': [
     {
@@ -379,35 +354,32 @@ export const CARDS: Record<string, ConceptCard[]> = {
 
   'P4.s2': [
     {
-      title: 'An e that is a power',
-      body: 'A given such as $x^3 = e$ says that a power of $x$ equals $e$. Read it backwards and an $e$ beside a term turns into three copies of $x$, so the term grows without changing value. With other letters:',
-      figures: [{ k: 'math', atoms: AT('xy'), rows: [
-        { seq: ['y', '=', { t: 'ye', br: [[1, 2, 'identity']] }, '=', { t: 'y(xxx)', br: [[1, 2, '$x^3 = e$, backwards']] }] },
-      ] }],
+      title: 'One unknown, two equations',
+      body: 'Both givens are about the same unknown $d$. The first compares its square with $a^2$. The second says that five copies of $d$ make $e$. Neither one says what $d$ is on its own. As in the earlier orders, the dock accepts any answer that does not mention $d$.',
     },
   ],
 
   'P4.s3': [
     {
-      title: 'Build your own rule',
-      body: 'An equation you derive is as good as a given. Belt it into a Rewriter’s rule port, on its north side, and the Rewriter uses it like a recipe. One equation can feed several Rewriters, so you can use it more than once.',
+      title: 'The rule port',
+      body: 'Any equation on a belt can serve as a rewrite rule. Belt it into a Rewriter’s rule port, on its north side, and the Rewriter uses it like a recipe. One equation can feed several Rewriters, so you can use it more than once.',
       figures: [{ k: 'scene', atoms: AT('pqr'), spec: {
-        machines: [{ x: 2, y: -1, config: { kind: 'given', givenId: 'h2' } }, { x: 0, y: 1, config: { kind: 'spool' } }, { x: 3, y: 1, config: { kind: 'rewriter', recipe: { k: 'routed' }, dir: 'fwd' } }],
-        belts: [[[3, -0.5], [3.5, -0.5], [3.5, 1]], [[1, 1.5], [3, 1.5]], [[5, 1.5], [6.6, 1.5]]],
-        items: [{ at: [3.5, 0.2], t: 'pq = e', off: [30, 4] }, { at: [2, 1.5], t: 'rpq = rpq', place: 'sw' }, { at: [5.9, 1.5], t: 'rpq = r' }],
+        machines: [{ x: 0, y: 1, config: { kind: 'spool' } }, { x: 3, y: 1, config: { kind: 'rewriter', recipe: { k: 'routed' }, dir: 'fwd' } }],
+        belts: [[[3.5, -0.6], [3.5, 1]], [[1, 1.5], [3, 1.5]], [[5, 1.5], [6.6, 1.5]]],
+        items: [{ at: [3.5, 0.1], t: 'pq = e', off: [30, 4] }, { at: [2, 1.5], t: 'rpq = rpq', place: 'sw' }, { at: [5.9, 1.5], t: 'rpq = r' }],
         notes: [
-          { at: [2.85, -0.85, 0.45], text: 'Any equation can arrive at the **rule port**, here $pq = e$.' },
-          { at: [3.85, 0.6, 0.3], text: 'It works like a recipe.' },
-          { at: [6.6, 1.5, 0], text: 'It rewrites $pq$ to $e$: $rpq = r$.' },
+          { at: [3.5, -0.6, 0], text: 'An equation you have proved arrives at the **rule port**, here $pq = e$.' },
+          { at: [6.6, 1.5, 0], text: 'The Rewriter uses it like a recipe: it rewrites $pq$ to $e$, so $rpq = r$.' },
         ] } }],
     },
   ],
+
   'P4.s4': [
     {
       title: 'Showing that something exists',
-      body: 'Some goals say “there is a $y$ with …”. The dock shows the shape of the statement with a gap, and you fill the gap by proving the statement for one particular element. The hole may appear more than once, and it stands for the same element each time. With other letters:',
-      figures: [{ k: 'math', atoms: AT('pq'), rows: [
-        { seq: ['pqpq', '=', { t: '(pq)(pq)', br: [[0, 1, '$y$'], [1, 2, '$y$']] }], why: 'The equation $pqpq = yy$ holds with $y = pq$.' },
+      body: 'Some goals say “there is a $y$ with …”. The dock shows the statement with a gap for $y$. Prove the statement for one particular element, and that element fills the gap. The gap may appear more than once, and it stands for the same element each time. With other letters, the dock $py = yp$ is filled by $y = pp$:',
+      figures: [{ k: 'math', atoms: AT('p'), rows: [
+        { seq: [{ t: 'p(pp)', br: [[1, 2, '$y$']] }, '=', { t: '(pp)p', br: [[0, 1, '$y$']] }], why: 'A Spool on $ppp$ proves it.' },
       ] }],
     },
   ],

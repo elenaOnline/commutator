@@ -2,6 +2,7 @@
 // Same shape as kit-w123, but the kernel oracle runs with the floor's structures (Hom Towers), and a truth check
 // counts the nontrivial many-sorted models (pin 4: at least NONTRIVIAL_THRESHOLD of them).
 import { checkPaper } from './paper-kit';
+import { assertPointerReachable } from './reach-kit';
 import { expect } from 'vitest';
 import * as K from '../../src/kernel';
 import { oracleCheck, nontrivialModels, modelLog } from '../../src/groups/oracle';
@@ -38,6 +39,7 @@ export const towerIn = (varId: string, label: string, carrier: string) => ({ kin
 export function deliverC(f: Floor, opts: { parParts?: boolean } = {}) {
   const level = f.level;
   const { comp, s, metrics } = f.run(600);
+  assertPointerReachable(f, comp); // the real HUD could have built this floor (reach-kit.ts)
   const detail = JSON.stringify({ sockets: comp.sockets, beltErrors: comp.beltErrors, jams: Object.entries(comp.machines).filter(([, m]) => m.status.k !== 'ok').map(([id, m]) => [id, m.status]) });
   expect(comp.solvable, detail).toBe(true);
   for (const sock of level.sockets) expect(s.delivered[sock.id], `socket ${sock.id} delivered; ${detail}`).toBeDefined();

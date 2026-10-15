@@ -6,7 +6,7 @@ import type { DeskAssumption, Fact, Family, LevelManifest, Pallet, PatFact, Stru
 import * as K from '../kernel';
 import { campSave, progressOf, type CampaignSave, type FactoryStore, type FState } from '../state/factoryStore';
 import { campaignOf } from '../levels/campaigns';
-import { eTag, isActionApp } from '../ui/sorts';
+import { eAliases, eTag, isActionApp } from '../ui/sorts';
 import { LEVELS, REGISTRY, MIRROR_NAMES, SIDE_PAIRS } from '../levels/levels';
 import { LEVEL_BY_ID } from '../levels/campaigns';
 import type { ItemValue, Machine, MachineKind, MachineSpec } from '../factory/types';
@@ -14,7 +14,17 @@ import { FAMILY } from '../ui/tokens';
 import { fH as fH0Raw, tH as tH0, nameHTML } from '../shell/util';
 const fH0 = (f: Fact | PatFact, L: Record<string, string>, mode: 'stmt' | 'proof') => fH0Raw(f as Parameters<typeof fH0Raw>[0], L, mode);
 
-export { tU, richHTML, schemaNames, schemaLemmaNo, nameHTML } from '../shell/util';
+export { tU, schemaNames, schemaLemmaNo, nameHTML } from '../shell/util';
+import { richHTML as richHTML0 } from '../shell/util';
+/**
+ * Prose with maths (jams, ideas, notes). Kernel and compiler text is cleaned for the player: a positional Lemma Book
+ * binder prints by its name ($2:f → f), and a map is written with its label, never its id (pi(a) → π(a)) (#6).
+ */
+export const richHTML = (txt: string, level: LevelManifest): string => {
+  let t = txt.replace(/\$\d+:/g, '');
+  for (const m of level.maps ?? []) if (m.label !== m.id) t = t.replace(new RegExp(`\\b${m.id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\(`, 'g'), `${m.label}(`);
+  return richHTML0(t, level);
+};
 import { labels as labels0 } from '../shell/util';
 /** Level letters, plus (Book phase B) the level's subgroups by name, so `t ∈ H` prints H. */
 export const labels = (level: LevelManifest): Record<string, string> => ({ ...labels0(level), ...Object.fromEntries((level.subgroups ?? []).map((g) => [g.id, g.label])),
@@ -69,10 +79,33 @@ export const tH = (t: Term, L: Record<string, string>, mode?: 'stmt' | 'proof'):
     }
   };
   const acts: Term[] = [];
-  const html = fixVars(tH0(walk(t), L2, mode));
+  // a negative exponent shows its minus sign (x⁻ⁿ, not xⁿ: the ASCII hyphen vanished at superscript size, W4–9)
+  const html = fixVars(tH0(walk(t), L2, mode)).replace(/(<sup class="m-sup">)([^<]*)/g, (_m, a: string, b: string) => a + b.replace(/(^|[^\w])-/g, '$1−'));
   const html2 = acts.length ? html.replace(/<i class="m-atom[^"]*">¶a(\d+)¶<\/i>/g, (_m, n: string) => { const g = acts[+n]!; const gh = tH(g, L, mode); return g.k === 'mul' || g.k === 'pow' ? `(${gh})` : gh; }) : html;
   return tags.length ? html2.replace(/<i class="m-atom[^"]*">¶e(\d+)¶<\/i>/g, (_m, n: string) => `<i class="m-e">e</i><sub class="m-sub m-esort">${nameHTML(tags[+n]!)}</sub>`) : html2;
 };
+/** Display names for a card's group parameters: S, T, U or positional ids become G, K, Q … (skipping names in use). */
+export function groupAliases(binds: StructBinder[] | undefined, L: Record<string, string>): Record<string, string> {
+  const grps = (binds ?? []).filter((b) => b.k === 'grp').map((b) => b.id);
+  if (!grps.length) return {};
+  const taken = new Set(Object.values(L));
+  const pool = ['G', 'K', 'Q', 'R', 'U'].filter((x) => !taken.has(x) || grps.length > 0);
+  const out: Record<string, string> = {};
+  let i = 0;
+  for (const id of grps) {
+    const nm = L[id] ?? posName(id);
+    if (!/^[STU]$/.test(nm) && !id.startsWith('$')) { out[id] = nm; continue; }
+    while (i < pool.length && Object.values(out).includes(pool[i]!)) i++;
+    out[id] = pool[i++] ?? nm;
+  }
+  return out;
+}
+/** Render with identity subscripts following the same aliases (e_T → e_K). */
+export function withEAliases<T>(L: Record<string, string>, fn: () => T): T {
+  const prev = eAliases.cur;
+  eAliases.cur = { ...prev, ...L };
+  try { return fn(); } finally { eAliases.cur = prev; }
+}
 /** A positional Lemma Book binder id ($0:f, $1:H) prints by its name. */
 export const posName = (id: string): string => (/^\$\d+:(.+)$/.exec(id)?.[1] ?? id);
 
@@ -127,7 +160,7 @@ export function subH(ref: SubRef, L: Record<string, string>): string {
   return `<i class="m-subg">${nameHTML(L[ref.id] ?? posName(ref.id))}</i>`;
 }
 /** The ∀ prefix of a card: structure binders first (∀H ≤ G, ∀N ⊴ G), then the element metas. */
-function quantH(metas: string[], binds: StructBinder[] | undefined, L: Record<string, string>): string {
+export function quantH(metas: string[], binds: StructBinder[] | undefined, L: Record<string, string>): string {
   const nm = (id: string) => `<i>${nameHTML(L[id] ?? posName(id))}</i>`;
   const sr = (r: string | { k: 'sortmeta'; id: string } | undefined) => (r === undefined ? '<i>G</i>' : nm(typeof r === 'string' ? r : r.id));
   // Book phases B–C: ∀H ≤ G, ∀N ⊴ G, ∀G₁ (a group), ∀f : G₁ → H, ∀σ : G × Ω → Ω
@@ -150,8 +183,14 @@ export function fH(f: AnyFact, L: Record<string, string>, mode: 'stmt' | 'proof'
   const rel = (r: string) => ` <span class="m-rel">${r}</span> `;
   switch (f.k) {
     case 'mem': return tH(f.t, L, mode) + rel('∈') + subH(f.sub, L);
-    case 'law': return quantH(f.metas, f.binds, L) + tH(f.l, L, mode) + rel('=') + tH(f.r, L, mode);
-    case 'cond': return quantH(f.metas, f.binds, L) + f.premises.map((p) => fH(p, L, mode)).join(', ') + rel('⟹') + fH(f.concl, L, mode);
+    case 'law': case 'cond': {
+      // a card's group parameters read G, K (the Book's names), never S / T or a positional $1:K (#3, #6)
+      const L2 = { ...L, ...groupAliases(f.binds, L) };
+      return withEAliases(L2, () => f.k === 'law'
+        ? quantH(f.metas, f.binds, L2) + tH(f.l, L2, mode) + rel('=') + tH(f.r, L2, mode)
+        // no premises: the conclusion alone, never a stray ⟹ (#9)
+        : quantH(f.metas, f.binds, L2) + (f.premises.length ? f.premises.map((p) => fH(p, L2, mode)).join(', ') + rel('⟹') : '') + fH(f.concl, L2, mode));
+    }
     case 'eq': return tH(f.l, L, mode) + rel('=') + tH(f.r, L, mode);
     case 'neq': return tH(f.l, L, mode) + rel('≠') + tH(f.r, L, mode);
     // Book phase C: the order of a named group, |K| = 3
@@ -440,7 +479,8 @@ export function statementOf(level: LevelManifest, opts: { any?: boolean } = {}):
     const headT = (x: string) => { const i = x.indexOf(' \\in G$'); return i < 0 ? x : x.slice(0, i).replace(/(, )?¤\d+¤/g, '') + x.slice(i); };
     return { ...st, html: head(st.html, '&thinsp;∈&thinsp;<i>G</i>'), tex: headT(st.tex) };
   }
-  const L = Object.fromEntries(level.atoms.map((a) => [a.id, a.label]));
+  // the level's names for maps and sorts (π, K), and the cards' group parameters as G, K — never S / T (#3)
+  const L: Record<string, string> = { ...labels(level), ...Object.assign({}, ...cards.map((c) => groupAliases((c as { binds?: StructBinder[] }).binds, labels(level)))) };
   const metas = [...new Set(cards.flatMap((c) => (c as { metas: string[] }).metas))];
   // integer variables are those inside exponents ((ab)^{5k}): they range over ℤ, not G
   const zs = new Set<string>();
@@ -454,8 +494,15 @@ export function statementOf(level: LevelManifest, opts: { any?: boolean } = {}):
   }
   const gm = metas.filter((m) => !zs.has(m)), zm = metas.filter((m) => zs.has(m));
   const it = (ms: string[]) => ms.map((m) => `<i class="m-atom${opts.any ? ' any' : ''}">${esc(m)}</i>`).join(', ');
-  const mvH = [gm.length ? `${it(gm)}&thinsp;∈&thinsp;<i>G</i>` : '', zm.length ? `${it(zm)}&thinsp;∈&thinsp;ℤ` : ''].filter(Boolean).join('</span> and <span class="math">');
-  const mvT = [gm.length ? `${gm.join(', ')} \\in G` : '', zm.length ? `${zm.join(', ')} \\in \\mathbb{Z}` : ''].filter(Boolean).join('$ and $');
+  // each element variable with its own group (x, y ∈ G and u, v ∈ K), from the cards' meta sorts (W4–9)
+  const sortOfMeta = (m: string): string => {
+    for (const c of cards) { const r = (c as { metaSorts?: Record<string, string | { id: string }> }).metaSorts?.[m]; if (r) { const id = typeof r === 'string' ? r : r.id; return L[id] ?? posName(id); } }
+    return 'G';
+  };
+  const bySort = new Map<string, string[]>();
+  for (const m of gm) { const k = sortOfMeta(m); bySort.set(k, [...(bySort.get(k) ?? []), m]); }
+  const mvH = [...[...bySort].map(([sl, ms]) => `${it(ms)}&thinsp;∈&thinsp;<i>${esc(sl)}</i>`), zm.length ? `${it(zm)}&thinsp;∈&thinsp;ℤ` : ''].filter(Boolean).join('</span> and <span class="math">');
+  const mvT = [...[...bySort].map(([sl, ms]) => `${ms.join(', ')} \\in ${sl}`), zm.length ? `${zm.join(', ')} \\in \\mathbb{Z}` : ''].filter(Boolean).join('$ and $');
   const clause = (t: (typeof cards)[number], html: boolean): string => {
     if (t.k === 'law') return html ? `<span class="math">${fH({ k: 'eq', l: t.l, r: t.r }, L)}</span>` : `$${factTeX({ k: 'eq', l: t.l, r: t.r }, L, 'stmt')}$`;
     if (t.k === 'cond') {

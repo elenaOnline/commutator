@@ -8,6 +8,7 @@
 // Toolset: lift, merge, suppose and the earned cancel / witness / socks. No power laws, no press.
 import type { Card, LevelManifest, Pallet, Term, Toolset } from '../../kernel/types';
 import type { AtomSpec, ConceptCard } from '../cards';
+import { letterSlot } from '../../ui/letters';
 
 const A = (id: string): Term => ({ k: 'atom', id });
 const e: Term = { k: 'e' };
@@ -127,9 +128,8 @@ export const LEVELS: LevelManifest[] = [
   },
 ];
 
-/** Illustrative letters: AT('abc') → a, b, c in shape slots 0, 1, 2 (+ shift). */
-const AT = (s: string, shift = 0): AtomSpec[] => [...s].map((id, i) => ({ id, label: id, hue: i + shift }));
-void AT;
+/** Card letters: AT('pq') → p, q, each in its own shape (ui/letters). A name before a bracket that is not a letter here is a map. */
+const AT = (s: string): AtomSpec[] => [...s].map((id) => ({ id, label: id, hue: letterSlot(id) }));
 
 /** Concept cards for this world's levels, keyed by level id. */
 export const CARDS: Record<string, ConceptCard[]> = {
@@ -140,8 +140,11 @@ export const CARDS: Record<string, ConceptCard[]> = {
       body: 'A level can now have two groups, $G$ and $K$, each with its own identity ($e_G$ and $e_K$) and its own products. A product makes sense only inside one group: $uv$ needs $u$ and $v$ in the same group. A Tower says which group its variable lives in, as in $u_1 ∈ K$.',
     },
     {
-      title: 'A map that preserves products',
-      body: 'A map $f: G → K$ **preserves products** when $f(xy) = f(x)f(y)$ for all $x, y ∈ G$. The product on the left is taken in $G$ and the one on the right in $K$. The game supplies this law, and it can be used in either direction. Pinter calls such a map an isomorphism when it is also one-to-one and onto. Chapter 14 names the general kind a homomorphism.',
+      title: 'Homomorphisms',
+      body: 'A map $f: G → K$ is a **homomorphism** when $f(xy) = f(x)f(y)$ for all $x, y ∈ G$: it **preserves products**. The product on the left is taken in $G$ and the one on the right in $K$. The game supplies this law, and it can be used in either direction. Pinter calls such a map an isomorphism when it is also one-to-one and onto.',
+      figures: [{ k: 'math', atoms: AT('xy'), rows: [
+        { seq: [{ t: 'f(xy)', br: [[0, 1, 'product in $G$']] }, '=', { t: 'f(x)f(y)', br: [[0, 2, 'product in $K$']] }] },
+      ] }],
     },
     {
       title: 'Rewriting inside a map',
@@ -152,25 +155,25 @@ export const CARDS: Record<string, ConceptCard[]> = {
   'P9.2': [
     {
       title: 'Inverse maps',
-      body: 'A map $g: K → G$ is an **inverse** of $f: G → K$ when $g(f(x)) = x$ for every $x ∈ G$ and $f(g(y)) = y$ for every $y ∈ K$. A map with an inverse is one-to-one and onto. A one-to-one, onto map that preserves products is an isomorphism. This order asks whether its inverse map preserves products too.',
+      body: 'A map $g: K → G$ is an **inverse** of $f: G → K$ when $g(f(x)) = x$ for every $x ∈ G$ and $f(g(y)) = y$ for every $y ∈ K$. A map with an inverse is one-to-one and onto. So a homomorphism with an inverse is an isomorphism. This order asks whether its inverse map is a homomorphism too.',
     },
   ],
 
   'P9.3': [
     {
       title: 'Any such map',
-      body: 'A **Hom Tower** declares a map $f_1: G_1 → H_1$ that preserves products and has no other property. Its two groups $G_1$ and $H_1$ come from Group Towers. A proof about $f_1$ uses only the group rules and the product law, so ∀ can bind $f_1$ and both groups, and the result holds for every such map.',
+      body: 'Group Towers declare groups, such as $G_1$ and $G_2$. A **Hom Tower** declares a homomorphism between two of them, such as $f_1: G_1 → G_2$, with no other property. A proof about $f_1$ uses only the group rules and the homomorphism law, so ∀ can bind $f_1$ and both groups, and the result holds for every homomorphism.',
     },
     {
       title: 'One identity per group',
-      body: 'Each group has its own identity, written $e_{G_1}$ and $e_{H_1}$. A lemma you saved earlier about one group can be used in whichever group the terms live in. Nothing yet says where $f_1$ sends $e_{G_1}$.',
+      body: 'Each group has its own identity, written $e_{G_1}$ and $e_{G_2}$. A lemma you saved earlier about one group can be used in whichever group the terms live in. Nothing yet says where $f_1$ sends $e_{G_1}$.',
     },
   ],
 
   'P9.4': [
     {
       title: 'Which map plays f',
-      body: 'A lemma saved for every map that preserves products asks which map plays $f$. Choose the map you want it to speak about, here a Tower map. The same lemma works for any other such map on the floor.',
+      body: 'A lemma saved for every homomorphism asks which homomorphism plays $f$. Choose the one you want it to speak about, here a Tower’s. The same lemma works for any other homomorphism on the floor.',
     },
   ],
 

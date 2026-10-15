@@ -6,6 +6,7 @@
 // The earned group-theory schemas are listed for continuity; none of them acts in a set.
 import type { Card, LevelManifest, Term, Toolset } from '../../kernel/types';
 import type { AtomSpec, ConceptCard } from '../cards';
+import { letterSlot } from '../../ui/letters';
 
 const M = (id: string): Term => ({ k: 'meta', id });
 const app = (fn: string, ...args: Term[]): Term => ({ k: 'app', fn, args });
@@ -97,9 +98,8 @@ export const LEVELS: LevelManifest[] = [
   },
 ];
 
-/** Illustrative letters: AT('abc') → a, b, c in shape slots 0, 1, 2 (+ shift). */
-const AT = (s: string, shift = 0): AtomSpec[] => [...s].map((id, i) => ({ id, label: id, hue: i + shift }));
-void AT;
+/** Card letters: AT('pq') → p, q, each in its own shape (ui/letters). A name before a bracket that is not a letter here is a map. */
+const AT = (s: string): AtomSpec[] => [...s].map((id) => ({ id, label: id, hue: letterSlot(id) }));
 
 /** Concept cards for this world's levels, keyed by level id. */
 export const CARDS: Record<string, ConceptCard[]> = {
@@ -111,11 +111,19 @@ export const CARDS: Record<string, ConceptCard[]> = {
     },
     {
       title: 'Injective maps',
-      body: 'A map $h: X → Y$ is **injective** (one-to-one) when different inputs give different outputs. As an if–then: for all $a, b ∈ X$, $h(a) = h(b) \\implies a = b$. Used as a premise, this is cancellation. From $h(a) = h(b)$ it concludes $a = b$, just as left cancellation concludes $b = c$ from $ab = ac$.',
+      body: 'A map $h: X → Y$ is **injective** (one-to-one) when different inputs give different outputs. As an if–then: for all $p, q ∈ X$, $h(p) = h(q) \\implies p = q$. Used as a premise, it works like left cancellation, which strips a shared factor in the same way.',
+      figures: [{ k: 'math', atoms: AT('pqr'), rows: [
+        { label: 'h injective', seq: ['h(p)', '=', 'h(q)', '⟹', 'p', '=', 'q'] },
+        { label: 'left cancellation', seq: ['rp', '=', 'rq', '⟹', 'p', '=', 'q'] },
+      ] }],
     },
     {
       title: 'Apply a map to both sides',
-      body: 'Equal inputs give equal outputs: from $u = v$ it follows that $h(u) = h(v)$, for any map $h$. The Operator can apply a chosen map to both sides of an equation. The reverse step is not free. From $h(u) = h(v)$ you may conclude $u = v$ only when $h$ is injective.',
+      body: 'Equal inputs give equal outputs, for any map $h$. The Operator can apply a chosen map to both sides of an equation. The reverse step is not free.',
+      figures: [{ k: 'math', atoms: AT('pq'), rows: [
+        { seq: ['p', '=', 'q', '⟹', 'h(p)', '=', 'h(q)'], why: 'Always valid.' },
+        { seq: ['h(p)', '=', 'h(q)', '⟹', 'p', '=', 'q'], strike: true, why: 'Only when $h$ is injective.' },
+      ] }],
     },
   ],
 
@@ -137,7 +145,7 @@ export const CARDS: Record<string, ConceptCard[]> = {
     },
     {
       title: 'A dock with a gap',
-      body: 'The dock reads $g(f(?)) = z$ for every $z$. The $?$ marks where an input belongs. Prove $g(f(T)) = z$ for a term $T$ of your own, and the dock fills the gap with $T$. On other letters: from the given $k(m(y)) = y$, the dock $k(?) = w$, for every $w$, is filled by $T = m(w)$.',
+      body: 'The dock reads $g(f(?)) = z$ for every $z$. The $?$ marks where an input belongs. Prove $g(f(t)) = z$ for a term $t$ of your own, and the dock fills the gap with $t$. On other letters: the dock $h(?) = h(h(w))$, for every $w$, is filled by $t = h(w)$, and a Spool proves it.',
     },
   ],
 };

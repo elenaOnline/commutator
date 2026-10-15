@@ -3,7 +3,7 @@
 // and the chip always print one statement the same way. HTML (tooltips) uses shell/util fH directly.
 import type { Fact, PatFact, Poly, Term } from '../kernel/types';
 import { fH, tH } from '../shell/util';
-import { eTag, isActionApp } from '../ui/sorts';
+import { eAliases, eTag, isActionApp } from '../ui/sorts';
 
 export type Labels = Record<string, string>;
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
@@ -84,18 +84,43 @@ export function polyText(p: Poly, L: Labels): string {
   return parts.join('');
 }
 
-export function factSVG(f: Fact | PatFact, L: Labels): string {
-  const q = (ms: string[]) => (ms.length ? up('∀') + ms.map(it).join(up(', ')) + up('. ') : '');
+export function factSVG(f: Fact | PatFact, L0: Labels): string {
+  // a card's parameters: subgroups (H ≤ G), groups (G, K — never S / T), homomorphisms (f : G → K), then elements (#5)
+  const binds = f.k === 'law' || f.k === 'cond' ? f.binds ?? [] : [];
+  const L: Labels = { ...L0 };
+  const pos = (id: string) => id.replace(/^\$\d+:/, '');
+  let gi = 0;
+  for (const b of binds) if (b.k === 'grp') { const nm = L[b.id] ?? pos(b.id); L[b.id] = /^[STU]$/.test(nm) || b.id.startsWith('$') ? ['G', 'K', 'Q', 'R'][gi++] ?? nm : nm; }
+  const nm = (id: string) => sub(L[id] ?? pos(id));
+  const sr = (r: unknown) => (r === undefined ? it('G') : nm(typeof r === 'string' ? r : (r as { id: string }).id));
+  const one = (b: (typeof binds)[number]): string => {
+    switch (b.k) {
+      case 'sub': return `<tspan fill="${SUBG_INK}">${nm(b.id)}</tspan>` + rel(b.normal ? '⊴' : '≤') + sr(b.sort);
+      case 'hom': return nm(b.id) + up(' : ') + sr(b.dom) + rel('→') + sr(b.cod);
+      case 'act': return nm(b.id) + up(' : ') + sr(b.grp) + up(' × ') + sr(b.on) + rel('→') + sr(b.on);
+      default: return nm(b.id);
+    }
+  };
+  const q = (ms: string[]) => {
+    const parts = [...binds.map(one), ...(ms.length ? [ms.map(it).join(up(', '))] : [])];
+    return parts.length ? up('∀') + parts.join(up(', ')) + up('. ') : '';
+  };
+  const prev = eAliases.cur;
+  eAliases.cur = { ...prev, ...Object.fromEntries(binds.filter((b) => b.k === 'grp').map((b) => [b.id, L[b.id]!])) };
+  try {
   switch (f.k) {
     case 'eq': return termSVG(f.l, L) + rel('=') + termSVG(f.r, L);
     case 'neq': return termSVG(f.l, L) + rel('≠') + termSVG(f.r, L);
     case 'bot': return up('⊥');
-    case 'size': return up('|') + it('G') + up('|') + rel('=') + up(String(f.n));
+    // Book phase C: a group's order names its group, |K| = 3 (#3)
+    case 'size': return up('|') + (f.s ? nm(f.s) : it('G')) + up('|') + rel('=') + up(String(f.n));
     case 'law': return q(f.metas) + termSVG(f.l, L) + rel('=') + termSVG(f.r, L);
-    case 'cond': return q(f.metas) + f.premises.map((p) => factSVG(p, L)).join(up(', ')) + rel('⟹') + factSVG(f.concl, L); // NORMS: ⟹ for implication
+    // no premises: no stray ⟹ (#9)
+    case 'cond': return q(f.metas) + (f.premises.length ? f.premises.map((p) => factSVG(p, L)).join(up(', ')) + rel('⟹') : '') + factSVG(f.concl, L); // NORMS: ⟹ for implication
     // Book phase B: t ∈ H, the subgroup in its own ink
-    case 'mem': return termSVG(f.t, L) + rel('∈') + `<tspan class="fl-subg" fill="${SUBG_INK}">${sub(L[f.sub.id] ?? f.sub.id)}</tspan>`;
+    case 'mem': return termSVG(f.t, L) + rel('∈') + `<tspan class="fl-subg" fill="${SUBG_INK}">${sub(L[f.sub.id] ?? pos(f.sub.id))}</tspan>`;
   }
+  } finally { eAliases.cur = prev; }
 }
 
 /** Rough rendered width in px at font-size 1 (for collision boxes). */

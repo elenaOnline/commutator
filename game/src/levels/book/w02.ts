@@ -2,6 +2,7 @@
 import type { LevelManifest, Pallet, Term, Toolset } from '../../kernel/types';
 import type { AtomSpec, ConceptCard } from '../cards';
 import type { LibRef } from '../../factory/types';
+import { letterSlot } from '../../ui/letters';
 
 const A = (id: string): Term => ({ k: 'atom', id });
 const M = (id: string): Term => ({ k: 'meta', id });
@@ -91,14 +92,10 @@ export const LEVELS: LevelManifest[] = [
   },
 ];
 
-/**
- * Illustrative letters for card figures. One hue per letter across every card of these worlds, matching the level
- * constants (a b c d) on the floor, so a letter keeps its shape: AT('abc') → a, b, c in their own slots.
- */
-const LETTER_HUE: Record<string, number> = { a: 0, b: 1, c: 2, d: 3, p: 0, q: 1, r: 2, s: 3, u: 0, v: 1, w: 2, x: 2, y: 3, z: 4 };
-const AT = (s: string): AtomSpec[] => [...s].map((id) => ({ id, label: id, hue: LETTER_HUE[id]! }));
-/** Tower variables: TW('xy') → x, y as solid ∈G variables, in their letters' own hues. */
-const TW = (s: string): AtomSpec[] => [...s].map((id) => ({ id, label: id, hue: LETTER_HUE[id]!, sort: 'G' as const }));
+/** Card letters: AT('pq') → p, q, each in its own shape (ui/letters: a letter keeps its shape on every card and floor). */
+const AT = (s: string): AtomSpec[] => [...s].map((id) => ({ id, label: id, hue: letterSlot(id) }));
+/** Tower variables: TW('x') → x in the variable look (∈G). */
+const TW = (s: string): AtomSpec[] => [...s].map((id) => ({ id, label: id, hue: letterSlot(id), sort: 'G' as const }));
 const cancelL: LibRef = { k: 'schema', id: 'cancel' };
 
 /** Concept cards for this world's levels, keyed by level id. */
@@ -114,17 +111,15 @@ export const CARDS: Record<string, ConceptCard[]> = {
     },
     {
       title: 'The Joiner',
-      body: 'A **Joiner** combines two facts. Set to **chain**, it links two equations through a term they share: from $p = q$ and $q = r$ it makes $p = r$.',
+      body: 'A **Joiner** combines two facts. Set to **chain**, it links two equations through a term they share: from $p = q$ and $q = r$ it makes $p = r$. In the figure, the arrow ⟹ reads “implies”. The shared term may stand on either side of either equation.',
       machines: ['joiner'],
       figures: [{ k: 'math', atoms: AT('pqr'), rows: [
-        { label: 'first equation', seq: ['p', '=', 'q'] },
-        { label: 'second equation', seq: ['q', '=', 'r'] },
-        { label: 'chained', seq: ['p', '=', 'r'] },
+        { label: 'chain', seq: ['p', '=', 'q', ',', 'q', '=', 'r', '⟹', 'p', '=', 'r'] },
       ] }],
     },
     {
       title: 'Two docks, a second identity',
-      body: 'This order has two Receiving Docks, one for each statement, and each is proved on its own. The element $e′$ (read “e prime”) is a second candidate for the identity. The given $H$ says $e′x = x$ for every $x$, so it acts as an identity on the left.',
+      body: 'This order has two docks, one for each statement, and each is proved on its own. The element $e′$ (read “e prime”) is a second candidate for the identity. The given $H$ says $e′x = x$ for every $x$, so $e′$ acts as an identity from the left.',
     },
   ],
 
@@ -168,13 +163,6 @@ export const CARDS: Record<string, ConceptCard[]> = {
           { at: [3, 0.5, 1.1], text: 'A Theorem machine set to **left cancellation**.' },
           { at: [5.6, 0.5, 0], text: 'It strips the shared $p$ in one move.' },
         ] } }],
-    },
-    {
-      title: 'Inserting an inverse pair',
-      body: 'The inverse rule $xx^{-1} = e$, read backwards, inserts a pair $xx^{-1}$ at a gap for any $x$ you pick. The value does not change, since the pair is $e$. If an $e$ is left beside other terms, a Rewriter set to remove $e$ clears it. With other letters:',
-      figures: [{ k: 'math', atoms: AT('pq'), rows: [
-        { seq: ['p', '=', { t: 'p(qq^-1)', br: [[1, 2, 'inserted pair']] }] },
-      ] }],
     },
     {
       title: 'A theorem to keep',

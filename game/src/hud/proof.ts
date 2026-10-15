@@ -5,6 +5,7 @@ import { sideName } from './merge';
 import * as K from '../kernel';
 import type { CheckResult, Fact, Family, LevelManifest, NodeId, Pallet, ProofGraph, ProofNode, Room, ScopeId, Subst, Term } from '../kernel/types';
 import { beltsOf, stationsOf, type Belt } from '../state/belts';
+import { CAMPAIGN_LEVELS, campaignOf } from '../levels/campaigns';
 import { tU, texName, factTex as factTex0, labels as labels0, richHTML, richTex, schemaLemmaNo as lemmaNo0, schemaNames as names0, termTex as termTex0, texText, esc, nameHTML } from '../shell/util';
 
 /** The context of the transcript being built (authored lemmas live only in ctx.registry). */
@@ -38,7 +39,19 @@ import { deskFact, displayNo, givenPrefixHTML, fH, factTeX, openView, tH, safe, 
 /** What the transcript reads: the compiled graph and its check, the level, the kernel context. */
 export interface State { graph: ProofGraph; check: CheckResult; level: LevelManifest; ctx: K.KernelCtx }
 /** Level letters plus the floor's Tower variables (graph.vars). */
-const labelsOf = (s: State): Record<string, string> => ({ ...labels0(s.level), ...Object.fromEntries((s.graph.vars ?? []).map((v) => [v.id, v.label])) });
+const labelsOf = (s: State): Record<string, string> => graphLabels(s.level, s.graph);
+/**
+ * Every display name on a floor: the level's letters, subgroups and maps, the Tower variables (graph.vars) and the
+ * Tower structures (graph.structs: Subgroup Towers H₁, group Towers G₁, Hom Towers f₁). A Tower keeps its id when it
+ * changes kind, so the id is never a name: always print through this map (playtest W10–14 #2).
+ */
+export function graphLabels(level: LevelManifest, graph: Pick<ProofGraph, 'vars' | 'structs'>): Record<string, string> {
+  return {
+    ...labels0(level),
+    ...Object.fromEntries((graph.vars ?? []).map((v) => [v.id, v.label])),
+    ...Object.fromEntries((graph.structs ?? []).map((x) => [x.id, x.label])),
+  };
+}
 const subTex = (x: string) => x.replace(/([A-Za-z])([₀₁₂₃₄₅₆₇₈₉]+)/g, (_m, a: string, d: string) => `${a}_{${[...d].map((c) => c.charCodeAt(0) - 0x2080).join('')}}`);
 const termTex = (t: Term, L: Record<string, string>, mode?: 'stmt' | 'proof') => subTex(termTex0(t, L, mode));
 /** LaTeX for a statement: `\\implies` for implication (NORMS ⟹), memberships `t \\in H`. */
@@ -154,14 +167,15 @@ export function buildTranscript(s: State): Transcript {
   const justify = (n: ProofNode): string => {
     const sc = schemaOf(n);
     if (sc) { const no = schemaLemmaNo(sc.id); return no ? `Lemma ${no}${sc.mirror ? ` (${sideName(sc.id, true, 'mirrored')})` : ''}` : schemaNames(sc.id, sc.mirror).textbook; }
-    if (n.k === 'press') return "Lagrange's theorem (imported)";
+    if (n.k === 'press') return campaignOf(s.level) === 'book' ? "Lagrange's theorem" : "Lagrange's theorem (imported)";
     // a rewrite by an earlier derived line is cited by its tag alone ("by (2)")
     if (n.k === 'step' && n.op.k === 'rewrite' && n.op.rule.k === 'node') {
       const r = byId.get(n.op.rule.id);
       if (r && r.k === 'assume') return 'the supposition';
       if (r && r.k !== 'given' && r.k !== 'press') return '';
     }
-    return safe(() => K.justify(n, g, s.ctx), fallbackJust(n, s));
+    // NORMS: the standard term is "identity", never "unit"
+    return safe(() => K.justify(n, g, s.ctx), fallbackJust(n, s)).replace(/\bunit\b/g, 'identity');
   };
   const justTitle = (n: ProofNode): string => {
     const sc = schemaOf(n);
@@ -218,7 +232,11 @@ export function buildTranscript(s: State): Transcript {
       }
       case 'assume': mode = 'none'; break; // stated in the room's prose
       case 'press': {
-        out.push({ t: 'prose', parts: [{ text: "By Lagrange's theorem (imported, not proven here), " }, { fact: hf ?? { k: 'bot' } }, { text: '.' }], nodes: [head.id], family: 'lemma', classical: false });
+        // the Book proves Lagrange's algebraic core (P13.1): there it is a theorem, never "imported"
+        const book = campaignOf(level) === 'book';
+        const sz = factOf(head.input);
+        const inK = sz?.k === 'size' && sz.s && (level.sorts ?? []).filter((x) => x.kind === 'group').length > 1 ? ` in ${(level.sorts ?? []).find((x) => x.id === sz.s)?.label ?? sz.s}` : '';
+        out.push({ t: 'prose', parts: [{ text: book ? `By Lagrange's theorem${inK}, ` : "By Lagrange's theorem (imported, not proven here), " }, { fact: hf ?? { k: 'bot' } }, { text: '.' }], nodes: [head.id], family: 'lemma', classical: false });
         mode = 'none';
         break;
       }
@@ -572,4 +590,11 @@ export function transcriptTeX(tr: Transcript, s: State, answers: Record<string, 
 
 export function standaloneTeX(fragment: string): string {
   return `\\documentclass[11pt]{article}\n\\usepackage{amsmath,amsthm}\n\\usepackage{lmodern}\n\\begin{document}\n\n${fragment}\n\\end{document}\n`;
+}
+
+/** True when solving this order is what hands out Lagrange's theorem. */
+export function unlocksPress(level: LevelManifest): boolean {
+  const ls = CAMPAIGN_LEVELS.book.filter((l) => !l.side);
+  const i = ls.findIndex((l) => l.id === level.id);
+  return i >= 0 && i + 1 < ls.length && !level.tools.press && !!ls[i + 1]!.tools.press && !ls.slice(0, i).some((x) => x.tools.press);
 }

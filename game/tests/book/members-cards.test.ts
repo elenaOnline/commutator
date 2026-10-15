@@ -1,6 +1,6 @@
 // Concept cards of the Members levels (P5.1, P5.4, P11.1, P12.1, P13.1), checked like the other worlds' cards (w89-cards.test.ts):
 // coverage, copy length, markdown and maths delimiters, the NORMS that are checkable (terms never beads, no → in maths, ⟹ not ⇒, standard names),
-// symbols defined where they first appear, and no spoilers. The cards of these levels carry no figures: ∈ is not a relation a math figure can draw.
+// symbols defined where they first appear, and no spoilers. Figures draw memberships as term ∈ set (book-cards.test.ts checks them).
 import { describe, expect, it } from 'vitest';
 import { BOOK_CARDS, BOOK_LEVELS } from '../../src/levels/book';
 import { CARDS as C04 } from '../../src/levels/book/w04';

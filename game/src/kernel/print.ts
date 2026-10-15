@@ -19,12 +19,23 @@ interface Style {
 
 const isSimple = (t: Term) => t.k === 'atom' || t.k === 'e' || t.k === 'meta';
 
-/** Book phase C: the identity of a non-default group prints with its sort, e_H. */
+/** Book phase C: the identity of a non-default group prints with its sort, e_K; in a level with two or more groups
+ *  (labels carry MULTI_GROUP) the default group's identity is subscripted too, e_G, so a jam always says which e. */
 const eText = (t: Term, L: Labels, tex: boolean) => {
-  const s = t.k === 'e' ? t.s : undefined;
-  if (!s || s === 'G') return 'e';
-  return tex ? `e_{${texLabel(L[s] ?? s)}}` : `e_${L[s] ?? s}`;
+  const s0 = t.k === 'e' ? t.s : undefined;
+  if ((!s0 || s0 === 'G') && !L[MULTI_GROUP]) return 'e';
+  const s = s0 ?? 'G';
+  const name = L[s] ?? KNOWN[s] ?? s;
+  return tex ? `e_{${texLabel(name)}}` : `e_${name}`;
 };
+/** Labels key set by levelLabels when a level has two or more group sorts. */
+export const MULTI_GROUP = '\u0003multi';
+/**
+ * Labels of maps and sorts the kernel has seen (levelLabels registers them), used only when a caller's Labels lack
+ * one — so a statement never prints an internal id like "pi" for π.
+ */
+const KNOWN: Labels = {};
+export function registerLabels(L: Labels): void { for (const [k, v] of Object.entries(L)) if (!k.startsWith('\u0003')) KNOWN[k] = v; }
 const TEXT: Style = {
   base: (t, L) => (t.k === 'atom' ? (L[t.id] ?? t.id) : t.k === 'e' ? eText(t, L, false) : t.k === 'meta' ? t.id : '?'),
   pow: (b, n) => (n < 0 ? `${b}⁻${supNum(-n)}` : `${b}${supNum(n)}`),
@@ -75,7 +86,8 @@ function factorStr(f: Term, L: Labels, st: Style): string {
       const gs = isSimple(g) || g.k === 'inv' && isSimple(g.arg) ? factorStr(g, L, st) : st.paren(termStr(g, L, st));
       return `${gs}(${termStr(f.args[1]!, L, st)})`;
     }
-    const name = st === TEX ? texLabel(L[f.fn] ?? f.fn) : (L[f.fn] ?? f.fn);
+    const lab = L[f.fn] ?? KNOWN[f.fn] ?? f.fn;
+    const name = st === TEX ? texLabel(lab) : lab;
     return `${name}(${f.args.map((a) => termStr(a, L, st)).join(', ')})`;
   }
   if (f.k === 'int') return polyText(f.val, (r) => (r.k === 'zvar' ? (st === TEX ? texLabel(L[r.id] ?? r.id) : (L[r.id] ?? r.id)) : r.id), st === TEX);
@@ -109,6 +121,76 @@ function termStr(t: Term, L: Labels, st: Style): string {
     if (run >= 3 && f.k === 'inv' && isSimple(f.arg)) { out += st.pow(st.base(f.arg, L), -run); i = j; continue; }
     out += factorStr(f, L, st);
     i++;
+  }
+  return out;
+}
+
+// ───────────── source text: what a text field pre-fills with (round-trips through parseTerm) ─────────────
+
+/**
+ * Source text for a term that parseTerm reads back as the same term (playtest: display text `a^6` is the word
+ * aaaaaa to the parser). Powers always bracket their exponent, `a^(6)`, `(ab)^(2m+1)`; repeated factors print as
+ * superscript words, `a³`; inverses `a⁻¹`, `(ab)⁻¹`; maps `f(x)`, actions `σ(g, p)` (never the display g(p));
+ * identities `e`, `e_K`. Factors are juxtaposed unless two labels would run together. Metas and exponent metas
+ * have no source form (they print by id; parseTerm rejects them).
+ */
+export function termSource(t: Term, L: Labels): string { return srcTerm(norm(t), L); }
+
+/** Source text of an eq/neq/mem pallet (each side round-trips through parseTerm). */
+export function factSource(f: Fact, L: Labels): string {
+  if (f.k === 'eq' || f.k === 'neq') return `${termSource(f.l, L)} ${f.k === 'eq' ? '=' : '≠'} ${termSource(f.r, L)}`;
+  if (f.k === 'mem') return `${termSource(f.t, L)} ∈ ${subText(f.sub.id, L, false)}`;
+  return factText(f, L);
+}
+
+const srcLabel = (id: string, L: Labels) => L[id] ?? KNOWN[id] ?? id;
+function srcPoly(p: Poly, L: Labels): string {
+  if (!p.length) return '0';
+  const SUP = '⁰¹²³⁴⁵⁶⁷⁸⁹';
+  const sup = (n: number) => String(n).split('').map((d) => SUP[+d]).join('');
+  let out = '';
+  p.forEach((m, i) => {
+    let c = BigInt(m.coefficient);
+    const neg = c < 0n; if (neg) c = -c;
+    const vars = m.monomial.map((x) => `${x.ref.k === 'zvar' ? srcLabel(x.ref.id, L) : x.ref.id}${x.degree > 1 ? sup(x.degree) : ''}`).join('·');
+    const body = vars ? (c === 1n ? vars : `${c}${vars}`) : `${c}`;
+    out += i === 0 ? (neg ? `-${body}` : body) : `${neg ? '-' : '+'}${body}`;
+  });
+  return out;
+}
+const srcSimple = (t: Term) => t.k === 'atom' || t.k === 'e' || t.k === 'meta';
+function srcBase(t: Term, L: Labels): string {
+  if (t.k === 'atom') return srcLabel(t.id, L);
+  if (t.k === 'e') return !t.s || t.s === 'G' ? 'e' : `e_${srcLabel(t.s, L)}`;
+  return t.k === 'meta' ? t.id : '?';
+}
+function srcFactor(f: Term, L: Labels): string {
+  if (srcSimple(f)) return srcBase(f, L);
+  if (f.k === 'inv') return srcSimple(f.arg) ? `${srcBase(f.arg, L)}⁻¹` : `(${srcTerm(f.arg, L)})⁻¹`;
+  if (f.k === 'pow') return `${srcSimple(f.base) ? srcBase(f.base, L) : `(${srcTerm(f.base, L)})`}^(${srcPoly(f.exp, L)})`;
+  if (f.k === 'app') return `${srcLabel(f.fn, L)}(${f.args.map((a) => srcTerm(a, L)).join(', ')})`;
+  if (f.k === 'int') return srcPoly(f.val, L);
+  return `(${srcTerm(f, L)})`;
+}
+function srcTerm(t: Term, L: Labels): string {
+  if (t.k !== 'mul') return srcFactor(t, L);
+  const names = [...Object.entries(L).filter(([k]) => !k.startsWith('\u0003')).map(([, v]) => v), 'e'];
+  const parts: string[] = [];
+  for (let i = 0; i < t.fs.length;) {
+    let j = i + 1;
+    const f = t.fs[i]!;
+    while (j < t.fs.length && same(t.fs[j]!, f)) j++;
+    const run = j - i;
+    // a run of one simple factor is a superscript word (a³ reads back as aaa); anything else factor by factor
+    if (run >= 2 && srcSimple(f) && f.k !== 'meta') { parts.push(`${srcBase(f, L)}${supNum(run)}`); i = j; continue; }
+    parts.push(srcFactor(f, L)); i++;
+  }
+  let out = parts[0]!;
+  for (let i = 1; i < parts.length; i++) {
+    const prev = parts[i - 1]!, next = parts[i]!;
+    // juxtapose unless a longer name would swallow the boundary (labels "a", "b" and "ab")
+    const clash = names.some((n) => n.length > prev.length && (prev + next).startsWith(n) && names.includes(prev));
+    out += (clash ? ' ' : '') + next;
   }
   return out;
 }
@@ -150,10 +232,55 @@ export function factTex(f: Fact, L: Labels): string { return factStr(f, L, true)
 /** The label key marking map `fn` as an action (set by levelLabels for level actions, by factStr for action binders). */
 export const actionMark = (fn: string) => `\u0003act:${fn}`;
 
-function factStr(f: Fact, L0: Labels, tex: boolean): string {
+/**
+ * Book phase C (playtest W10–14 #3): a card's group / set parameters print with display names chosen once — groups
+ * G, K, then L, M, Q (never H, which is for subgroups), sets Ω, Γ, Δ — whatever ids the card stores (S, T, G₁…).
+ * Names another parameter or meta of the card already uses are skipped. Exported for UI renderers.
+ */
+export function displayCard<C extends Fact>(f: C): C {
+  if (f.k !== 'law' && f.k !== 'cond') return f;
+  const binds = f.binds ?? [];
+  const sorts = binds.filter((b) => b.k === 'grp' || b.k === 'set');
+  if (!sorts.length) return f;
+  const taken = new Set<string>([...binds.filter((b) => b.k !== 'grp' && b.k !== 'set').map((b) => b.id), ...f.metas]);
+  const ren = new Map<string, string>();
+  const pools: Record<'grp' | 'set', string[]> = { grp: ['G', 'K', 'L', 'M', 'Q', 'R'], set: ['Ω', 'Γ', 'Δ', 'Λ'] };
+  for (const b of sorts) {
+    const name = pools[b.k as 'grp' | 'set'].find((n) => !taken.has(n)) ?? b.id;
+    taken.add(name); ren.set(b.id, name);
+  }
+  const rs = (x: string) => ren.get(x) ?? x;
+  const rr = (r: SortRef): SortRef => (typeof r === 'string' ? rs(r) : { k: 'sortmeta', id: rs(r.id) });
+  const rt = (t: Term): Term => {
+    switch (t.k) {
+      case 'e': return t.s !== undefined && ren.has(t.s) ? { k: 'e', s: rs(t.s) } : t;
+      case 'inv': return { k: 'inv', arg: rt(t.arg) };
+      case 'mul': return { k: 'mul', fs: t.fs.map(rt) };
+      case 'pow': return { k: 'pow', base: rt(t.base), exp: t.exp };
+      case 'app': return { k: 'app', fn: t.fn, args: t.args.map(rt) };
+      default: return t;
+    }
+  };
+  const rp = (p: PatFact): PatFact => (p.k === 'mem' ? { ...p, t: rt(p.t) } : { ...p, l: rt(p.l), r: rt(p.r) });
+  const nb: StructBinder[] = binds.map((b): StructBinder => {
+    switch (b.k) {
+      case 'grp': case 'set': return { ...b, id: rs(b.id) };
+      case 'hom': return { ...b, dom: rr(b.dom), cod: rr(b.cod) };
+      case 'act': return { ...b, grp: rr(b.grp), on: rr(b.on) };
+      case 'sub': return b.sort !== undefined ? { ...b, sort: rr(b.sort) } : b;
+    }
+  });
+  const ms = f.metaSorts ? Object.fromEntries(Object.entries(f.metaSorts).map(([m, r]) => [m, rr(r)])) : undefined;
+  const base = { ...f, binds: nb, ...(ms ? { metaSorts: ms } : {}) };
+  return (f.k === 'law' ? { ...base, l: rt(f.l), r: rt(f.r) } : { ...base, premises: f.premises.map(rp), concl: rp(f.concl) }) as C;
+}
+
+function factStr(f0: Fact, L0: Labels, tex: boolean): string {
+  const f = displayCard(f0);
   // a card's action parameters print as actions too: (gh)(p) = g(h(p))
   const acts = (f.k === 'law' || f.k === 'cond') ? (f.binds ?? []).filter((b) => b.k === 'act') : [];
-  const L = acts.length ? { ...L0, ...Object.fromEntries(acts.map((b) => [actionMark(b.id), '1'])) } : L0;
+  const twoGroups = (f.k === 'law' || f.k === 'cond') && (f.binds ?? []).filter((b) => b.k === 'grp').length >= 2;
+  const L = acts.length || twoGroups ? { ...L0, ...Object.fromEntries(acts.map((b) => [actionMark(b.id), '1'])), ...(twoGroups ? { [MULTI_GROUP]: '1' } : {}) } : L0;
   const T = tex ? termTex : termText;
   switch (f.k) {
     case 'eq': case 'neq': case 'mem': return patText(f, L, tex);
@@ -162,7 +289,8 @@ function factStr(f: Fact, L0: Labels, tex: boolean): string {
     case 'law': return `${bquant(f.binds, tex)}${quant(f.metas, tex)}${T(f.l, L)} = ${T(f.r, L)}`;
     case 'cond': {
       // a premise-free card reads as its conclusion (e.g. ∀H ≤ G. e ∈ H)
-      if (!f.premises.length && (f.binds?.length || f.concl.k === 'mem')) return `${bquant(f.binds, tex)}${quant(f.metas, tex)}${patText(f.concl, L, tex)}`;
+      // playtest W10–14 #9: a card with no premises reads as its conclusion — never a stray ⟹
+      if (!f.premises.length) return `${bquant(f.binds, tex)}${quant(f.metas, tex)}${patText(f.concl, L, tex)}`;
       return `${bquant(f.binds, tex)}${quant(f.metas, tex)}${f.premises.map((p) => patText(p, L, tex)).join(', ')} ${tex ? '\\Longrightarrow' : '⟹'} ${patText(f.concl, L, tex)}`;
     }
   }

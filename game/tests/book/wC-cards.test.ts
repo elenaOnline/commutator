@@ -61,13 +61,13 @@ describe('Maps levels · concept cards', () => {
       ['section', /\bsection/i, /\*\*section\*\*/],
       ['surjective', /surjective|\bonto\b/i, /\*\*surjective\*\* \(onto\)/],
       ['Ω', /Ω/, /set \$Ω\$ of points/],
-      ['σ(g, p)', /σ\(/, /\*\*acts\*\*/],
+      ['acts', /\bacts?\b/, /\*\*acts\*\*/],
       ['stabilizer', /stabilizer/i, /\*\*stabilizer\*\*/],
       ['conjugate', /conjugate/i, /\*\*conjugate\*\*/],
       ['two groups K', /\$[^$]*\bK\b[^$]*\$/, /two groups, \$G\$ and \$K\$/],
       ['preserves products', /preserves? products/i, /\*\*preserves products\*\*/],
       ['isomorphism', /isomorphism/i, /one-to-one and onto/],
-      ['homomorphism', /homomorphism/i, /Chapter 14/],
+      ['homomorphism', /homomorphism/i, /\*\*homomorphism\*\* when \$f\(xy\) = f\(x\)f\(y\)\$/],
       ['Hom Tower', /Hom Tower/, /\*\*Hom Tower\*\*/],
     ];
     const cards = ordered();
@@ -77,10 +77,12 @@ describe('Maps levels · concept cards', () => {
       expect(textOf(first!.c), `${name} first appears on ${first!.lv} · ${first!.c.title}`).toMatch(defines);
     }
   });
-  it('Pinter’s name is used honestly: isomorphism is the bijective kind, homomorphism the general one', () => {
+  it('Pinter’s name is used honestly: isomorphism is the bijective kind, homomorphism the general one (named from chapter 9 on)', () => {
     const t = ordered().map(({ c }) => textOf(c)).join('\n');
     expect(t).toMatch(/isomorphism when it is also one-to-one and onto/);
-    expect(t).toMatch(/general kind a homomorphism/);
+    expect(t).toMatch(/is a \*\*homomorphism\*\* when/);
+    // NORMS › Sorts: an action applied reads g(p), (gh)(p); the action's own symbol σ is never shown
+    expect(t).not.toMatch(/σ/);
   });
   it('no card gives its level away: no solution step is stated', () => {
     // each level's own target never appears as an equation in a card; the teaching letters differ (h, k, m, τ, ρ …)

@@ -11,7 +11,7 @@
 // Toolset: lift, merge, suppose, press (P13.1), the earned cancel / witness / socks, and the power imports handed out by P10.4.
 // P16.s1 relies on the player's saved double inverse (P4.4).
 import type { Card, LevelManifest, Monomial, Pallet, PatFact, Poly, SortRef, StructBinder, Term, Toolset } from '../../kernel/types';
-import type { AtomSpec, ConceptCard } from '../cards';
+import type { ConceptCard } from '../cards';
 
 const A = (id: string): Term => ({ k: 'atom', id });
 const M = (id: string): Term => ({ k: 'meta', id });
@@ -154,9 +154,7 @@ export const LEVELS: LevelManifest[] = [
   },
 ];
 
-/** Illustrative letters: AT('abc') → a, b, c in shape slots 0, 1, 2 (+ shift). */
-const AT = (s: string, shift = 0): AtomSpec[] => [...s].map((id, i) => ({ id, label: id, hue: i + shift }));
-void AT; void y;
+void y;
 
 /** Concept cards for this world's levels, keyed by level id. */
 export const CARDS: Record<string, ConceptCard[]> = {
@@ -198,11 +196,8 @@ export const CARDS: Record<string, ConceptCard[]> = {
 
   'P16.s2': [
     {
-      title: 'One as a sum of exponents',
-      body: 'If two exponents add up to 1, an element splits into two powers. For example $2 \\cdot 3 + (-1) \\cdot 5 = 1$, so $x = x^6x^{-5}$. The imported laws $x^mx^n = x^{m+n}$ and $x^1 = x$ work in either direction. The Lagrange recipe turns $x^{|G|}$ into $e$ when a given states $|G|$.',
-      figures: [{ k: 'math', atoms: AT('x'), rows: [
-        { seq: ['x', '=', 'x^(1)', '=', { t: 'x^(6)x^(-5)', br: [[0, 2, '$6 + (-5) = 1$']] }] },
-      ] }],
+      title: 'Splitting an element',
+      body: 'In a group of order 6, every element $x$ is a product of two of its own powers: one whose square is $e$ and one whose cube is $e$. Pinter states this for groups of order 12. Here the group has order 6. The Lagrange recipe turns $x^{|G|}$ into $e$ when a given states $|G|$.',
     },
   ],
 

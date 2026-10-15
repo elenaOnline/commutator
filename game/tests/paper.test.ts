@@ -27,7 +27,7 @@ describe('Paper view: the main campaign\'s reference proofs', () => {
       expect(p.lines.map((l) => l.no)).toEqual(p.lines.map((_, i) => i + 1));
       expect(text(html)).not.toMatch(/→|⟶|->|⇒/);
       expect(html).toContain('<i>Proof.</i>');
-      expect(html).toContain('class="tomb"');
+      expect(html).toMatch(/class="tomb[ "]/); // ∎ closes the last line
       for (const l of p.lines) if (l.kind === 'eq') expect(l.reason, `${id} line ${l.no}`).not.toBe('');
     });
   }
@@ -83,7 +83,7 @@ describe('Paper view: homework voice', () => {
     expect(p.solved).toBe(false);
     expect(p.lines.length).toBeGreaterThan(0);
     expect(html).toContain('Not finished');
-    expect(html).not.toContain('class="tomb"');
+    expect(html).not.toMatch(/class="tomb/);
   });
 });
 

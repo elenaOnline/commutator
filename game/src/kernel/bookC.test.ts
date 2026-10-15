@@ -72,10 +72,10 @@ describe('sorts and map terms', () => {
     const s = p.start(P(A('a'), I(A('a'))));
     const c = p.step(s, { k: 'rewrite', rule: { k: 'axiom', id: 'invR' }, dir: 'fwd', at: span('r', 0, 2), subst: { x: A('a') } });
     const f = p.step(c, { k: 'applyMap', fn: 'f' });
-    expect(p.text(f)).toBe('f(aa⁻¹) = f(e)');
+    expect(p.text(f)).toBe('f(aa⁻¹) = f(e_G)');
     // rewriting inside the frame is congruence
     const in1 = p.step(f, { k: 'rewrite', rule: { k: 'axiom', id: 'invR' }, dir: 'fwd', at: { side: 'l', path: [0], range: [0, 2] }, subst: { x: A('a') } });
-    expect(p.text(in1)).toBe('f(e) = f(e)');
+    expect(p.text(in1)).toBe('f(e_G) = f(e_G)');
     expect(p.tryNode({ scope: K.ROOT, k: 'step', input: s, op: { k: 'applyMap', fn: 's' } }).error).toMatch(/takes an element of A/);
   });
   it('a one-group law used in another group reads with that group’s e (sort polymorphism)', () => {
@@ -97,7 +97,7 @@ describe('P9.1 / P9.2: f(e) = e for every homomorphism, then applied at another 
     const r = fe(p, 'f1', 'G1', 'H1');
     expect(p.text(r)).toBe('f₁(e_G₁) = e_H₁');
     const g = p.generalize(r);
-    expect(p.text(g)).toBe('∀G₁ a group. ∀H a group. ∀f : G₁ → H. f(e_G₁) = e_H');
+    expect(p.text(g)).toBe('∀G a group. ∀K a group. ∀f : G → K. f(e_G) = e_K');
     expect(K.lemmaEligibility(p.fact(g), [], p.graph, p.ctx)).toEqual({ ok: true });
     const sock = p.res.sockets[0]!;
     expect(sock.ok, sock.error).toBe(true);
@@ -116,7 +116,7 @@ describe('P9.1 / P9.2: f(e) = e for every homomorphism, then applied at another 
     const atTower = p.apply({ k: 'schema', id: 'lemma:fe' }, [], {}, { f: 'k1' });
     expect(p.text(atTower)).toBe('k₁(e_G₁) = e_G₁');
     const atPi = p.apply({ k: 'schema', id: 'lemma:fe' }, [], {}, { f: 'pi' });
-    expect(p.text(atPi)).toBe('π(e) = e_Q');
+    expect(p.text(atPi)).toBe('π(e_G) = e_Q');
     expect(p.tryNode({ scope: K.ROOT, k: 'apply', rule: { k: 'schema', id: 'lemma:fe' }, inputs: [], subst: {}, structs: { f: 'g' } }).error).toMatch(/not a homomorphism/);
     expect(p.tryNode({ scope: K.ROOT, k: 'apply', rule: { k: 'schema', id: 'lemma:fe' }, inputs: [], subst: {} }).error).toMatch(/Choose which homomorphism plays f/);
     oracleOk(p);
@@ -129,7 +129,7 @@ describe('P9.1 / P9.2: f(e) = e for every homomorphism, then applied at another 
   it('a card naming a level hom is not saveable; a free Hom Tower must be generalized first', () => {
     const p = new Player(ctxWith({ sorts: [{ id: 'G', kind: 'group', label: 'G' }, { id: 'Q', kind: 'group', label: 'Q' }], maps: [{ id: 'pi', label: 'π', args: ['G'], res: 'Q', kind: 'hom' }] }, [IDEM]));
     const r = fe(p, 'pi', 'G', 'Q');
-    expect(p.text(r)).toBe('π(e) = e_Q');
+    expect(p.text(r)).toBe('π(e_G) = e_Q');
     const card: Card = { k: 'law', metas: [], l: app('pi', K.E), r: eS('Q') };
     expect(K.lemmaEligibility(card, [], p.graph, p.ctx)).toMatchObject({ ok: false, reason: expect.stringMatching(/Mentions the map π/) });
   });
@@ -219,8 +219,8 @@ describe('mirrors with maps (pin 3)', () => {
 
 describe('printing (authors 2026-10-15)', () => {
   it('the action laws read without σ; the dock prints ⟹', () => {
-    expect(K.factText(K.MAP_SCHEMAS['act.mul']!.card, {})).toBe('∀S a group. ∀Ω a set. ∀σ : S × Ω → Ω. ∀g, h, p. (gh)(p) = g(h(p))');
-    expect(K.factText(K.MAP_SCHEMAS['act.e']!.card, {})).toBe('∀S a group. ∀Ω a set. ∀σ : S × Ω → Ω. ∀p. e_S(p) = p');
+    expect(K.factText(K.MAP_SCHEMAS['act.mul']!.card, {})).toBe('∀G a group. ∀Ω a set. ∀σ : G × Ω → Ω. ∀g, h, p. (gh)(p) = g(h(p))');
+    expect(K.factText(K.MAP_SCHEMAS['act.e']!.card, {})).toBe('∀G a group. ∀Ω a set. ∀σ : G × Ω → Ω. ∀p. e(p) = p');
     const sd: K.SocketDecl = { id: 's', target: { k: 'cond', metas: ['x'], premises: [{ k: 'eq', l: P(M('x'), M('x')), r: K.E }], concl: { k: 'eq', l: M('x'), r: M('w') } }, allowedGivens: [], holes: [{ id: 'w' }] };
     expect(K.dockText(sd, {})).toBe('∀x. xx = e ⟹ x = ?');
   });

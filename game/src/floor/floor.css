@@ -175,3 +175,7 @@
 .fl-bend { pointer-events: none; }
 .fl-bend .fl-hit { pointer-events: all; cursor: grab; }
 .fl-b.is-hover .fl-bend-knob, .fl-b.is-open:hover .fl-bend-knob { fill: #EEF0F5; }
+
+/* a selected room's edge resizes along its whole length (iso: x edges move down-right, y edges down-left) */
+[data-over="redge-x"] { cursor: nwse-resize; }
+[data-over="redge-y"] { cursor: nesw-resize; }

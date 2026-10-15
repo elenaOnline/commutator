@@ -8,6 +8,7 @@
 // Toolset: everything introduced up to P4.12 (lift, merge, suppose) and the earned cancel / witness / socks. No power laws, no press.
 import type { LevelManifest, Pallet, PatFact, SubRef, Term, Toolset } from '../../kernel/types';
 import type { AtomSpec, ConceptCard } from '../cards';
+import { letterSlot } from '../../ui/letters';
 
 const A = (id: string): Term => ({ k: 'atom', id });
 const M = (id: string): Term => ({ k: 'meta', id });
@@ -161,9 +162,9 @@ export const LEVELS: LevelManifest[] = [
   },
 ];
 
-/** Illustrative letters: AT('abc') → a, b, c in shape slots 0, 1, 2 (+ shift). */
-const AT = (s: string, shift = 0): AtomSpec[] => [...s].map((id, i) => ({ id, label: id, hue: i + shift }));
-void M; void y; void AT;
+/** Card letters: AT('pq') → p, q, each in its own shape (ui/letters: a letter keeps its shape on every card and floor). */
+const AT = (s: string): AtomSpec[] => [...s].map((id) => ({ id, label: id, hue: letterSlot(id) }));
+void M; void y;
 
 /** Concept cards for this world's levels, keyed by level id. */
 export const CARDS: Record<string, ConceptCard[]> = {
@@ -171,7 +172,11 @@ export const CARDS: Record<string, ConceptCard[]> = {
   'P5.1': [
     {
       title: 'Subgroups',
-      body: 'A **subgroup** of a group $G$ is a nonempty set $H$ of elements of $G$ that is closed under products and closed under inverses. Closed under products means that $x \\in H$ and $y \\in H$ give $xy \\in H$. Closed under inverses means that $x \\in H$ gives $x^{-1} \\in H$. The statement $x \\in H$ says that $x$ is an element of $H$.',
+      body: 'A **subgroup** of a group $G$ is a nonempty set $H$ of elements of $G$ that is closed under products and closed under inverses. The statement $x \\in H$ says that $x$ is an element of $H$. On the floor, $H$ is drawn as a small set with its name inside:',
+      figures: [{ k: 'math', atoms: AT('pq'), rows: [
+        { label: 'closed under products', seq: ['p', '∈', 'H', ',', 'q', '∈', 'H', '⟹', 'pq', '∈', 'H'] },
+        { label: 'closed under inverses', seq: ['p', '∈', 'H', '⟹', 'p^-1', '∈', 'H'] },
+      ] }],
     },
     {
       title: 'Why a subgroup is nonempty',
@@ -179,7 +184,10 @@ export const CARDS: Record<string, ConceptCard[]> = {
     },
     {
       title: 'Memberships on the floor',
-      body: 'A membership such as $a \\in H$ travels on belts like an equation, but it has one term and no right side. Each closure property is a recipe of the Theorem machine, listed under the name of the subgroup. Equal terms are the same element, so a Rewriter can change the term inside a membership: from $w \\in H$ and $w = z$ it gives $z \\in H$.',
+      body: 'A membership such as $a \\in H$ travels on belts like an equation, but it has one term and no right side. Each closure property is a recipe of the Theorem machine, listed under the name of the subgroup. Equal terms are the same element, so a Rewriter can change the term inside a membership. With other letters:',
+      figures: [{ k: 'math', atoms: AT('pqr'), rows: [
+        { seq: ['q', '=', 'r', ',', 'pq', '∈', 'H', '⟹', 'pr', '∈', 'H'], why: 'A Rewriter with $q = r$ on its rule port.' },
+      ] }],
     },
   ],
 
@@ -190,22 +198,18 @@ export const CARDS: Record<string, ConceptCard[]> = {
     },
     {
       title: 'A law at a compound term',
-      body: 'A law such as $\\forall x.\; px = xp$ holds for every $x$, so you may apply it with $x$ standing for any term, not only a single letter. Choose the term when you set the recipe. Taking $x = vw$ moves $vw$ as one block:',
-      figures: [{ k: 'math', atoms: AT('pxvw'), rows: [
-        { label: 'the law', seq: ['px', '=', 'xp'] },
-        { label: 'at $x = vw$', seq: [{ t: 'p(vw)', br: [[1, 2, '$x = vw$', 'over']] }, '=', { t: '(vw)p', br: [[0, 1, '$x = vw$', 'over']] }] },
+      body: 'A law such as $\\forall z. pz = zp$ holds for every $z$, so you may apply it with $z$ standing for any term, not only a single letter. Choose the term when you set the recipe. Taking $z = vw$ moves $vw$ as one block:',
+      figures: [{ k: 'math', atoms: AT('pzvw'), rows: [
+        { label: 'the law', seq: ['pz', '=', 'zp'] },
+        { label: 'at z = vw', seq: [{ t: 'p(vw)', br: [[1, 2, '$z = vw$', 'over']] }, '=', { t: '(vw)p', br: [[0, 1, '$z = vw$', 'over']] }] },
       ] }],
     },
   ],
 
   'P5.3': [
     {
-      title: 'Choosing the term',
-      body: 'When a given holds for every $x$, you decide what $x$ stands for. The right choice makes the given line up with the rest of the proof. With other letters, the law $\\forall x.\; xxp = p$ at $x = uv$ reads:',
-      figures: [{ k: 'math', atoms: AT('xuvp'), rows: [
-        { label: 'the law', seq: ['xxp', '=', 'p'] },
-        { label: 'at $x = uv$', seq: [{ t: '(uv)(uv)p', br: [[0, 1, '$x$', 'over'], [1, 2, '$x$', 'over']] }, '=', 'p'] },
-      ] }],
+      title: 'Closure under inverses',
+      body: 'In a subgroup test, the elements with some property must be closed under inverses. Here the property is a law in $x$. The given says that $a$ satisfies it, and the dock asks the same of $a^{-1}$. Pinter builds a subgroup from this property in the exercises of chapter 5.',
     },
   ],
 
@@ -216,7 +220,10 @@ export const CARDS: Record<string, ConceptCard[]> = {
     },
     {
       title: 'Conjugating a subgroup',
-      body: 'The **conjugate** of $u$ by $g$ is $gug^{-1}$. The givens say that conjugating by $c$ sends every member of $H$ to a member of $H$, and so does conjugating by $d$. The dock asks the same of one conjugation by the product of the two.',
+      body: 'The **conjugate** of $u$ by $g$ is $gug^{-1}$. A given of the form below says that conjugating by $g$ sends every member of $H$ to a member of $H$. This order has two such givens, one for $c$ and one for $d$. The dock asks the same of conjugating by their product.',
+      figures: [{ k: 'math', atoms: AT('gu'), rows: [
+        { seq: ['u', '∈', 'H', '⟹', 'gug^-1', '∈', 'H'], why: 'for every $u$' },
+      ] }],
     },
   ],
 
@@ -241,10 +248,6 @@ export const CARDS: Record<string, ConceptCard[]> = {
     {
       title: 'Commuting with squares',
       body: 'A **square** is a product $yy$. The given $H_a$ says $(ax)(ax) = (xa)(xa)$ for every $x$. The first dock asks for a related property of $a$: it commutes with every square, $ayy = yya$ for every $y$. The second dock shows that the product $ab$ has the property of $H_a$ and $H_b$.',
-    },
-    {
-      title: 'One law, several terms',
-      body: 'The same law can be applied more than once in a proof, at a different term each time. The output of one rewrite feeds the next. Here $H_a$ and $H_b$ have the same shape, so each one accepts any term for $x$.',
     },
   ],
 };

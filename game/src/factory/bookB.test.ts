@@ -55,9 +55,10 @@ describe('P5.1 on the floor: e ∈ H from a member', () => {
 });
 
 describe('Subgroup Towers, membership desks and ∀ (P12.1 trans)', () => {
-  it('∀H ≤ G ∀x,y,z. xy⁻¹ ∈ H, yz⁻¹ ∈ H ⟹ xz⁻¹ ∈ H — saveable', () => {
+  // playtest W10–14 #9: the saved lemma keeps the dock's binder order (a dock may list them in any order)
+  it.each([['x', 'y', 'z'], ['z', 'x', 'y']])('∀H ≤ G ∀x,y,z. xy⁻¹ ∈ H, yz⁻¹ ∈ H ⟹ xz⁻¹ ∈ H — saveable (dock order %s)', (...dockOrder) => {
     const x = M('x'), y = M('y'), z = M('z'), Hm: K.SubRef = { k: 'submeta', id: 'H' };
-    const target: K.Card = { k: 'cond', metas: ['x', 'y', 'z'], binds: [{ k: 'sub', id: 'H', normal: false }],
+    const target: K.Card = { k: 'cond', metas: dockOrder, binds: [{ k: 'sub', id: 'H', normal: false }],
       premises: [{ k: 'mem', t: P(x, I(y)), sub: Hm }, { k: 'mem', t: P(y, I(z)), sub: Hm }], concl: { k: 'mem', t: P(x, I(z)), sub: Hm } };
     const f = new Floor(mkLevel({ id: 'T', sockets: [{ id: 's', target, allowedGivens: [] }] } as never));
     const ht = f.add({ kind: 'tower', varId: 'H1', label: 'H₁', sort: 'G', sub: 'sub' }, { x: 2, y: 30 });
@@ -82,7 +83,9 @@ describe('Subgroup Towers, membership desks and ∀ (P12.1 trans)', () => {
     expect(K.factText((comp.machines[pp]!.out as { fact: K.Pallet }).fact, Lb)).toBe('x₁z₁⁻¹ ∈ H₁');
     expect(K.factText((comp.machines[all]!.out as { card: K.Card }).card, Lb)).toBe('∀H ≤ G. ∀x, y, z. xy⁻¹ ∈ H, yz⁻¹ ∈ H ⟹ xz⁻¹ ∈ H');
     expect(comp.solvable, JSON.stringify(comp.sockets)).toBe(true);
-    expect(F.lemmaFrom(comp, f.c, all, f.ctx)).toMatchObject({ ok: true });
+    const lm = F.lemmaFrom(comp, f.c, all, f.ctx);
+    expect(lm).toMatchObject({ ok: true });
+    expect(lm.ok && lm.card.metas).toEqual(dockOrder);
     expect(f.run().s.delivered.s).toBeDefined();
     oracleOk(f, comp);
     void ht; void b;

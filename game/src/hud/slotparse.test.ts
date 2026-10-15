@@ -57,7 +57,7 @@ describe('Tower name slot', () => {
   it('letter chips keep the subscript; subscript chips extend it', () => {
     expect(withLetter('x₂', 'y')).toBe('y₂');
     expect(withSubscript('x', 1, 'x')).toBe('x₁');
-    expect(withSubscript('x₁', 2, 'x')).toBe('x₁₂');
+    expect(withSubscript('x₁', 2, 'x')).toBe('x₂'); // the chip sets the subscript (#3: G₁ on G₂ gave G₂₁)
     expect(withSubscript('', 1, 'n')).toBe('n₁');
   });
 });

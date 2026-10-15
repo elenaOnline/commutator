@@ -14,6 +14,8 @@ import { queued } from '../factory/runtime';
 import type * as FF from '../factory';
 import { FONT, INK, VAR, reducedMotion } from '../ui/tokens';
 import { setSortCtx } from '../ui/sorts';
+import { campSave } from '../state/factoryStore';
+import { campaignOf } from '../levels/campaigns';
 import { MATH_CSS } from '../ui/math';
 import { P, f1, type G2, type S2 } from '../board/geom';
 import { factHTML, factSVG, factWidth, setVarInks, termHTML, termSVG, type Labels } from './math';
@@ -50,6 +52,9 @@ let ACTIVE: Floor | null = null;
 export function machineScreenRect(id: string): { left: number; top: number; width: number; height: number } | null {
   return ACTIVE?.machineRect(id) ?? null;
 }
+/** Viewport point (client px) of a tile's centre on the floor (probes aim the real pointer with it). */
+export function tileClientPoint(t: Tile): { x: number; y: number } | null { return ACTIVE?.tileClient(t) ?? null; }
+(globalThis as unknown as { __floorAim: unknown }).__floorAim = { tile: tileClientPoint, machine: (id: string) => machineScreenRect(id) };
 /** Re-frame the floor (F). */
 export function fitFloor(): void { ACTIVE?.fit(); }
 
@@ -241,6 +246,14 @@ class Floor {
     } catch (e) { console.warn('floor: geometry failed', e); this.geo = null; }
     const geo = this.geo;
     if (!geo) { for (const k of Object.keys(this.L)) this.L[k]!.innerHTML = ''; return; }
+    // a Theorem plate names the subgroup / homomorphism the compiler settled it at ("fibre lemma ⟹ at π") (#5)
+    for (const [id, g] of geo.ms) {
+      const st = s.compiled?.machines?.[id]?.structs;
+      if (st?.length && g.look.subBlob) { const ch = st.find((x) => x.chosen); const lab = ch?.options.find((o) => o.id === ch.chosen)?.label; if (lab) g.look = { ...g.look, subBlob: { ...g.look.subBlob, label: lab } }; } // xy ∈ (N) when it acts on N (#10)
+      if (!st?.length || !g.look.plate || !g.look.title || / at /.test(g.look.title)) continue;
+      const at = st.filter((x) => x.chosen).map((x) => x.options.find((o) => o.id === x.chosen)?.label ?? x.chosen!);
+      if (at.length) g.look = { ...g.look, title: `${g.look.title} at ${at.join(', ')}` };
+    }
     const comp = s.compiled ?? null;
     // tower variables read as x₁ everywhere
     for (const [id, v] of geo.vars) this.labels[id] = v.label;
@@ -320,8 +333,12 @@ class Floor {
     if (geo && comp) for (const g of geo.ms.values()) {
       if (g.m.kind !== 'forall' && g.m.kind !== 'gate') continue;
       let ok = false;
-      try { ok = !!(F.lemmaFrom(comp, this.s.canvas, g.m.id, this.s.ctx) as { ok?: boolean })?.ok; } catch { ok = false; }
+      let card: K.Card | null = null;
+      try { const r = F.lemmaFrom(comp, this.s.canvas, g.m.id, this.s.ctx) as { ok?: boolean; card?: K.Card }; ok = !!r?.ok; card = r?.card ?? null; } catch { ok = false; }
       if (!ok) continue;
+      // once saved, the badge goes (the Lemma Book keeps positional records: compare up to renaming) (#14)
+      const saved = campSave(this.s.save, campaignOf(this.s.level)).lemmas;
+      if (card && saved.some((l) => { try { return K.sameCardUpToRenaming(l.card, card!); } catch { return false; } })) continue;
       const c = P((g.x0 + g.x1) / 2, (g.y0 + g.y1) / 2, heightOf(g.m));
       const w = 96, x = c[0] - w / 2, y = c[1] - 40;
       o += `<g class="fl-badge fl-sz fl-sz-q" data-badge="${esc(g.m.id)}" style="transform-origin:${f1(c[0])}px ${f1(y + 9)}px" role="button" aria-label="Ready to save to the Lemma Book">` +
@@ -760,11 +777,12 @@ class Floor {
     // a selected room carries its own delete, under its south corner (away from the heading; never beside a close)
     const one = ui.selection.length === 1 ? this.s.canvas.rooms.find((r) => r.id === ui.selection[0]) : undefined;
     if (one && this.g.k !== 'resize' && ui.tool.k !== 'room') {
-      const R = one.rect, c = P(R.x + R.w, R.y + R.h);
-      const text = 'Delete room  ⌫', w = 22 + text.length * 6.4;
+      // at the room's west corner, outside it (docks sit east and south; the heading sits on the north-west wall)
+      const R = one.rect, c = P(R.x, R.y + R.h);
+      const text = 'Delete room  ⌫', w = 22 + text.length * 6.4, x0 = c[0] - w - 14;
       html += `<g class="fl-rdel" data-rdel="${esc(one.id)}" role="button" aria-label="Delete this room (its desk and gate go; machines inside stay)" style="cursor:pointer">` +
-        `<rect x="${f1(c[0] - w / 2)}" y="${f1(c[1] + 12)}" width="${f1(w)}" height="24" rx="12" fill="#fff" stroke="${JAM}" stroke-width="1.3"/>` +
-        `<text x="${f1(c[0])}" y="${f1(c[1] + 28)}" text-anchor="middle" font-family="${FONT.ui}" font-size="12" font-weight="600" fill="${JAM}" style="pointer-events:none">${esc(text)}</text>` +
+        `<rect x="${f1(x0)}" y="${f1(c[1] - 12)}" width="${f1(w)}" height="24" rx="12" fill="#fff" stroke="${JAM}" stroke-width="1.3"/>` +
+        `<text x="${f1(x0 + w / 2)}" y="${f1(c[1] + 4)}" text-anchor="middle" font-family="${FONT.ui}" font-size="12" font-weight="600" fill="${JAM}" style="pointer-events:none">${esc(text)}</text>` +
         `<title>Removes the room, its desk and its gate. Machines inside stay. ⌘Z undoes.</title></g>`;
     }
     this.L.handles!.innerHTML = html;
@@ -839,8 +857,38 @@ class Floor {
 
   // ───────────────────────────── ghosts & previews ─────────────────────────────
 
+  tileClient(t: Tile): { x: number; y: number } {
+    const sp = toScreen(this.cam(), this.view, P(t.x + 0.5, t.y + 0.5));
+    const r = this.root.getBoundingClientRect();
+    return { x: r.left + sp[0], y: r.top + sp[1] };
+  }
   private pointerTile(): Tile { return tileOf(gridOf(toWorld(this.cam(), this.view, this.pointer.x, this.pointer.y))); }
   private pointerGrid(): G2 { return gridOf(toWorld(this.cam(), this.view, this.pointer.x, this.pointer.y)); }
+
+  /**
+   * Where a w×h machine aimed at `tile` lands (every drop path: hotbar, pipette, move). Aimed inside a room near
+   * its wall, it slides wholly inside; aimed just outside, wholly outside. It never lands across a wall by surprise.
+   */
+  private snapToRooms(at0: Tile, w: number, h: number, tile: Tile): Tile {
+    let at = { ...at0 };
+    // aimed inside a room near its wall: slide the machine wholly inside (it never lands outside by surprise)
+    const room = F.roomAt(this.s.canvas, tile);
+    if (room && w <= room.rect.w && h <= room.rect.h) {
+      const R = room.rect;
+      at = { x: Math.min(Math.max(at.x, R.x), R.x + R.w - w), y: Math.min(Math.max(at.y, R.y), R.y + R.h - h) };
+    }
+    // aimed just outside a wall with a footprint that would cut it: slide it wholly outside, the short way
+    for (const r of this.s.canvas.rooms) {
+      const R = r.rect;
+      if (room && (room.id === r.id || (R.x <= room.rect.x && R.y <= room.rect.y && R.x + R.w >= room.rect.x + room.rect.w && R.y + R.h >= room.rect.y + room.rect.h))) continue; // the pointer's own room (or one around it)
+      const ix = Math.min(at.x + w, R.x + R.w) - Math.max(at.x, R.x), iy = Math.min(at.y + h, R.y + R.h) - Math.max(at.y, R.y);
+      if (ix <= 0 || iy <= 0) continue;
+      const opts = [{ x: R.x - w - at.x, y: 0 }, { x: R.x + R.w - at.x, y: 0 }, { x: 0, y: R.y - h - at.y }, { x: 0, y: R.y + R.h - at.y }];
+      const d = opts.sort((a, b) => Math.abs(a.x) + Math.abs(a.y) - Math.abs(b.x) - Math.abs(b.y))[0]!;
+      if (Math.abs(d.x) + Math.abs(d.y) <= Math.max(w, h)) at = { x: at.x + d.x, y: at.y + d.y };
+    }
+    return at;
+  }
 
   private ghostMachine(tile: Tile): Machine | null {
     const tool = this.s.ui.tool;
@@ -850,13 +898,7 @@ class Floor {
     const probe: Machine = { id: '__ghost', kind: tool.kind, at: { x: 0, y: 0 }, rot: this.s.ui.rot, config };
     const fp = footprint(probe, this.s.ctx);
     const w = Math.max(...fp.map((t) => t.x)) + 1, h = Math.max(...fp.map((t) => t.y)) + 1;
-    let at = { x: tile.x - Math.floor((w - 1) / 2), y: tile.y - Math.floor((h - 1) / 2) };
-    // aimed inside a room near its wall: slide the machine wholly inside (it never lands outside by surprise)
-    const room = F.roomAt(this.s.canvas, tile);
-    if (room && w <= room.rect.w && h <= room.rect.h) {
-      const R = room.rect;
-      at = { x: Math.min(Math.max(at.x, R.x), R.x + R.w - w), y: Math.min(Math.max(at.y, R.y), R.y + R.h - h) };
-    }
+    const at = this.snapToRooms({ x: tile.x - Math.floor((w - 1) / 2), y: tile.y - Math.floor((h - 1) / 2) }, w, h, tile);
     return { ...probe, at };
   }
 
@@ -882,6 +924,8 @@ class Floor {
     const tile = this.pointerTile();
     const key = `place|${tile.x},${tile.y}|${this.s.ui.rot}|${JSON.stringify(this.s.ui.tool)}`;
     if (key === this.ghostKey) return;
+    // a refusal belongs to the spot it was said about: on a new spot the ghost speaks again (where it will land)
+    if (this.ghostKey && this.s.ui.toast?.kind === 'refused') this.store.setUI({ toast: null });
     this.ghostKey = key;
     const m = this.ghostMachine(tile); if (!m || !this.geo) return;
     if (this.justPlaced) {
@@ -1215,6 +1259,11 @@ class Floor {
       for (const t of tiles) under += `<path d="${groundRect(t.x, t.y, t.x + 1, t.y + 1, 0.05, 0.12)}" fill="${ok ? OK : 'url(#fl-bad)'}" opacity="${ok ? 0.2 : 1}"/>`;
       ghost += machineSVG(moved, this.cx);
     }
+    // where it lands: the room it would sit in lights up (the same cue as placing)
+    const movedTiles = g.ids.flatMap((id) => (this.geo!.ms.get(id)?.tiles ?? []).map((t) => ({ x: t.x + g.delta.x, y: t.y + g.delta.y })));
+    const home = movedTiles.length ? F.roomAt(this.s.canvas, movedTiles[0]!) : null;
+    if (home && !g.ids.includes(home.id) && movedTiles.every((t) => F.roomAt(this.s.canvas, t)?.id === home.id))
+      under = `<path d="${groundRect(home.rect.x, home.rect.y, home.rect.x + home.rect.w, home.rect.y + home.rect.h, 0.02, 0.3)}" fill="${VIOLET}" fill-opacity=".08" stroke="${VIOLET}" stroke-width="2.2" stroke-opacity=".75"/>` + under;
     this.L.under!.innerHTML = under;
     this.L.ghost!.innerHTML = `<g class="fl-ghostm${ok ? '' : ' is-bad'}">${ghost}</g>` + (g.reason && !this.toastUp() ? (() => { const w = toWorld(this.cam(), this.view, this.pointer.x, this.pointer.y); return this.tagSVG(w[0], w[1] - 30, g.reason!, JAM); })() : '');
     for (const id of g.ids) this.elByM.get(id)?.classList.add('is-moving');
@@ -1233,6 +1282,13 @@ class Floor {
     let y0 = Math.min(...cs.map((t) => t.y)), y1 = Math.max(...cs.map((t) => t.y)) + 1;
     const st = g.start;
     let note = '';
+    // a click (no drag) paints a room sized for its desks and a working factory: 8 × 7 for one assumption, +1 each more
+    if (Math.hypot(g.cx - g.sx, g.cy - g.sy) < 8) {
+      const k = Math.max(1, this.roomSpec()?.assumes?.length ?? 1);
+      const w = 7 + k, h = 6 + k;
+      x0 = st.x - Math.floor(w / 2); x1 = x0 + w; y0 = st.y - Math.floor(h / 2); y1 = y0 + h;
+      note = 'Click for this room, or drag to size it.';
+    }
     const boxes = this.s.canvas.machines.filter((m) => m.kind !== 'desk' && m.kind !== 'gate').map((m) => {
       const fp = footprint(m, this.s.ctx);
       return { m, bx0: Math.min(...fp.map((t) => t.x)), bx1: Math.max(...fp.map((t) => t.x)) + 1, by0: Math.min(...fp.map((t) => t.y)), by1: Math.max(...fp.map((t) => t.y)) + 1 };
@@ -1277,7 +1333,7 @@ class Floor {
       this.L.ghost!.innerHTML = roomSVG({ id: '__ghost', kind, rel: spec?.rel, l: spec?.l ?? null, r: spec?.r ?? null, rect, assumes: spec?.assumes }, this.labels, true);
       // say, before the release, what the release will do: the size, and any refusal in the editor's words
       const small = rect.w < MIN_ROOM || rect.h < MIN_ROOM;
-      const verdict = small || !spec ? null : safe(() => F.paintRoom(this.s.canvas, rect, kind, spec.l, spec.r, this.s.ctx, spec.rel, spec.assumes && spec.assumes.length > 1 ? spec.assumes : undefined), null);
+      const verdict = small || !spec ? null : safe(() => F.paintRoom(this.s.canvas, rect, kind, spec.l, spec.r, this.s.ctx, spec.rel, spec.assumes && (spec.assumes.length > 1 || spec.assumes.some((a) => a.rel === 'mem')) ? spec.assumes : undefined), null);
       const why = small ? TOO_SMALL : !spec ? "Pick the room's assumption first." : verdict && !verdict.ok ? verdict.reason : note;
       const bad = small || !spec || (!!verdict && !verdict.ok);
       const top = P(rect.x + rect.w / 2, rect.y + rect.h / 2);
@@ -1540,6 +1596,11 @@ class Floor {
       return;
     }
     if (tool.k === 'erase' || this.isOutPort(t)) { this.g = { k: 'press', x: p.x, y: p.y, target: t, shift: e.shiftKey }; r(this.root, e); return; }
+    // a selected room's edge is a handle along its whole length
+    if ((tool.k === 'select' || tool.k === 'room') && t.k !== 'port' && t.k !== 'machine' && t.k !== 'rh') {
+      const edge = this.roomEdgeAt();
+      if (edge) return this.startResize(edge, e);
+    }
     if (tool.k === 'room') {
       if (t.k === 'rh') return this.startResize(t, e);
       const tl = this.pointerTile();
@@ -1562,6 +1623,23 @@ class Floor {
     this.g = { k: 'pan', x: p.x, y: p.y, cam: { ...c } };
     this.root.classList.add('is-panning');
     try { this.root.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+  }
+
+  /** A selected room's edge under the pointer (any point along it, not only its handle): drag it to resize. */
+  private roomEdgeAt(): { id: string; h: string } | null {
+    const ui = this.s.ui;
+    const [gx, gy] = this.pointerGrid();
+    const tol = 0.32;
+    for (const r of this.s.canvas.rooms) {
+      if (!ui.selection.includes(r.id) && ui.tool.k !== 'room') continue;
+      const R = r.rect;
+      const inY = gy > R.y - tol && gy < R.y + R.h + tol, inX = gx > R.x - tol && gx < R.x + R.w + tol;
+      if (inY && Math.abs(gx - R.x) < tol) return { id: r.id, h: 'w' };
+      if (inY && Math.abs(gx - (R.x + R.w)) < tol) return { id: r.id, h: 'e' };
+      if (inX && Math.abs(gy - R.y) < tol) return { id: r.id, h: 'n' };
+      if (inX && Math.abs(gy - (R.y + R.h)) < tol) return { id: r.id, h: 's' };
+    }
+    return null;
   }
 
   private startResize(t: { id: string; h: string }, e: PointerEvent) {
@@ -1594,7 +1672,14 @@ class Floor {
       }
       case 'move': {
         const t = this.pointerTile();
-        const delta = { x: t.x - g.start.x, y: t.y - g.start.y };
+        let delta = { x: t.x - g.start.x, y: t.y - g.start.y };
+        // one machine dragged near a wall lands where the pointer is: wholly inside or wholly outside (never across)
+        const one = g.ids.length === 1 ? this.geo?.ms.get(g.ids[0]!) : undefined;
+        if (one && one.m.kind !== 'desk' && one.m.kind !== 'gate') {
+          const tgt = { x: one.x0 + delta.x, y: one.y0 + delta.y };
+          const snapped = this.snapToRooms(tgt, one.x1 - one.x0, one.y1 - one.y0, t);
+          delta = { x: delta.x + snapped.x - tgt.x, y: delta.y + snapped.y - tgt.y };
+        }
         if (delta.x !== g.delta.x || delta.y !== g.delta.y) {
           const v = delta.x || delta.y ? tryMove(this.s.canvas, g.ids, delta, this.s.ctx) : null;
           let reason = v && !v.ok ? v.reason : undefined;
@@ -1622,6 +1707,7 @@ class Floor {
     // idle hover
     const t = this.targetOf(e);
     this.setHoverFrom(t);
+    if (t.k !== 'port' && t.k !== 'machine') { const edge = this.roomEdgeAt(); if (edge) this.root.dataset.over = edge.h === 'w' || edge.h === 'e' ? 'redge-x' : 'redge-y'; }
     this.updateGhost();
     this.updateTip();
     if (this.tip.classList.contains('is-on')) this.placeTip();
@@ -1729,6 +1815,7 @@ class Floor {
         const spec = this.roomSpec();
         if (!spec) { this.say("Pick the room's assumption first."); return; }
         if (rect.w < MIN_ROOM || rect.h < MIN_ROOM) { this.say(TOO_SMALL); return; }
+        // a refused default room (a click) says so; the editor's reason arrives through the toast as usual
         this.timed('room', e, () => this.store.paintRoom(rect, tool.k === 'room' ? tool.kind : 'suppose', spec.l, spec.r, spec.rel, spec.assumes));
         return;
       }
@@ -1987,8 +2074,8 @@ function kindWord(ks: ItemKind[], cap = false): string {
   return bare.charAt(0).toUpperCase() + bare.slice(1);
 }
 
-/** The editor's minimum room (factory/editor.ts MIN_ROOM): a desk with its face tile, the gate with its inner tile, and a machine. */
-const MIN_ROOM = 3;
+/** The editor's minimum room (factory/editor.ts MIN_ROOM, square): a desk with its face tile, the gate with its inner tile, and a machine. */
+const MIN_ROOM = Math.max(F.MIN_ROOM.w, F.MIN_ROOM.h);
 const TOO_SMALL = `Too small: a room needs at least ${MIN_ROOM} × ${MIN_ROOM} tiles, for its desk, its gate and a machine.`;
 const safe = <T,>(f: () => T, d: T): T => { try { return f(); } catch { return d; } };
 

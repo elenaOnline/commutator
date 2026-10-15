@@ -113,8 +113,8 @@
 .h3-roommsg { font-size: 12.5px; min-height: 20px; color: var(--navy); }
 .h3-roommsg .math { font-size: 16px; }
 .h3-roomfoot { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
-.h3-roomdel { color: var(--contradiction-text); }
-.h3-roomdel:hover { background: color-mix(in srgb, var(--contradiction-text) 10%, transparent); }
+.lw-key.h3-roomdel { color: var(--contradiction-text); }
+.lw-key.h3-roomdel:hover { background: color-mix(in srgb, var(--contradiction-text) 10%, transparent); }
 .h3-presets { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .h3-preset { border: 1.5px solid var(--scope); background: #F7F4FD; color: var(--scope); border-radius: 999px; padding: 3px 11px; font-size: 12.5px; cursor: pointer; white-space: nowrap; }
 .h3-preset .math { font-size: 15px; color: var(--navy); }
@@ -501,6 +501,9 @@ button.h3-rel { border: 0; background: none; color: var(--navy); }
 .qed-save-form { display: flex; gap: 8px; align-items: center; }
 .qed-save-form .qed-name { width: 220px; font: 15px var(--font-ui); }
 .qed-save-note { font-size: 12px; color: var(--text-dim); }
+.qed-saves { display: flex; flex-direction: column; align-items: center; }
+.qed-saves .qed-save + .qed-save { margin-top: 10px; }
+.qed-saves > .qed-save-note { margin-top: 8px; }
 .h3-tog.h3-landed { animation: h3-land .9s ease-out; }
 
 /* ═════════ v4.1 — variables are SOLID fills (never hatching); strips tint what a rule changes ═════════ */
@@ -648,6 +651,7 @@ button.h3-rel { border: 0; background: none; color: var(--navy); }
 .bw-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px 16px; padding-left: 38px; }
 .map-book .mn.bk-node { display: block; position: relative; transform: none; min-width: 0; max-width: none; width: 100%; overflow: visible; }
 .map-book .mn.bk-node .mn-stmt { white-space: normal; font-size: 17px; line-height: 1.35; }
+.map-book .mn.bk-node .mn-stmt .mn-nb { white-space: nowrap; } /* wrap between statements, never inside one */
 .map-book .mn.bk-node .mn-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .map-book .mn.bk-node.side { background: var(--wash); }
 .bk-method { margin-top: 3px; font-size: 11.5px; color: var(--text-dim); }
@@ -678,6 +682,7 @@ button.h3-rel { border: 0; background: none; color: var(--navy); }
 .pp-why .math { color: var(--text-dim); }
 .pp-end { margin: 4px 0 0; text-align: right; }
 .pp-end .tomb { display: inline-block; width: 10px; height: 12px; background: var(--navy); }
+.pp-why .pp-qed { display: inline-block; width: 9px; height: 11px; background: var(--navy); margin-left: 12px; vertical-align: -1px; }
 .pp-open, .pp-empty { margin: 8px 0 0; font: 13px/1.45 var(--font-ui); color: var(--text-dim); }
 .qed-paper { max-width: 560px; max-height: 38vh; overflow: auto; margin: 14px auto 6px; padding: 10px 6px 4px; border-top: 1px solid var(--hair); border-bottom: 1px solid var(--hair); }
 
@@ -730,3 +735,20 @@ button.h3-rel { border: 0; background: none; color: var(--navy); }
 .h3-becomes::before, .h3-becomes::after { content: ''; flex: 1; border-top: 1px solid var(--hair); }
 .h3-mapchip { border: 0; background: #fff; border-radius: 999px; padding: 2px 10px; box-shadow: inset 0 0 0 1px #BFC3CF; cursor: pointer; font-size: 15px; color: var(--navy); }
 .h3-mapchip.on { box-shadow: inset 0 0 0 2px var(--navy); background: #F3F4F8; }
+
+/* #8: a row owns its figure — the figure never spills over (and steals clicks from) the next row */
+.h3-prow { position: relative; overflow: hidden; flex-shrink: 0; }
+.h3-prow-demo, .h3-prow-stmt { flex: 1 1 0; min-width: 0; overflow: hidden; }
+.h3-prow-demo > * { min-width: 0; max-width: 100%; }
+.h3-prow-demo .h3-tf, .h3-prow-demo .h3-join { flex-wrap: wrap; row-gap: 2px; }
+/* #10: maths on the navy "In your Lemma Book" cards and plates stays readable (the subgroup ink is for white grounds) */
+.qed-plate .m-subg, .qed-machine .m-subg, .machine-stmt .m-subg, .h3-glyph .m-subg { color: #A9D8C8; }
+.qed-plate .m-esort, .qed-machine .m-esort { color: inherit; }
+.h3-pickrefused { margin: 4px 0 6px; }
+.h3-stmtdemo { font-size: 15px; }
+
+/* the ∎ ceremony fits the window: it scrolls inside itself, the seal is never cut, the buttons stay in reach (W10–14 #10) */
+.lw3 .h3-ceremony .qed-card { max-height: calc(100vh - 20px); overflow-y: auto; overscroll-behavior: contain; box-sizing: border-box; padding: 14px 14px 0; scrollbar-width: thin; }
+.lw3 .h3-ceremony .qed-actions { position: sticky; bottom: 0; z-index: 2; background: rgba(255, 255, 255, .97); padding: 12px 0 14px; margin-top: 16px; }
+.lw3 .h3-ceremony .qed-card:has(.qed-saves) .qed-paper { max-height: 26vh; }
+.lw3 .h3-ceremony .qed-unlock .machine-tb { max-width: 22em; white-space: normal; }

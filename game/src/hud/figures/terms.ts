@@ -26,7 +26,7 @@ export function lettersOf(specs: AtomSpec[]): Letters {
   // a letter keeps its shape on cards and floor alike: the shape comes from the letter (ui/letters), never from
   // the card's own list; Tower variables (a sort) wear the variable look whatever their hue
   const hue = (a: AtomSpec) => (a.sort ? a.hue : letterSlot(a.label));
-  const atoms: AtomDecl[] = specs.map((a) => ({ id: a.id, label: a.label, hue: hue(a) }));
+  const atoms: AtomDecl[] = specs.map((a) => ({ id: a.id, label: a.label, hue: hue(a), ...(a.sort ? { sort: a.sort } : {}) }));
   return {
     atoms,
     L: Object.fromEntries(specs.map((a) => [a.id, a.label])),

@@ -1,6 +1,7 @@
 // THE BOOK · World 8 — Order of Elements (Pinter 10). See design/pinter/SYNTHESIS.md §3 and design/pinter/AUTHOR-BRIEF.md.
 import type { LevelManifest, Monomial, Pallet, PatFact, Poly, Term, Toolset } from '../../kernel/types';
 import type { AtomSpec, ConceptCard } from '../cards';
+import { letterSlot } from '../../ui/letters';
 
 // ── local builders (normalized terms) ──
 const A = (id: string): Term => ({ k: 'atom', id });
@@ -76,7 +77,7 @@ export const LEVELS: LevelManifest[] = [
     // Assume x^(2m+1) = e · Spool (x²)^(m+1) → power.multiply → power.add backwards (2m+1, 1) → desk → power.one → gate → ∀.
     id: 'P10.3', index: 40, campaign: 'book', world: 8, chapter: 10, title: 'Odd Order',
     method: 'Exponent arithmetic',
-    insight: 'Odd order means x = x^(2m+2), which is (x²)^(m+1): x is a power of x². Splitting x^(2m+2) as x^(2m+1)·x brings in the given.',
+    insight: 'Odd order means x = x²ᵐ⁺², which is (x²)ᵐ⁺¹: x is a power of x². Splitting x²ᵐ⁺² as x²ᵐ⁺¹·x brings in the given.',
     source: 'Pinter 10.D4',
     memo: 'A part resets after an odd number of turns. Show it is some power of its own double turn.',
     atoms: [], givens: [],
@@ -127,7 +128,7 @@ export const LEVELS: LevelManifest[] = [
     // Side order. Notation: pow nodes. Assume xⁿ = e · Spool x^(nk) → power.multiply backwards (n, k) → desk → power.identity → gate → ∀.
     id: 'P10.s1', index: 43, campaign: 'book', world: 8, chapter: 10, side: true, title: 'Multiples of an Exponent',
     method: 'Exponent arithmetic',
-    insight: 'x^(nk) = (xⁿ)ᵏ. If xⁿ = e then (xⁿ)ᵏ = eᵏ = e, so every multiple of an exponent for e is an exponent for e.',
+    insight: 'xⁿᵏ = (xⁿ)ᵏ. If xⁿ = e then (xⁿ)ᵏ = eᵏ = e, so every multiple of an exponent for e is an exponent for e.',
     source: 'Pinter ch. 10, Theorem 5',
     memo: 'A reset after n turns repeats after any multiple of n. Certify it, and keep it.',
     atoms: [], givens: [],
@@ -152,12 +153,11 @@ export const LEVELS: LevelManifest[] = [
 ];
 
 
-/** Illustrative letters: AT('abc') → a, b, c in shape slots 0, 1, 2 (+ shift). */
-const AT = (str: string, shift = 0): AtomSpec[] => [...str].map((id, i) => ({ id, label: id, hue: i + shift }));
-/** Tower variables: TW('xy') → x, y as solid ∈G (or ∈ℤ) variables. */
-const TW = (str: string, sort: 'G' | 'Z' = 'G', shift = 2): AtomSpec[] => [...str].map((id, i) => ({ id, label: id, hue: i + shift, sort }));
-/** Group letters and integer letters side by side. */
-const GZ = (g: string, z: string): AtomSpec[] => [...TW(g, 'G', 0), ...TW(z, 'Z', 4)];
+/** Card letters: AT('pq') → p, q, each in its own shape (ui/letters: a letter keeps its shape on every card and floor). */
+const AT = (str: string): AtomSpec[] => [...str].map((id) => ({ id, label: id, hue: letterSlot(id) }));
+/** Tower variables: TW('xy') → x, y in the variable look (∈G, or ∈ℤ for exponents). */
+const TW = (str: string, sort: 'G' | 'Z' = 'G'): AtomSpec[] => [...str].map((id) => ({ id, label: id, hue: letterSlot(id), sort }));
+// Card figures draw exponents as numbers: a figure's letters are elements, so u^(3) renders and u^(n) would not.
 
 /** Concept cards for this world's levels, keyed by level id. */
 export const CARDS: Record<string, ConceptCard[]> = {
@@ -196,9 +196,11 @@ export const CARDS: Record<string, ConceptCard[]> = {
     },
     {
       title: 'Power of a conjugate',
-      body: 'The imported law **power of a conjugate** says $(u^{-1}vu)^n = u^{-1}v^nu$ for every integer $n$. The frame $u^{-1} \\ldots u$ stays outside, and the power moves inside. Its mirror image is $(uvu^{-1})^n = uv^nu^{-1}$, chosen with the side toggle.',
-      figures: [{ k: 'math', atoms: GZ('pq', 'n'), rows: [
-        { label: 'power of a conjugate', seq: ['(p^-1qp)^(n)', '=', 'p^-1q^(n)p'] },
+      body: 'The imported law **power of a conjugate** says $(u^{-1}vu)^n = u^{-1}v^nu$ for every integer $n$. Its mirror image, $(uvu^{-1})^n = uv^nu^{-1}$, is chosen with the side toggle. At $n = 3$ you can see why it holds.',
+      figures: [{ k: 'math', atoms: [...AT('pq'), ...TW('n', 'Z')], rows: [
+        { seq: ['(p^-1qp)^(n)', '=', 'p^-1q^(n)p'], why: 'The law.' },
+        { seq: ['(p^-1qp)^(3)', '=', { t: 'p^-1q(pp^-1)q(pp^-1)qp', br: [[2, 3, '$e$'], [4, 5, '$e$']] }] },
+        { seq: ['=', 'p^-1q^(3)p'], why: 'At $n = 3$: the inner pairs cancel.' },
       ] }],
     },
   ],
@@ -206,17 +208,17 @@ export const CARDS: Record<string, ConceptCard[]> = {
   'P10.3': [
     {
       title: 'Odd exponents',
-      body: 'Every odd integer can be written $2m + 1$ for some integer $m$. That turns “odd” into an exponent the checker can compute with. Two more laws are imported here, shown below.',
-      figures: [{ k: 'math', atoms: GZ('u', 'ab'), rows: [
+      body: 'Every odd integer can be written $2m + 1$ for some integer $m$. That turns “odd” into an exponent the checker can compute with. Two more laws are imported here, **power of a power** and **first power**:',
+      figures: [{ k: 'math', atoms: [...TW('u'), ...TW('ab', 'Z')], rows: [
         { label: 'power of a power', seq: ['(u^(a))^(b)', '=', 'u^(ab)'] },
         { label: 'first power', seq: ['u^(1)', '=', 'u'] },
       ] }],
     },
     {
       title: 'Reading a law backwards',
-      body: 'A Rewriter can use a law from right to left. To read $u^{a+b}$ as $u^au^b$ the machine must be told how to split the exponent, so its lens asks for $a$ and $b$. Any integer expressions work, such as $u^{3n+2}$ read as $u^{3n}u^2$.',
-      figures: [{ k: 'math', atoms: GZ('u', 'n'), rows: [
-        { seq: ['u^(3n+2)', '=', { t: 'u^(3n)u^(2)', br: [[0, 1, '$3n$'], [1, 2, '$2$']] }] },
+      body: 'A Rewriter can use a law from right to left. To read $u^{a+b}$ as $u^au^b$, the machine must be told how to split the exponent, so its lens asks for $a$ and $b$. Any integer expressions in the Tower variables work.',
+      figures: [{ k: 'math', atoms: TW('u'), rows: [
+        { seq: ['u^(5)', '=', { t: 'u^(2)u^(3)', br: [[0, 1, '$a = 2$'], [1, 2, '$b = 3$']] }] },
       ] }],
     },
     {
@@ -235,16 +237,8 @@ export const CARDS: Record<string, ConceptCard[]> = {
       ] }],
     },
     {
-      title: 'Combining two exponents',
-      body: 'If $u^a = e$ and $u^b = e$, then any exponent of the form $sa + tb$ also gives $e$. Choosing $s$ and $t$ is arithmetic. For example $1 = 4 \\cdot 2 + (-1) \\cdot 7$, so $u^1$ can be rewritten as $u^8u^{-7}$.',
-      figures: [{ k: 'math', atoms: AT('u'), rows: [
-        { seq: ['u', '=', 'u^(1)', '=', { t: 'u^(8)u^(-7)', br: [[0, 2, '$8 + (-7) = 1$']] }] },
-      ] }],
-    },
-    {
       title: 'Powers of e',
       body: 'The imported law **power of e** says $e^n = e$ for every integer $n$: any number of copies of $e$ is still $e$.',
-      figures: [{ k: 'math', atoms: TW('n', 'Z', 4), rows: [{ seq: ['e^(n)', '=', 'e'] }] }],
     },
   ],
 
@@ -253,37 +247,27 @@ export const CARDS: Record<string, ConceptCard[]> = {
       title: 'A given that is an if–then',
       body: 'A given can be an if–then with several premises, such as $V$: for every $x$, if $x^3 = e$ and $x \\neq e$, then $x = c$. A Theorem machine set to a given like this has one input for each premise, and every premise must arrive before it fires.',
       machines: ['theorem'],
-      figures: [{ k: 'math', atoms: [...TW('x', 'G', 0), { id: 'c', label: 'c', hue: 2 }], rows: [
+      figures: [{ k: 'math', atoms: [...TW('x'), ...AT('c')], rows: [
         { label: 'V', seq: ['x^(3)', '=', 'e', ',', 'x', '≠', 'e', '⟹', 'x', '=', 'c'] },
       ] }],
     },
     {
       title: 'Central elements',
-      body: 'An element $c$ is **central** if $cy = yc$ for every $y$. The conjugate $y^{-1}cy$ equals $c$ exactly when $c$ and $y$ commute. So to show an element is central, show that conjugating it never changes it.',
-      figures: [{ k: 'math', atoms: AT('cy'), rows: [
-        { seq: ['y^-1cy', '=', 'c', '⟹', 'cy', '=', 'yc'], why: 'Multiply both sides on the left by $y$.' },
-      ] }],
+      body: 'An element $c$ is **central** if $cy = yc$ for every $y$ in the group. The central elements form the **centre** of the group, which you met in chapter 5.',
     },
   ],
 
   'P10.s1': [
     {
-      title: 'Factoring an exponent',
-      body: 'The exponent $ab$ of $u^{ab}$ can be read as $(u^a)^b$ or as $(u^b)^a$. Reading **power of a power** backwards, the lens asks which factor goes inside. Both choices are valid. Only one of them suits the facts you have.',
-      figures: [{ k: 'math', atoms: GZ('u', 'ab'), rows: [
-        { seq: ['u^(ab)', '=', '(u^(a))^(b)'] },
-        { seq: ['u^(ab)', '=', '(u^(b))^(a)'] },
-      ] }],
+      title: 'Multiples',
+      body: 'An integer $m$ is a **multiple** of $n$ when $m = nk$ for some integer $k$. Pinter’s Theorem 5 says that $x^m = e$ exactly when $m$ is a multiple of the order of $x$. This order proves the easier half, for an exponent $n$ with $x^n = e$ that need not be the order. Save it: it is a recipe from now on.',
     },
   ],
 
   'P10.s2': [
     {
-      title: 'A product and its rotation',
-      body: 'The products $pq$ and $qp$ are conjugate: $qp = p^{-1}(pq)p$. A power of $qp$ can then be handled with **power of a conjugate**, once the frame $p^{-1} \\ldots p$ has been written in.',
-      figures: [{ k: 'math', atoms: AT('pq'), rows: [
-        { seq: ['qp', '=', { t: 'p^-1(pq)p', br: [[0, 1, 'frame', 'over'], [2, 3, 'frame', 'over']] }] },
-      ] }],
+      title: 'Same order, different elements',
+      body: 'The products $xy$ and $yx$ are usually different elements. In S₃, $(12)(13) = (132)$ but $(13)(12) = (123)$. Yet $xy$ and $yx$ always have the same order. Here both are rotations of a triangle by a third of a turn, one in each direction, so both have order 3.',
     },
   ],
 };

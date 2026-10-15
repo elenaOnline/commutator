@@ -22,7 +22,7 @@ import { E, KErr, instantiate, instantiatePartial, match, matchOpen, metasOf, no
 import { polyRefs } from '../kernel/poly';
 import { factText, labelsOf, substText, termText, type Labels } from '../kernel/print';
 import type {
-  Belt, Canvas, Compiled, ItemKind, ItemValue, LibRef, Machine, MachineResult, Param, Port, Rect, SpanTarget, Tile,
+  Belt, Canvas, Compiled, ItemKind, GapTarget, ItemValue, LibRef, Machine, MachineResult, Param, Port, Rect, SpanTarget, Tile,
 } from './types';
 import { itemKindOf } from './types';
 import { DOCK_PORTS, FACE_DELTA, footprint, portsOf, frontOf, inRect, tileKey } from './geometry';
@@ -75,6 +75,8 @@ export const JAMS = {
   soleE: 'A lone e cannot go. Leave it.',
   notE: (sel: string) => `${sel} is not e. Bracket an e.`,
   noRedex: (pat: string, q: string, _name: string) => `No ${pat} in ${q}.`,
+  needCaret: 'This recipe inserts at a caret. Pick a caret.',
+  noEHere: (_rule: string) => 'That bracket is not on an e. Bracket an e, or pick a caret to insert one.',
   pinMismatch: (sel: string, name: string, src: string) => `${name} needs ${src} here, not ${sel}.`,
   needsMeta: (m: string) => `Set ${m} on the machine.`,
   notAVariable: (m: string) => `${m} is not in this law. Clear that knob.`,
@@ -329,7 +331,7 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
       if (!cfg.varId || !cfg.label) { towerErr[m.id] = JAMS.towerUnnamed; continue; }
       const dup = taken.get(`id:${cfg.varId}`) ?? taken.get(`lb:${cfg.label}`);
       if (dup) { towerErr[m.id] = JAMS.towerDup(cfg.label, dup); continue; }
-      taken.set(`id:${cfg.varId}`, `another Tower (${m.id})`); taken.set(`lb:${cfg.label}`, `another Tower (${m.id})`);
+      taken.set(`id:${cfg.varId}`, `another ${cfg.label} Tower`); taken.set(`lb:${cfg.label}`, `another ${cfg.label} Tower`);
       // Book phase B: a Subgroup Tower declares H₁ ≤ G (or N₁ ⊴ G) in graph.structs
       if (cfg.sub === 'sub' || cfg.sub === 'normal') { structs.push({ k: 'sub', id: cfg.varId, label: cfg.label, normal: cfg.sub === 'normal', ...(cfg.carrier ? { sort: cfg.carrier } : {}) }); continue; }
       // Book phase C: a group Tower declares G₁; a Hom Tower declares f₁ : dom → cod (its hom law has no dependency)
@@ -957,6 +959,7 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
         return { addr: gapAddr(g) as GapAddr, label: `${txt(a)}‸${txt(b)} (${sideWord(g.side)})` };
       });
       if (target.k === 'first') { r.chosen = 0; return cands[0]!; }
+      if ('selected' in target) return jam(JAMS.needCaret);
       const t = target as never as { k: 'pin'; side: 'l' | 'r' };
       const res = resolveGapPin(q, target as never);
       if (!res.ok) return jam(res.why === 'ambiguous' ? JAMS.gapAmbiguous(sideWord(t.side)) : JAMS.gapGone(sideWord(t.side), railText(q, t.side)));
@@ -1072,6 +1075,17 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
       r.duration = 2;
     };
 
+    /** The lens's targets for a source-e rule: every gap (caret), then every e already in the word (bracket). */
+    const withGapCands = (gaps: GapLoc[] | null, eSpans: SpanLoc[]) => {
+      if (gaps) {
+        r.candidates = gaps.map((g) => {
+          const a = g.word.slice(0, g.gap), b = g.word.slice(g.gap);
+          const txt = (w: Term[]) => (w.length ? T(w.length === 1 ? w[0]! : { k: 'mul', fs: w }) : '');
+          return { addr: gapAddr(g) as GapAddr, label: `${txt(a)}‸${txt(b)} (${sideWord(g.side)})` };
+        });
+      }
+      r.candidates = [...(r.candidates ?? []), ...eSpans.map((l) => ({ addr: spanAddr(l), label: `${T(l.redex)} (${sideWord(l.side)})` }))];
+    };
     /** After a rewrite at `loc` whose result there is a lone e: the single explicit unit rewrite. */
     const tidyAfter = (loc: SpanLoc) => {
       const w = [...loc.word.slice(0, loc.s), E, ...loc.word.slice(loc.e)];
@@ -1100,7 +1114,20 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
         const ss = sortSubsts(match(src, E, partial));
         const s = ss.find((x) => !missing(law.metas, x).length);
         if (!s) jam(needMsg(missing(law.metas, ss[0] ?? partial), law.zmetas));
+        // playtest W4–9 #13: or at an e already in the word (a bracket on that e) — replacing e by something equal to e
+        const eSpans = spanCandidates(q, RAIL_ORDER, 1).filter((l) => norm(l.redex).k === 'e');
+        const gt = cfg.gap as GapTarget;
+        if (gt.k === 'pin' && 'selected' in gt) {
+          const pick = pickSpan(q, gt, eSpans.map((loc) => ({ loc, x: s! })), () => JAMS.noEHere(rule.text), () => JAMS.noEHere(rule.text));
+          const gaps = gapCandidates(q);
+          const at = r.chosen ?? 0;
+          withGapCands(gaps, eSpans);
+          r.chosen = gaps.length + at;
+          emit({ k: 'step', input: qv.node, op: { k: 'rewrite', rule: rule.ref, dir: cfg.dir, at: spanAddr(pick.loc), subst: s!, ...sx } } as never, `by ${rule.text}`, 'rewrite');
+          return;
+        }
         const g = pickGap(q, cfg.gap);
+        withGapCands(null, eSpans);
         emit({ k: 'step', input: qv.node, op: { k: 'insertE', at: gapAddr(g) } } as never, `insert by ${rule.text}`, 'insert');
         emit({ k: 'step', input: lastNode(), op: { k: 'rewrite', rule: rule.ref, dir: cfg.dir, at: { side: g.side, path: [...g.wordPath], range: [g.gap, g.gap + 1] }, subst: s!, ...sx } } as never, `by ${rule.text}`, 'rewrite');
         return;
@@ -1690,7 +1717,11 @@ export function lemmaFrom(comp: Compiled, c: Canvas, machineId: string, ctx: Ker
   // Book phase C, lemma closure: no level map or sort, no free Hom / group Tower
   const mc = mapClosureProblem(nr.fact, withVars(ctx, comp.graph).ctx, comp.graph.structs ?? []);
   if (mc) return { ok: false, reason: mc };
-  return { ok: true, card: nr.fact };
+  // playtest W10–14 #9: a lemma that IS a dock's statement keeps the dock's binder order and names
+  const card = nr.fact;
+  const dock = ctx.level.sockets.find((sk) => sk.holes === undefined && (sk.target.k === 'law' || sk.target.k === 'cond')
+    && (sameCardUpToPermutation(card, sk.target as Card) || sameCardUpToPermutation(flipConclusion(card), sk.target as Card)));
+  return { ok: true, card: dock ? (dock.target as Card) : card };
 }
 
 /** Authored-lemma ids a canvas cites (recipes and card docks referring to registry schemas). */

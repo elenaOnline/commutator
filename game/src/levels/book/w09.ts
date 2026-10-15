@@ -1,6 +1,6 @@
 // THE BOOK · World 9 — Cyclic Groups (Pinter 11). See design/pinter/SYNTHESIS.md §3 and design/pinter/AUTHOR-BRIEF.md.
 import type { LevelManifest, Monomial, Pallet, PatFact, Poly, Term, Toolset } from '../../kernel/types';
-import type { AtomSpec, ConceptCard } from '../cards';
+import type { ConceptCard } from '../cards';
 import { polyAdd, polyConst, polyMul } from '../../kernel/poly';
 
 // ── local builders (normalized terms) ──
@@ -49,7 +49,7 @@ export const LEVELS: LevelManifest[] = [
     id: 'P11.1', index: 45, campaign: 'book', world: 9, chapter: 11, title: 'Subgroups of a Cyclic Group',
     method: 'Subgroup test', source: 'Pinter 11, Theorem 2',
     insight: 'Multiply a member by a power of a³ to cut the exponent down to the remainder r.',
-    memo: 'H contains a³. Show: if a^(3q+r) is in H, so is aʳ.',
+    memo: 'H contains a³. If a raised to 3q + r is in H, show aʳ is too.',
     atoms: [{ id: 'a', label: 'a', hue: 0 }], subgroups: [{ id: 'H', label: 'H' }],
     givens: [{ id: 'g', name: 'a³ ∈ H', fact: mem(PW(a, Z(3))) }],
     sockets: [{
@@ -104,11 +104,6 @@ export const LEVELS: LevelManifest[] = [
 ];
 
 
-/** Illustrative letters: AT('abc') → a, b, c in shape slots 0, 1, 2 (+ shift). */
-const AT = (str: string, shift = 0): AtomSpec[] => [...str].map((id, i) => ({ id, label: id, hue: i + shift }));
-/** Tower variables: TW('xy') → x, y as solid ∈G (or ∈ℤ) variables. */
-const TW = (str: string, sort: 'G' | 'Z' = 'G', shift = 2): AtomSpec[] => [...str].map((id, i) => ({ id, label: id, hue: i + shift, sort }));
-
 /** Concept cards for this world's levels, keyed by level id. */
 export const CARDS: Record<string, ConceptCard[]> = {
   'P11.1': [
@@ -124,15 +119,12 @@ export const CARDS: Record<string, ConceptCard[]> = {
 
   'P11.2': [
     {
-      title: 'Powers of one element',
-      body: 'All the powers of one element $x$ have the same base, so their exponents are ordinary integers. The integers $i + j$ and $j + i$ are equal, so any two powers of $x$ commute. The checker multiplies out exponent arithmetic for you, for instance $(i + j)m = im + jm$.',
-      figures: [{ k: 'math', atoms: [...TW('x', 'G', 0), ...TW('ij', 'Z', 4)], rows: [
-        { seq: ['x^(i)x^(j)', '=', 'x^(i+j)', '=', 'x^(j+i)', '=', 'x^(j)x^(i)'] },
-      ] }],
+      title: 'Exponent arithmetic',
+      body: 'Exponents are integer expressions in the integer Tower variables. The checker does their arithmetic for you: $3(n + 1)$ and $3n + 3$ are the same exponent, and so are $2(3n)$ and $6n$. When a law of exponents is read backwards, its lens asks how to split the exponent.',
     },
     {
       title: 'Powers do not distribute',
-      body: 'In S₃, take $a = (12)$ and $b = (23)$. Then $a^2b^2 = e$, but $(ab)^2 \\neq e$. So $(uv)^n = u^nv^n$ is not a rule in general. This order proves it does hold when $u$ and $v$ are powers of one element.',
+      body: 'In S₃, take $a = (12)$ and $b = (23)$. Then $a^2b^2 = e$, but $(ab)^2 \\neq e$. So $(uv)^n = u^nv^n$ is not a rule in general. This order proves that it does hold when $u$ and $v$ are powers of one element.',
       figures: [{ k: 'table', group: 'S₃' }],
     },
   ],
@@ -140,7 +132,7 @@ export const CARDS: Record<string, ConceptCard[]> = {
   'P11.3': [
     {
       title: 'One-to-one and onto',
-      body: 'A rule on a group is **one-to-one** if two different elements never go to the same place, and **onto** if every element is reached. In the clock ℤ₇, written additively, tripling sends the positions 0 to 6 to 0, 3, 6, 2, 5, 1, 4. All seven are different, so tripling is both.',
+      body: 'A map from a group to itself is **one-to-one** if two different elements never go to the same place, and **onto** if every element is reached. In ℤ₇, the integers modulo 7 under addition, tripling sends $0, 1, \\ldots, 6$ to $0, 3, 6, 2, 5, 1, 4$. All seven are different, so tripling is both.',
       figures: [{ k: 'clock', n: 7 }],
     },
     {

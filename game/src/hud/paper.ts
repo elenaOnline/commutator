@@ -8,9 +8,10 @@
 // that reaches a dock is written down once the order is solved (scrap belts stay on the floor). Reasons use
 // the standard names (identity, inverse, left cancellation, symmetry …); a step that uses a rule backwards
 // says "read right to left"; a cited line is "line k". Maths is typeset by the shared renderer; no arrows.
-import type { Fact, NodeId, ProofNode, Room, Term } from '../kernel/types';
+import type { Fact, LevelManifest, NodeId, ProofNode, Room, Term } from '../kernel/types';
 import { MIRROR_NAMES, REGISTRY } from '../levels/levels';
-import { MAP_WORDS, buildTranscript, schemaInfo, type EqLine, type Item, type ProseLine, type State } from './proof';
+import { BOOK_LEVELS } from '../levels/book';
+import { MAP_WORDS, buildTranscript, graphLabels, schemaInfo, type EqLine, type Item, type ProseLine, type State } from './proof';
 import { adapt } from './transcript';
 import { campaignOf, deskFact, displayNo, openView, progressOf, richHTML, esc, fH, h, labels as labels0, nameHTML, safe, statementOf, tH, type S, type Store } from './util';
 
@@ -55,7 +56,7 @@ export function buildPaper(st: State): Paper {
   const tr = buildTranscript(st);
   const g = st.graph;
   const byId = new Map(g.nodes.map((n) => [n.id, n] as const));
-  const L = { ...labels0(st.level), ...Object.fromEntries((g.vars ?? []).map((v) => [v.id, v.label])) };
+  const L = graphLabels(st.level, g);
   const factOf = (id: NodeId): Fact | undefined => st.check.nodes[id]?.fact;
 
   // what the delivered statements actually use (all of it while the order is unsolved)
@@ -236,22 +237,36 @@ export function buildPaper(st: State): Paper {
       return id === 'hom.mul' ? `${math(`<i>${esc(f)}</i>`)} is a homomorphism` : esc(MAP_WORDS[id]!);
     }
     const sc = st.ctx.registry[id];
-    if (sc?.origin === 'authored') return esc(sc.name);
+    // a reused lemma names where it was used: "fibre lemma ⟹ at π" (its homomorphism / subgroup / action binders)
+    const at = (sc?.card.binds ?? []).filter((b) => b.k === 'hom' || b.k === 'sub' || b.k === 'act').map((b) => structs?.[b.id]).filter((x): x is string => !!x);
+    const atHTML = at.length ? ` at ${at.map((x) => math(`<i>${esc(L[x] ?? x)}</i>`)).join(', ')}` : '';
+    if (sc?.origin === 'authored') return `${esc(sc.name)}${atHTML}`;
     if (mirror && MIRROR_NAMES[id]) return esc(MIRROR_NAMES[id]!.textbook);
     if (REGISTRY[id]) return esc(REGISTRY[id]!.textbook);
     return esc(schemaInfo(id, mirror, st.ctx).textbook);
+  };
+  /** "the assumption"; in a room with several, the one meant: "the assumption xb⁻¹ ∈ H". */
+  const assumptionName = (id: NodeId): string => {
+    const n = byId.get(id);
+    const many = n?.k === 'assume' && g.nodes.filter((m) => m.k === 'assume' && m.room === n.room).length > 1;
+    const f = factOf(id);
+    return many && f ? `the assumption ${math(fH(f, L, 'proof'))}` : 'the assumption';
   };
   /** A cited fact: a given by name, the room's assumption, Lagrange, or an earlier line. */
   const cite = (id: NodeId): string => {
     const n = byId.get(id);
     if (!n) return '';
     if (n.k === 'given') return givenName(id);
-    if (n.k === 'assume') return 'the assumption';
+    if (n.k === 'assume') return assumptionName(id);
     if (n.k === 'press') return 'Lagrange’s theorem';
     return lineRef(id) ? `by ${lineRef(id)}` : '';
   };
   /** "line 11 and line 12" reads as "lines 11 and 12". */
-  const linesOf = (xs: string[]) => (xs.length > 1 && xs.every((x) => /^line \d+$/.test(x)) ? `lines ${xs.map((x) => x.slice(5)).join(' and ')}` : xs.join(' and '));
+  const linesOf = (xs: string[]) => {
+    if (xs.length > 1 && xs.every((x) => /^line \d+$/.test(x))) return `lines ${xs.map((x) => x.slice(5)).join(' and ')}`;
+    if (xs.length > 1 && xs.every((x) => x === 'the assumption')) return 'the assumptions';
+    return xs.join(' and ');
+  };
   /** A citation without its "by" (after "from" / "multiply"). */
   const bare = (id: NodeId) => cite(id).replace(/^by /, '');
   const backwards = (rev: boolean) => (rev ? ', read right to left' : '');
@@ -317,7 +332,7 @@ export function buildPaper(st: State): Paper {
     let reason: string;
     if (l.from?.length && !o.why.length) {
       // a concluding line: the two facts it combines (the equation, and the computation of its left side)
-      const xs = l.from.map((id) => { const n = byId.get(id); if (n?.k === 'given') return givenName(id); if (n?.k === 'assume') return 'the assumption'; const k = id === l.owns ? rawLineOf.get(id) : lineOf.get(id); return k ? `line ${k}` : ''; }).filter(Boolean);
+      const xs = l.from.map((id) => { const n = byId.get(id); if (n?.k === 'given') return givenName(id); if (n?.k === 'assume') return assumptionName(id); const k = id === l.owns ? rawLineOf.get(id) : lineOf.get(id); return k ? `line ${k}` : ''; }).filter(Boolean);
       reason = xs.length ? `from ${linesOf(xs)}` : '';
     } else if (!o.why.length) {
       // the closing line of a chain read backwards: its reason is where the right side came from
@@ -338,18 +353,92 @@ export function theoremHTML(st: State): string {
   const ov = openView(st.level, Object.fromEntries(st.check.sockets.filter((x) => x.ok && x.holes).map((x) => [x.id, x.holes!])));
   return ov.chips(theoremHTML0({ ...st, level: ov.level }));
 }
-function theoremHTML0(st: State): string {
-  const lv = st.level;
-  if (lv.sockets.some((k) => k.target.k === 'law' || k.target.k === 'cond')) return statementOf(lv).html;
+function theoremHTML0(st: State): string { return fullStatementHTML(st.level); }
+
+/**
+ * The exact theorem a level proves (playtest W4–9 #4, W10–14 #9): every hypothesis of every kind (equations, laws,
+ * memberships, the group's order), then every dock. Each variable is bound in its own sort or set ("u, v ∈ K",
+ * "x ∈ A"), subgroups and maps by their binders ("H ≤ G", "f : G → K"), in the dock's own binder order. A card with
+ * no premises has no arrow; an empty binder list is never printed.
+ */
+export function fullStatementHTML(lv: LevelManifest, opts: { any?: boolean } = {}): string {
   const L = labels0(lv);
   const allowed = new Set(lv.sockets.flatMap((k) => k.allowedGivens));
   const gs = lv.givens.filter((g) => allowed.has(g.id));
-  const size = gs.find((g) => g.fact.k === 'size');
-  const hyps = gs.filter((g) => g.fact.k !== 'size').map((g) => math(fH(g.fact, L)));
-  const goals = lv.sockets.map((k) => math(fH(k.target, L))).join(' and ');
-  const pre = size && size.fact.k === 'size' ? `In a group of order ${size.fact.n}, ` : '';
-  if (!hyps.length) return `${pre}${goals}.`.replace(/^./, (c) => c.toUpperCase());
-  return `${pre}${pre ? 'if' : 'If'} ${hyps.join(' and ')}, then ${goals}.`;
+  const groups = (lv.sorts ?? []).filter((x) => x.kind === 'group');
+  const sortLabel = (r: unknown): string => {
+    if (r === undefined || r === null) return groups[0]?.label ?? 'G';
+    if (typeof r === 'string') return (lv.sorts ?? []).find((x) => x.id === r)?.label ?? L[r] ?? r;
+    const o = r as { k?: string; id?: string };
+    return o.id ?? 'G';
+  };
+  const sizes = gs.filter((g) => g.fact.k === 'size');
+  const hyps = gs.filter((g) => g.fact.k !== 'size').map((g) => factStatement(g.fact as Fact, L, sortLabel, true, opts));
+  // binders every dock shares are said once: "For all x, y ∈ G, if A, then B, and if B, then A"
+  const split = lv.sockets.map((k) => cardParts(k.target as Fact, L, sortLabel, opts));
+  let common: string[] = [];
+  if (split.length > 1 && split.every((x) => x.parts.length)) {
+    const first = split[0]!.parts;
+    let n = 0;
+    while (n < first.length && split.every((x) => x.parts[n] === first[n])) n++;
+    common = first.slice(0, n);
+  }
+  const docks = split.map((x) => {
+    const rest = x.parts.slice(common.length);
+    return rest.length ? `for all ${rest.map((y) => math(y)).join(' and ')}, ${x.body}` : x.body;
+  });
+  if (common.length) docks[0] = `for all ${common.map((y) => math(y)).join(' and ')}, ${docks[0]}`;
+  const pre = sizes.map((g) => { const f = g.fact as { n: number; s?: string }; return groups.length > 1 ? `|${sortLabel(f.s)}| = ${f.n}` : `${f.n}`; });
+  const lead = sizes.length ? (groups.length > 1 ? `If ${pre.map((x) => math(x)).join(' and ')}` : `In a group of order ${pre[0]}`) : '';
+  const all = docks.join(', and ');
+  if (!hyps.length) return lead ? `${lead}${groups.length > 1 ? ', then' : ','} ${all}.` : `${all}.`.replace(/^./, (c) => c.toUpperCase());
+  if (lead && groups.length > 1) return `${lead} and ${hyps.join(' and ')}, then ${all}.`;
+  return `${lead ? `${lead}, if` : 'If'} ${hyps.join(' and ')}, then ${all}.`;
+}
+
+/** One statement: a pallet as maths; a card as "for all <binders>, if <premises>, then <conclusion>" (maths when `inline`). */
+function factStatement(f: Fact, L: Record<string, string>, sortLabel: (r: unknown) => string, inline: boolean, opts: { any?: boolean }): string {
+  const { parts, body } = cardParts(f, L, sortLabel, opts, inline);
+  if (!parts.length) return body;
+  return inline ? `${math(`∀${parts.join(', ')}.`)} ${body}` : `for all ${parts.map((x) => math(x)).join(' and ')}, ${body}`;
+}
+/** A statement's binders (groups, subgroups, maps, then element variables by sort, in the card's order) and its body. */
+function cardParts(f: Fact, L: Record<string, string>, sortLabel: (r: unknown) => string, opts: { any?: boolean }, inline = false): { parts: string[]; body: string } {
+  if (f.k !== 'law' && f.k !== 'cond') return { parts: [], body: math(fH(f as never, L)) };
+  const metaL = { ...L, ...Object.fromEntries(f.metas.map((m) => [m, m])) };
+  const zs = new Set<string>();
+  const walkZ = (t: unknown): void => {
+    if (!t || typeof t !== 'object') return;
+    const o = t as Record<string, unknown>;
+    if (o.k === 'zmeta' && typeof o.id === 'string') zs.add(o.id);
+    for (const v of Object.values(o)) if (v && typeof v === 'object') walkZ(v);
+  };
+  walkZ(f);
+  const mv = (m: string) => `<i class="m-atom${opts.any ? ' any' : ''}">${esc(m)}</i>`;
+  const parts: string[] = [];
+  const grps = (f.binds ?? []).filter((b) => b.k === 'grp').map((b) => b.id);
+  if (grps.length) parts.push(`${grps.length > 1 ? 'groups' : 'a group'} ${grps.map(mv).join(', ')}`);
+  for (const b of f.binds ?? []) {
+    if (b.k === 'sub') parts.push(`${mv(b.id)} <span class="m-rel">${b.normal ? '⊴' : '≤'}</span> <i>${esc(sortLabel(b.sort))}</i>`);
+    else if (b.k === 'hom') parts.push(`${mv(b.id)} : <i>${esc(sortLabel(b.dom))}</i> → <i>${esc(sortLabel(b.cod))}</i>`);
+    else if (b.k === 'act') parts.push(`${mv(b.id)} : <i>${esc(sortLabel(b.grp))}</i> × <i>${esc(sortLabel(b.on))}</i> → <i>${esc(sortLabel(b.on))}</i>`);
+  }
+  // element variables, in the card's own order, grouped by where they live (consecutive runs of one sort)
+  let run: string[] = [], runSort = '';
+  const flush = () => { if (run.length) parts.push(`${run.map(mv).join(', ')} <span class="m-rel">∈</span> ${runSort === 'ℤ' ? 'ℤ' : `<i>${esc(runSort)}</i>`}`); run = []; };
+  for (const m of f.metas) {
+    const srt = zs.has(m) ? 'ℤ' : sortLabel(f.metaSorts?.[m]);
+    if (srt !== runSort) { flush(); runSort = srt; }
+    run.push(m);
+  }
+  flush();
+  const body = f.k === 'law'
+    ? math(fH({ k: 'eq', l: f.l, r: f.r } as never, metaL))
+    : f.premises.length
+      ? (inline ? `${f.premises.map((p) => math(fH(p as never, metaL))).join(', ')} ${math('<span class="m-rel">⟹</span>')} ${math(fH(f.concl as never, metaL))}`
+        : `if ${f.premises.map((p) => math(fH(p as never, metaL))).join(' and ')}, then ${math(fH(f.concl as never, metaL))}`)
+      : math(fH(f.concl as never, metaL));
+  return { parts, body };
 }
 
 /** The page: Lemma n (Title). Statement. [Method · …] Proof. numbered lines. ∎ */
@@ -360,12 +449,12 @@ function theoremHTML0(st: State): string {
  */
 export function paperHTML(p: Paper, st: State, opts: { head?: boolean; insight?: boolean } = {}): string {
   const lv = st.level;
-  const L = { ...labels0(lv), ...Object.fromEntries((st.graph.vars ?? []).map((v) => [v.id, v.label])) };
+  const L = graphLabels(lv, st.graph);
   const book = campaignOf(lv) === 'book';
   const no = book ? displayNo(lv) : String(lv.index);
   let html = opts.head === false ? '' : `<p class="pp-thm"><b>Lemma ${esc(no)}</b> <span class="pp-title">(${esc(lv.title)})</span>. ${safe(() => theoremHTML(st), '')}</p>`;
   if (book && lv.method) html += `<p class="pp-method"><span class="pp-k">Method</span> · ${richHTML(lv.method, lv)}</p>`;
-  if (book && opts.insight && p.solved && lv.insight) html += `<p class="pp-insight">${richHTML(lv.insight, lv)}</p>`;
+  if (book && opts.insight && p.solved && lv.insight) html += `<p class="pp-insight">${richHTML(displayTitles(lv.insight), lv)}</p>`;
   html += '<p class="pp-proof"><i>Proof.</i></p>';
   if (!p.lines.length) return `${html}<p class="pp-empty">Nothing is written yet. Each machine you build adds a line.</p>`;
   let grid: string[] = [];
@@ -373,7 +462,9 @@ export function paperHTML(p: Paper, st: State, opts: { head?: boolean; insight?:
   const flush = () => { if (grid.length) { html += `<div class="pp-grid" style="--d:${gridDepth}">${grid.join('')}</div>`; grid = []; } };
   for (const l of p.lines) {
     if (l.depth !== gridDepth) { flush(); gridDepth = l.depth; }
-    const why = l.reason ? `<span class="pp-why">(${l.reason})</span>` : '<span class="pp-why"></span>';
+    // ∎ closes the last line itself (at its end, as in print), never a mark floating below the proof
+    const qed = p.solved && l === p.lines[p.lines.length - 1] ? '<span class="tomb pp-qed" title="Q.E.D."></span>' : '';
+    const why = l.reason ? `<span class="pp-why">(${l.reason})${qed}</span>` : `<span class="pp-why">${qed}</span>`;
     const nodes = `data-nodes="${l.nodes.join(' ')}"`;
     if (l.kind === 'prose' && l.inline) {
       grid.push(`<div class="pp-row prose" ${nodes}><span class="pp-no">${l.no}.</span><span class="pp-text">${l.html}</span>${why}</div>`);
@@ -391,8 +482,7 @@ export function paperHTML(p: Paper, st: State, opts: { head?: boolean; insight?:
       + `<span class="pp-rhs math">${tH(l.rhs!, L, 'proof')}</span>${why}</div>`);
   }
   flush();
-  html += p.solved ? '<p class="pp-end"><span class="tomb" title="Q.E.D."></span></p>'
-    : '<p class="pp-open">Not finished: a dock is still waiting for its statement.</p>';
+  if (!p.solved) html += '<p class="pp-open">Not finished: a dock is still waiting for its statement.</p>';
   return html;
 }
 
@@ -426,4 +516,9 @@ export function mountPaper(layer: HTMLElement, store: Store) {
     body.innerHTML = paperOf(s);
   };
   return { render, el };
+}
+
+/** Players know an order as "41 · Same Coset", never by its id: "The relation of P12.1" → "The relation of 41 · Same Coset". */
+export function displayTitles(text: string): string {
+  return text.replace(/\bP\d+\.(?:s?\d+)\b/g, (id) => { const l = BOOK_LEVELS.find((x) => x.id === id); return l ? `${displayNo(l)} · ${l.title}` : id; });
 }

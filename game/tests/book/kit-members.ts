@@ -6,6 +6,7 @@
 // memTruth: the truth check for levels about subgroups. Membership facts quantify their subgroup over every subgroup of each
 //   catalogue group (plus ∅ where the level withholds sub.e, i.e. P5.1), so `targetsTrue` of kit-w123 (atoms only) is not enough.
 import { checkPaper } from './paper-kit';
+import { assertPointerReachable } from './reach-kit';
 import { expect } from 'vitest';
 import * as K from '../../src/kernel';
 import type { Fact, LevelManifest } from '../../src/kernel/types';
@@ -129,6 +130,7 @@ export const sc = (id: string, structs?: Record<string, string>): F.LibRef => ({
 export function deliver(f: Floor, opts: { parParts?: boolean } = {}) {
   const level = f.level;
   const { comp, s, metrics } = f.run(600);
+  assertPointerReachable(f, comp); // the real HUD could have built this floor (reach-kit.ts)
   const detail = JSON.stringify({ sockets: comp.sockets, beltErrors: comp.beltErrors, jams: Object.entries(comp.machines).filter(([, m]) => m.status.k !== 'ok').map(([id, m]) => [id, m.status]) });
   expect(comp.solvable, detail).toBe(true);
   for (const sock of level.sockets) expect(s.delivered[sock.id], `socket ${sock.id} delivered; ${detail}`).toBeDefined();
