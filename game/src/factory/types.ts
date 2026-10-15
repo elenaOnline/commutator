@@ -72,7 +72,8 @@ export type LibRef =
   /** earned or authored (Lemma Book). Book phase B: `structs` picks which subgroup plays each subgroup parameter
    *  of the card (binder id → level subgroup or Subgroup Tower id); the picker lists one ref per choice. */
   | { k: 'schema'; id: string; mirror?: boolean; structs?: Record<MetaId, string> }
-  | { k: 'lagrange' };                              // IMPORTED ∀x. x^{|G|} = e (needs a |G| = n given)
+  /** IMPORTED ∀x. x^{|S|} = e_S (needs a |S| = n given). Book phase C: `sort` picks the group (absent = the first size given). */
+  | { k: 'lagrange'; sort?: SortId };
 
 export type RewriteRecipe =
   | { k: 'cancel' }                               // x x⁻¹ / x⁻¹x → e at the bracket (+ tidy)
@@ -226,6 +227,11 @@ export interface MachineResult {
    * the compatible subgroups in scope (normal binders list only normal ones) and the one in use, if decided.
    */
   structs?: { binder: MetaId; normal: boolean; options: { id: string; label: string }[]; chosen?: string }[];
+  /**
+   * Joiner chain: how the two equations were read — 'rl' (a = b, b = c: the display's reading), 'rr' (a = b, c = b),
+   * 'll' (b = a, b = c), 'lr' (b = a, c = b) — the shared term, and every reading that fits (the first one is used).
+   */
+  join?: { reading: 'rl' | 'rr' | 'll' | 'lr'; shared: string; fits: ('rl' | 'rr' | 'll' | 'lr')[] };
   /** For apply/stamp: the binding alternatives (cuts/prefixes) and the chosen index. */
   choices?: { label: string; bindings: { meta: MetaId; addr: Addr }[] }[];
   /** Processing time in ticks. */

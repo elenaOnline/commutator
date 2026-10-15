@@ -12,7 +12,7 @@ const stateFor = (id: string, earned: string[]): S => {
 
 describe('recipe library', () => {
   it('uses the review group names, in order', () => {
-    expect(GROUP_ORDER).toEqual(['Operations', 'Group laws', 'Subgroup', 'Given here', 'Theorems', 'Saved', 'Imported', 'Made here']);
+    expect(GROUP_ORDER).toEqual(['Operations', 'Group laws', 'Subgroup', 'Maps', 'Given here', 'Theorems', 'Saved', 'Imported', 'Made here']);
   });
   it('rewriter: one insert-pair row with an orientation toggle; no origin notes', () => {
     const lib = libraryFor(stateFor('L03', []), 'rewriter');

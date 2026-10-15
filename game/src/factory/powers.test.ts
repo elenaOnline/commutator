@@ -138,7 +138,7 @@ describe('Phase B work orders', () => {
     const re = f.add(lawRw({ k: 'lagrange' }));
     f.wire(sp, re); f.wire(re, f.socket());
     const r = reason(f.compile(), f.socket());
-    expect(r).toMatch(/^Got the product .* \(five factors\), the goal has the power .*\. Use literal power to write the product as a power\.$/);
+    expect(r).toMatch(/^Got the product .* \(five factors\), but the goal has the power .*\. Use literal power to write the product as a power\.$/);
   });
 
   it('a size refusal is a jam about size, not a mathematical verdict', () => {

@@ -396,11 +396,13 @@ export function openDisplay(sock: SocketDecl): { fact: Pallet | Card; labels: La
 
 /** The dock's text: the open shape (`d = ?`), or the filled instance when `answer` (SocketResult.holes) is given. */
 export function dockText(sock: SocketDecl, L: Labels, answer?: Subst, tex = false): string {
+  // NORMS: ⟹ for implication (factText / factTex print it already)
+  const arrow = (x: string) => x;
   if (answer && isOpen(sock)) {
     const inst = plugHoles(sock.target, answer);
-    return tex ? factTex(inst, L) : factText(inst, L);
+    return arrow(tex ? factTex(inst, L) : factText(inst, L));
   }
   const d = openDisplay(sock);
   const L2 = { ...L, ...d.labels };
-  return tex ? factTex(d.fact, L2) : factText(d.fact, L2);
+  return arrow(tex ? factTex(d.fact, L2) : factText(d.fact, L2));
 }

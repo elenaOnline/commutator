@@ -134,3 +134,9 @@
 .h3-cards.cc .cc-termval { display: inline-flex; align-items: center; }
 .h3-cards.cc .cc-caret { width: 1.5px; height: 20px; background: #1B2340; margin-left: -4px; }
 @media (prefers-reduced-motion: reduce) { .h3-cards.cc .cc-notes li { transition: none; } }
+
+/* card TeX: upright operator names (\ker, \gcd, \operatorname{Aut}) */
+.math .m-op { font-style: normal; }
+/* a subgroup in a card figure: its Euler set, sitting on the maths baseline like a term */
+.cc-sub { display: inline-flex; align-items: center; vertical-align: middle; margin: 0 2px; }
+.cc-sub svg { display: block; }

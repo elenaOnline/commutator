@@ -49,6 +49,7 @@ export const LEVELS: LevelManifest[] = [
     id: 'P4.7', index: 10, campaign: 'book', world: 3, chapter: 4, title: 'Idempotents',
     method: 'If–then', insight: 'Assume the if, derive the then', source: 'Pinter 4.B4 / 4.F1',
     memo: 'An element equal to its own square must be e. Certify it for every element.',
+    lemmaNames: ['the only idempotent is e'],
     atoms: [], givens: [],
     sockets: [{ id: 's', target: { k: 'cond', metas: ['x'], premises: [peq(P(x, x), x)], concl: peq(x, e) }, allowedGivens: [] }],
     tools: tools({ lift: true, merge: true, schemas: EARNED }), unlocks: [],
@@ -73,6 +74,7 @@ export const LEVELS: LevelManifest[] = [
     id: 'P4.9', index: 12, campaign: 'book', world: 3, chapter: 4, title: 'The Commutator',
     method: 'If–then', insight: 'An if and only if is two if–thens', source: 'Pinter 4.C7',
     memo: 'The commutator xyx⁻¹y⁻¹ equals e exactly when x and y commute. Certify both directions.',
+    lemmaNames: ['xy = yx ⟹ xyx⁻¹y⁻¹ = e', 'xyx⁻¹y⁻¹ = e ⟹ xy = yx'],
     atoms: [], givens: [],
     sockets: [
       { id: 's', target: { k: 'cond', metas: ['x', 'y'], premises: [peq(P(x, y), P(y, x))], concl: peq(P(x, y, I(x), I(y)), e) }, allowedGivens: [] },
@@ -86,6 +88,7 @@ export const LEVELS: LevelManifest[] = [
     id: 'P4.10', index: 13, campaign: 'book', world: 3, chapter: 4, title: 'One-Sided Inverses',
     method: 'If–then', insight: 'Make the given equal e, then swap the factors', source: 'Pinter 4.D1 + 4.D4',
     memo: 'A product equal to e stays e when its two factors trade places. Certify that.',
+    lemmaNames: ['xy = e ⟹ yx = e'],
     atoms: [...atomsAB, { id: 'c', label: 'c', hue: 2 }],
     givens: [{ id: 'h', name: 'h', fact: eq(P(b, a, c), I(a)) }],
     sockets: [
@@ -122,9 +125,9 @@ export const LEVELS: LevelManifest[] = [
     atoms: atomsAB,
     givens: [
       { id: 'H', name: 'H', fact: { k: 'law', metas: ['x'], l: P(x, x), r: e } },
-      { id: 'na', name: 'a ≠ e', fact: neq(a, e) },
-      { id: 'nb', name: 'b ≠ e', fact: neq(b, e) },
-      { id: 'nab', name: 'a ≠ b', fact: neq(a, b) },
+      { id: 'na', name: 'h₁', fact: neq(a, e) },
+      { id: 'nb', name: 'h₂', fact: neq(b, e) },
+      { id: 'nab', name: 'h₃', fact: neq(a, b) },
     ],
     sockets: [
       { id: 's1', target: neq(P(a, b), a), allowedGivens: ['H', 'na', 'nb', 'nab'] },
@@ -204,8 +207,12 @@ export const LEVELS: LevelManifest[] = [
   },
 ];
 
-/** Illustrative letters: AT('abc') → a, b, c in shape slots 0, 1, 2 (+ shift). */
-const AT = (s: string, shift = 0): AtomSpec[] => [...s].map((id, i) => ({ id, label: id, hue: i + shift }));
+/**
+ * Illustrative letters for card figures. One hue per letter across every card of these worlds, matching the level
+ * constants (a b c d) on the floor, so a letter keeps its shape: AT('abc') → a, b, c in their own slots.
+ */
+const LETTER_HUE: Record<string, number> = { a: 0, b: 1, c: 2, d: 3, p: 0, q: 1, r: 2, s: 3, u: 0, v: 1, w: 2, x: 2, y: 3, z: 4 };
+const AT = (s: string): AtomSpec[] => [...s].map((id) => ({ id, label: id, hue: LETTER_HUE[id]! }));
 
 /** Concept cards for this world's levels, keyed by level id. */
 export const CARDS: Record<string, ConceptCard[]> = {
@@ -215,7 +222,7 @@ export const CARDS: Record<string, ConceptCard[]> = {
       body: 'To solve for an unknown, rewrite the equations until it stands alone on one side. What is left on the other side is the answer, and the dock fills in with it. Every move must be a valid one: multiply both sides by the same term, cancel an element beside its inverse, or rewrite with a given. With other letters:',
       figures: [{ k: 'math', atoms: AT('xyz'), rows: [
         { seq: ['xy', '=', 'z'], why: 'Solve for $x$ …' },
-        { seq: [{ t: 'xyy^-1', br: [[1, 3, 'multiply on the right by $y^{-1}$']] }, '=', 'zy^-1'] },
+        { seq: [{ t: 'xyy^-1', br: [[1, 3, 'times $y^{-1}$']] }, '=', 'zy^-1'] },
         { seq: ['x', '=', 'zy^-1'], why: '… after cancelling $yy^{-1}$.' },
       ] }],
     },
@@ -232,19 +239,17 @@ export const CARDS: Record<string, ConceptCard[]> = {
     },
     {
       title: 'The Assume room',
-      long: true,
-      body: 'An **Assume** room is a painted region with a desk (⊢) inside. The desk hands out the assumption, usable only inside. Carry any fact to the gate (⊣) and it leaves as an if–then, “assumption $\\implies$ fact”. Every result remembers which assumptions it used, so ∀ refuses to bind a fact that still rests on the desk. The gate turns the assumption into a premise, and outside the room ∀ may bind the Tower.',
+      body: 'An **Assume** room is a painted region with a desk (⊢) inside. The desk hands out the assumption, usable only inside. A fact carried to the gate (⊣) leaves as an if–then, “assumption $\\implies$ fact”. Outside the room, ∀ may bind the Tower.',
       machines: ['room:assume', 'operator'],
-      nearMiss: 'A ∀ machine inside the room, before the gate, jams. Try it once and read why.',
       figures: [{ k: 'scene', atoms: AT('uvw'), spec: {
         rooms: [{ x0: -0.2, y0: -0.6, x1: 6.5, y1: 1.6, label: 'ASSUME', kind: 'assume' }],
         machines: [{ x: 0.2, y: 0, config: { kind: 'desk' } }, { x: 2.8, y: 0, config: { kind: 'operator', recipe: { k: 'multiply', side: 'left' } } }, { x: 6, y: 0, config: { kind: 'gate' } }],
         belts: [[[1.2, 0.5], [2.8, 0.5]], [[4.8, 0.5], [6, 0.5]], [[7, 0.5], [9, 0.5]]],
         items: [{ at: [2, 0.5], t: 'u = v' }, { at: [5.4, 0.5], t: 'wu = wv', place: 'sw' }, { at: [8.4, 0.5], t: 'u = v ⟹ wu = wv', place: 'sw', off: [-4, -16] }],
         notes: [
-          { at: [0.7, 0.5, 0.9], text: 'The desk (⊢) hands out the assumption $u = v$.' },
-          { at: [3.8, 0.5, 1], text: 'Inside, use it like any fact. Here an Operator multiplies both sides by $w$.' },
-          { at: [6.5, 0.5, 0.8], text: 'The gate (⊣) lets it out as an if–then: $u = v \\implies wu = wv$.' },
+          { at: [0.7, 0.5, 0.9], text: 'The desk (⊢) hands out $u = v$.' },
+          { at: [3.8, 0.5, 1], text: 'An Operator multiplies both sides by $w$.' },
+          { at: [6.5, 0.5, 0.8], text: 'The gate (⊣) lets it out as an if–then.' },
         ] } }],
     },
   ],
@@ -253,7 +258,7 @@ export const CARDS: Record<string, ConceptCard[]> = {
     {
       title: 'Conjugates',
       body: '$bab^{-1}$ is the **conjugate** of $a$ by $b$. When two conjugates by the same element are multiplied, the inner pair $b^{-1}b$ cancels. With other letters:',
-      figures: [{ k: 'math', atoms: AT('cd', 2), rows: [
+      figures: [{ k: 'math', atoms: AT('cd'), rows: [
         { seq: ['(cdc^-1)(cdc^-1)', '=', { t: 'cd(c^-1c)dc^-1', br: [[2, 3, 'cancels']] }, '=', 'cddc^-1'] },
       ] }],
     },
@@ -284,7 +289,7 @@ export const CARDS: Record<string, ConceptCard[]> = {
       body: 'A theorem about “$xy = e$” needs a fact of that shape. To turn a fact into one, multiply both sides by the right term and cancel. With other letters:',
       figures: [{ k: 'math', atoms: AT('pqrs'), rows: [
         { seq: ['pqr', '=', 's^-1'] },
-        { seq: [{ t: 'pqrs', br: [[0, 3, 'both sides times $s$ on the right']] }, '=', 's^-1s', '=', 'e'] },
+        { seq: [{ t: 'pqrs', br: [[3, 4, 'times $s$']] }, '=', 's^-1s', '=', 'e'], why: 'Both sides were multiplied on the right by $s$.' },
       ] }],
     },
     {
@@ -302,7 +307,7 @@ export const CARDS: Record<string, ConceptCard[]> = {
     },
     {
       title: 'Reuse your saved lemma',
-      body: 'Your saved lemmas are recipes. Pick one in a Theorem machine and set its variables to the terms you want. A single product equal to $e$ can feed the same lemma at several different cuts.',
+      body: 'Your saved lemmas are recipes. Pick one in a Theorem machine and set its variables to the terms you want. The Lemma Book (L) lists them.',
       machines: ['theorem', 'lemmabook'],
     },
   ],
@@ -353,10 +358,10 @@ export const CARDS: Record<string, ConceptCard[]> = {
       ] }],
     },
     {
-      title: 'Patterns across seams',
-      body: 'A rule can match terms that come from different copies. A given with left side $pqq$ matches inside $pqpqqp$, even though the match straddles the seam between the first block and the second.',
-      figures: [{ k: 'math', atoms: AT('pqs'), rows: [
-        { seq: [{ t: 'pqpqqp', br: [[2, 5, 'matches $pqq$']] }] },
+      title: 'Matching a rule in a word',
+      body: 'A rule matches wherever its left side appears as a run of neighbouring factors, anywhere in the word. A given with left side $pqq$ matches inside $rpqqs$.',
+      figures: [{ k: 'math', atoms: AT('pqrs'), rows: [
+        { seq: [{ t: 'rpqqs', br: [[1, 4, 'matches $pqq$']] }] },
       ] }],
     },
   ],
@@ -376,7 +381,7 @@ export const CARDS: Record<string, ConceptCard[]> = {
     {
       title: 'An e that is a power',
       body: 'A given such as $x^3 = e$ says that a power of $x$ equals $e$. Read it backwards and an $e$ beside a term turns into three copies of $x$, so the term grows without changing value. With other letters:',
-      figures: [{ k: 'math', atoms: AT('xy', 2), rows: [
+      figures: [{ k: 'math', atoms: AT('xy'), rows: [
         { seq: ['y', '=', { t: 'ye', br: [[1, 2, 'identity']] }, '=', { t: 'y(xxx)', br: [[1, 2, '$x^3 = e$, backwards']] }] },
       ] }],
     },

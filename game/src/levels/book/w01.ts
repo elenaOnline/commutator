@@ -57,8 +57,12 @@ export const LEVELS: LevelManifest[] = [
   },
 ];
 
-/** Illustrative letters: AT('abc') → a, b, c in shape slots 0, 1, 2 (+ shift). */
-const AT = (s: string, shift = 0): AtomSpec[] => [...s].map((id, i) => ({ id, label: id, hue: i + shift }));
+/**
+ * Illustrative letters for card figures. One hue per letter across every card of these worlds, matching the level
+ * constants (a b c d) on the floor, so a letter keeps its shape: AT('abc') → a, b, c in their own slots.
+ */
+const LETTER_HUE: Record<string, number> = { a: 0, b: 1, c: 2, d: 3, p: 0, q: 1, r: 2, s: 3, u: 0, v: 1, w: 2, x: 2, y: 3, z: 4 };
+const AT = (s: string): AtomSpec[] => [...s].map((id) => ({ id, label: id, hue: LETTER_HUE[id]! }));
 
 /** Concept cards for this world's levels, keyed by level id. */
 export const CARDS: Record<string, ConceptCard[]> = {
@@ -88,8 +92,8 @@ export const CARDS: Record<string, ConceptCard[]> = {
   'P3.2': [
     {
       title: 'Givens are recipes',
-      body: 'A given is a fact you may use as often as you like. This order gives $H$: $\\forall x.\; xx = e$, read “for every $x$, $xx = e$”. Because $H$ holds for every $x$, you may use it at any element you choose. In a Rewriter, a given is picked as a recipe. It does not travel by belt.',
-      figures: [{ k: 'scene', atoms: AT('c', 2), spec: {
+      body: 'A given is a fact you may use as often as you like. This order gives $H$: $\\forall x. xx = e$, read “for every $x$, $xx = e$”. Because $H$ holds for every $x$, you may use it at any element you choose. In a Rewriter, a given is picked as a recipe. It does not travel by belt.',
+      figures: [{ k: 'scene', atoms: AT('c'), spec: {
         machines: [{ x: 0, y: 0, config: { kind: 'spool' } }, { x: 3, y: 0, config: { kind: 'rewriter', recipe: { k: 'law', ref: { k: 'given', givenId: 'H' } }, dir: 'fwd' } }],
         belts: [[[1, 0.5], [3, 0.5]], [[5, 0.5], [6.8, 0.5]]],
         items: [{ at: [2, 0.5], t: 'cc = cc' }, { at: [6, 0.5], t: 'cc = e' }],
@@ -101,19 +105,19 @@ export const CARDS: Record<string, ConceptCard[]> = {
     },
     {
       title: 'Rules run both ways',
-      body: 'A recipe can also run from right to left. Read $H$ backwards and an $e$ becomes $xx$, for any $x$ you pick. Since $e$ can be placed beside any term without changing it, this lets you grow a term in a direction you choose. With other letters:',
-      figures: [{ k: 'math', atoms: AT('dc', 2), rows: [
-        { seq: ['d', '=', { t: 'de', br: [[1, 2, 'identity']] }, '=', { t: 'd(cc)', br: [[1, 2, '$H$ backwards, $x = c$']] }] },
+      body: 'A recipe can also run from right to left. Read $H$ backwards and it inserts $xx$ at a gap between factors, or at either end, for any $x$ you pick. Inserting $xx$ keeps the value, because $xx = e$. With other letters:',
+      figures: [{ k: 'math', atoms: AT('dc'), rows: [
+        { seq: ['d', '=', { t: 'd(cc)', br: [[1, 2, '$H$ backwards, $x = c$']] }] },
       ] }],
     },
   ],
 
   'P3.3': [
     {
-      title: 'A law at a product',
-      body: 'The $x$ in $H$ stands for any element, including a product. At $x = uv$, $H$ says $(uv)(uv) = e$. When you choose the instance in the Rewriter, type the whole product.',
-      figures: [{ k: 'math', atoms: AT('uv'), rows: [
-        { seq: [{ t: '(uv)(uv)', br: [[0, 2, '$H$ at $x = uv$']] }, '=', 'e'] },
+      title: 'Choosing the instance',
+      body: 'A law with a variable, like $x^{-1}x = e$, is one equation for every element. When you use it in a Rewriter, you choose which element your instance stands for, and you can type any term there.',
+      figures: [{ k: 'math', atoms: AT('c'), rows: [
+        { seq: [{ t: 'c^-1c', br: [[0, 1, 'the law at $x = c$']] }, '=', 'e'] },
       ] }],
     },
     {

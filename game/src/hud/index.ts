@@ -27,6 +27,8 @@ import { mountLemmaBook } from './lemmabook';
 import { mountPaper } from './paper';
 import { pending, withRecipe } from './presets';
 import { rectToScreen } from '../floor/project';
+import { setSortCtx } from '../ui/sorts';
+import { parseExtra } from './slotparse';
 
 export interface AppOpts {
   /** Override the floor (dev harness). Defaults to ../floor's mountFloor. */
@@ -129,6 +131,8 @@ export function mountApp(root: HTMLElement, store: FactoryStore, opts: AppOpts =
   let lastToast: unknown = null, lastScreen = '';
   const render = (s: S) => {
     varRegistry.labels = new Map(towerVars(s).map((v) => [v.label, v.sort]));
+    const sc = setSortCtx(s.ctx, s.compiled?.graph); // Book phase C: which sorts items wear (NORMS › Sorts)
+    parseExtra.cur = sc.env?.multi ? { maps: [...sc.env.maps.values()], sorts: [...sc.env.sorts.values()] } : undefined;
     if (s.ui.screen !== lastScreen) {
       lastScreen = s.ui.screen;
       app.dataset.screen = s.ui.screen;

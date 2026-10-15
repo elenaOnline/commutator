@@ -1,7 +1,7 @@
 import type { AtomDecl, DeskAssumption, Fact, LevelManifest, StructDecl, Term } from '../kernel/types';
 import { catalogue, holds, type Assignment } from './index';
 import { everySortedAssignment, labeledAssignment, subKeyOf, subModels } from './semantics';
-import { nontrivialModelsM, oracleCheckM } from './models';
+import { nontrivialBinderModels, nontrivialModelsM, oracleCheckM } from './models';
 export { modelLog, homsBetween, actionsOn } from './models';
 
 /** G atoms into `acc`, ℤ Towers (zvar refs in exponents) into `zacc`. */
@@ -98,9 +98,21 @@ export const NONTRIVIAL_THRESHOLD = 10;
  * Counting stops at `cap`. Level authors: `expect(nontrivialModels(level, 's').ok).toBe(true)` in truth tests;
  * a vacuous or near-vacuous level (givens only the trivial group satisfies) fails here, not in a playtest.
  */
-export function nontrivialModels(level: LevelManifest, socketId: string, cap = 10_000): { count: number; threshold: number; ok: boolean; capped: boolean } {
+export function nontrivialModels(level: LevelManifest, socketId: string, cap = 10_000): { count: number; threshold: number; ok: boolean; capped: boolean; exempt?: string } {
+  const r = countNontrivial(level, socketId, cap);
+  // a documented per-level exemption (LevelManifest.oracleExempt): the count is still reported, ok carries the reason
+  return level.oracleExempt ? { ...r, ok: true, exempt: level.oracleExempt } : r;
+}
+function countNontrivial(level: LevelManifest, socketId: string, cap: number): { count: number; threshold: number; ok: boolean; capped: boolean } {
   const sock = level.sockets.find((s) => s.id === socketId);
   if (!sock) throw new Error(`nontrivialModels: no socket ${socketId} in ${level.id}`);
+  // Book phase C: a ∀ dock over homs / actions on a level with no maps of its own (Hom-Tower levels): count the
+  // interpretations of its parameters with some non-constant hom or action
+  const tg = sock.target;
+  if ((tg.k === 'law' || tg.k === 'cond') && (tg.binds ?? []).some((b) => b.k === 'hom' || b.k === 'act') && !level.maps?.length) {
+    const count = nontrivialBinderModels(tg, cap);
+    return { count, threshold: NONTRIVIAL_THRESHOLD, ok: count >= NONTRIVIAL_THRESHOLD, capped: count >= cap };
+  }
   if (level.sorts?.length || level.maps?.length) {
     const count = nontrivialModelsM(level, socketId, cap);
     return { count, threshold: NONTRIVIAL_THRESHOLD, ok: count >= NONTRIVIAL_THRESHOLD, capped: count >= cap };

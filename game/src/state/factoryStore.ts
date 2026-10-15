@@ -12,6 +12,7 @@ import { REGISTRY } from '../levels/levels';
 import { ALL_LEVELS, CAMPAIGNS, CAMPAIGN_LEVELS, LEVEL_BY_ID, campaignOf, type Campaign } from '../levels/campaigns';
 
 export type { Campaign };
+import { positional } from './lemmas';
 
 export type Tool =
   | { k: 'select' }
@@ -158,14 +159,20 @@ export function ctxFor(level: LevelManifest, earned: string[], lemmas: SavedLemm
     authored[l.id] = { id: l.id, name: l.name, textbook: l.name, card: l.card, origin: 'authored', mirrorable: true };
   }
   // Imported power laws (Phase B) are listed in the registry for display; the kernel owns their statements.
-  const registry = { ...REGISTRY, ...K.POWER_SCHEMAS, ...authored };
+  // Book phases B–C: the subgroup and map kinds' axioms are named like any theorem (KERNEL-EXT §4.10.6, §5.12.7)
+  const registry = { ...REGISTRY, ...K.POWER_SCHEMAS, ...K.SUB_SCHEMAS, ...K.MAP_SCHEMAS, ...authored };
   // Imports are a level decision (the exponents chapter lists them in its manifest), never a global gift:
   // e.g. the imported conjugation-power law would trivialise Conjugate Pair.
-  const imports = level.tools.schemas.filter((id) => id.startsWith('power.') || REGISTRY[id]?.origin === 'import');
+  // Kernel-owned Book schemas join the same rules: sub.e is earned (P5.1); sub.pow and hom.pow are imports a
+  // level lists. The kinds' axioms (sub.mul/inv/conj, hom.mul, act.*) need no listing: the kernel offers them
+  // wherever a subgroup / hom / action is in scope.
+  const kernelOrigin = (id: string) => K.SUB_SCHEMAS[id]?.origin ?? K.MAP_SCHEMAS[id]?.origin;
+  const imports = level.tools.schemas.filter((id) => id.startsWith('power.') || REGISTRY[id]?.origin === 'import' || kernelOrigin(id) === 'import');
+  const earnable = { ...REGISTRY, ...K.SUB_SCHEMAS };
   const schemas = [
     // Earned theorems are lent everywhere — but only ones the current campaign still awards (e.g. the retired
     // built-in Double Flip stays out even for old saves that earned it: the player's own lemma replaces it).
-    ...Object.keys(REGISTRY).filter((id) => REGISTRY[id]!.origin !== 'import' && earned.includes(id) && !level.unlocks.includes(id) && AWARDED.has(id)),
+    ...Object.keys(earnable).filter((id) => earnable[id]!.origin === 'earned' && earned.includes(id) && !level.unlocks.includes(id) && AWARDED.has(id)),
     ...imports,
     ...Object.keys(authored),
   ];
@@ -230,11 +237,21 @@ export class FactoryStore {
     const v = (s as { version?: number } | null)?.version;
     if (v === 5) {
       const s5 = s as FSave;
-      return { ...s5, campaign: s5.campaign === 'book' ? 'book' : 'main', campaigns: { main: { ...emptyCampaign(), ...s5.campaigns?.main }, book: { ...emptyCampaign(), ...s5.campaigns?.book } } };
+      return FactoryStore.positionalLemmas({ ...s5, campaign: s5.campaign === 'book' ? 'book' : 'main', campaigns: { main: { ...emptyCampaign(), ...s5.campaigns?.main }, book: { ...emptyCampaign(), ...s5.campaigns?.book } } });
     }
-    if (v === 4) return FactoryStore.migrateV4(s as FSaveV4);
+    if (v === 4) return FactoryStore.positionalLemmas(FactoryStore.migrateV4(s as FSaveV4));
     if (v === 3) return FactoryStore.migrateV4(FactoryStore.migrateV3(s as Omit<FSaveV4, 'version' | 'lemmas'>));
     return freshSave();
+  }
+  /**
+   * Lemma Book records are positional (KERNEL-EXT §3½): every saved card's structure binders are stored as
+   * `$i:<name>`, never under a level's id. Records saved before this rule are rewritten on load (idempotent; the
+   * re-verification that follows compares cards up to renaming, so nothing a player proved is lost).
+   */
+  static positionalLemmas(save: FSave): FSave {
+    let out = save;
+    for (const c of CAMPAIGNS) out = withCamp(out, c, (cs) => ({ ...cs, lemmas: cs.lemmas.map((l) => ({ ...l, card: positional(l.card) })) }));
+    return out;
   }
   /**
    * v4 → v5: the whole v4 save is the main campaign (progress, earned theorems, Lemma Book, last order).
@@ -416,7 +433,7 @@ export class FactoryStore {
     let n = CAMPAIGNS.reduce((k, c) => k + campSave(this.s.save, c).lemmas.length, 0) + 1;
     while (taken.has(`lemma:${slug}-${n}`)) n++;
     const id = `lemma:${slug}-${n}`;
-    const lemma: SavedLemma = { id, name: name.trim() || 'Lemma', card: r.card, levelId: this.s.level.id, canvas: this.s.canvas, machine: machineId, savedAt: Date.now(), verified: true };
+    const lemma: SavedLemma = { id, name: name.trim() || 'Lemma', card: positional(r.card), levelId: this.s.level.id, canvas: this.s.canvas, machine: machineId, savedAt: Date.now(), verified: true };
     const save = withCamp(this.s.save, this.campaign, (cs) => ({ ...cs, lemmas: [...cs.lemmas, lemma] }));
     this.s = { ...this.s, save, ctx: ctxForSave(this.s.level, save) };
     this.write(save);

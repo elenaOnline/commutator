@@ -10,6 +10,7 @@ import { everyAssignment } from '../../src/groups/semantics';
 import { oracleCheck } from '../../src/groups/oracle';
 import type { LevelManifest } from '../../src/kernel/types';
 import { Floor } from '../../src/factory/compiler.testkit';
+import { checkPaper } from './paper-kit';
 import { LEVELS as W01 } from '../../src/levels/book/w01';
 import { LEVELS as W02 } from '../../src/levels/book/w02';
 import { LEVELS as W03 } from '../../src/levels/book/w03';
@@ -57,6 +58,7 @@ export function deliver(f: Floor, opts: { parParts?: boolean } = {}) {
   // oracle: every proof node is true in every finite model under its dependencies
   expect(oracleCheck(f.ctx.level, comp.check.nodes, comp.graph.rooms, comp.graph.vars ?? [])).toEqual([]);
   const km = K.metrics(comp.graph, comp.check, f.ctx);
+  checkPaper(f, comp); // the proof on paper reads like homework: every line justified, citations backward only
   if (opts.parParts !== false) {
     expect(metrics.machines, `par.parts of ${level.id} (measured ${metrics.machines})`).toBe(level.par.parts);
     expect(km.axioms, `par.axioms of ${level.id} (measured ${km.axioms})`).toBe(level.par.axioms);

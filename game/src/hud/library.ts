@@ -2,7 +2,7 @@
 // Groups (review 2026-10): Operations · Group laws · Given here · Theorems · Saved · Imported · Made here.
 // No origin notes. Mirror pairs and the insert-pair orientations are ONE row each; the toggle that picks the
 // side / orientation lives in the lens's recipe section (merge.ts).
-import { hasDistinctMirror, structChoices, subgroupsInScope } from '../factory/catalog';
+import { hasDistinctMirror, libraryRefs, libName as libNameF, mapsInScope, structChoices, subgroupsInScope } from '../factory/catalog';
 import { eulerBlobHTML } from '../ui/euler';
 import * as K from '../kernel';
 import type { Card, Fact, Family, Term } from '../kernel/types';
@@ -14,7 +14,7 @@ import { h } from './util';
 import { entryKeyOf, familyName, sideName } from './merge';
 
 export type AnyRecipe = RewriteRecipe | OperatorRecipe | JoinerRecipe | TheoremRecipe | { k: 'ref'; ref: LibRef };
-export type Group = 'Operations' | 'Group laws' | 'Subgroup' | 'Given here' | 'Theorems' | 'Saved' | 'Imported' | 'Made here';
+export type Group = 'Operations' | 'Group laws' | 'Subgroup' | 'Maps' | 'Given here' | 'Theorems' | 'Saved' | 'Imported' | 'Made here';
 
 /** A merged row's toggle: the two sides of a mirror pair, or the two orientations of insert pair. */
 export type Sides =
@@ -218,6 +218,14 @@ export function libraryFor(s: S, kind: MachineKind): LibEntry[] {
     );
     for (const g of s.level.givens) if (g.fact.k === 'eq' || g.fact.k === 'law') out.push(givenEntry(g, { k: 'law', ref: { k: 'given', givenId: g.id } }));
     for (const sc of usableSchemas(s)) if (sc.card.k === 'law') out.push(schemaEntry(sc, { k: 'law', ref: { k: 'schema', id: sc.id } }, false));
+    // Book phase C: the map kinds' laws (the homomorphism law, the action laws), listed once per hom or action in scope
+    for (const ref of safe(() => libraryRefs(s.ctx, 'rule', s.canvas as never), [] as LibRef[])) {
+      if (ref.k !== 'schema' || !/^(hom|act)\./.test(ref.id)) continue;
+      const sc = K.mapSchema(ref.id);
+      if (!sc) continue;
+      const nm = safe(() => libNameF(s.ctx, ref), sc.name);
+      out.push({ key: recipeKey({ k: 'law', ref }), group: 'Maps', name: `${nm} ${sc.textbook}`, nameHTML: esc(nm), stmt: stmt(sc.card, {}), recipe: { k: 'law', ref }, ref });
+    }
     const lg = lagrange({ k: 'law', ref: { k: 'lagrange' } });
     if (lg) out.push(lg);
     out.push(...powerEntries((ref) => ({ k: 'law', ref })));
@@ -233,6 +241,15 @@ export function libraryFor(s: S, kind: MachineKind): LibEntry[] {
       { key: 'swap', group: 'Operations', name: 'swap sides symmetry', nameHTML: 'swap sides', stmt: '', recipe: { k: 'swap' },
         demo: opDemo(dc, W(da, db), 'equation', 'all', 'all') },
     );
+    // Book phase C: apply a map to both sides (u = v ⟹ f(u) = f(v)), one row per map in scope (level maps, Hom Towers)
+    for (const mp of safe(() => mapsInScope(s.ctx, s.canvas as never), [])) {
+      const nm = `<i>${nameHTML(mp.label)}</i>`;
+      const two = mp.args.length > 1;
+      out.push({ key: `apply:${mp.id}`, group: 'Maps', name: `apply ${mp.label} to both sides map`, nameHTML: `apply ${nm}`, stmt: '',
+        note: two ? 'the equation fills one argument; choose the other below' : undefined,
+        recipe: { k: 'apply', fn: mp.id } as AnyRecipe,
+        demo: () => h('span', { class: 'math h3-applydemo', html: `<i>u</i> <span class="m-rel">=</span> <i>v</i> &ensp;<span class="h3-dim">gives</span>&ensp; ${nm}(<i>u</i>${two ? ', …' : ''}) <span class="m-rel">=</span> ${nm}(<i>v</i>${two ? ', …' : ''})` }) });
+    }
   } else if (kind === 'joiner') {
     out.push(
       { key: 'chain', group: 'Operations', name: 'chain transitivity', nameHTML: 'chain', stmt: '', recipe: { k: 'chain' }, demo: joinDemo([eqR(da, db), eqR(db, dc)], eqR(da, dc), 'equation', DL, true) },
@@ -255,13 +272,14 @@ export function libraryFor(s: S, kind: MachineKind): LibEntry[] {
   return out;
 }
 
-export const GROUP_ORDER: Group[] = ['Operations', 'Group laws', 'Subgroup', 'Given here', 'Theorems', 'Saved', 'Imported', 'Made here'];
+export const GROUP_ORDER: Group[] = ['Operations', 'Group laws', 'Subgroup', 'Maps', 'Given here', 'Theorems', 'Saved', 'Imported', 'Made here'];
 
 /** Stable key of a configured recipe (presets and pins tell sides and orientations apart). */
 export function recipeKey(r: AnyRecipe | null | undefined): string {
   if (!r) return '';
   const o = r as { k: string; ref?: LibRef; side?: string; inv?: boolean };
-  if (o.ref) return o.ref.k === 'given' ? `given:${o.ref.givenId}` : o.ref.k === 'schema' ? `schema:${o.ref.id.startsWith('power.literal:') ? 'power.literal' : o.ref.id}${o.ref.mirror ? ':op' : ''}` : o.ref.k === 'lagrange' ? 'lagrange' : `axiom:${o.ref.id}`;
+  if (o.ref) return o.ref.k === 'given' ? `given:${o.ref.givenId}` : o.ref.k === 'schema' ? `schema:${o.ref.id.startsWith('power.literal:') ? 'power.literal' : o.ref.id}${o.ref.mirror ? ':op' : ''}${/^(hom|act)\./.test(o.ref.id) && o.ref.structs ? `@${Object.values(o.ref.structs).join(',')}` : ''}` : o.ref.k === 'lagrange' ? 'lagrange' : `axiom:${o.ref.id}`;
+  if (o.k === 'apply') return `apply:${(r as { fn: string }).fn}`;
   if (o.k === 'insertPair') return o.inv ? 'pairInv' : 'pair';
   if (o.k === 'multiply') return o.side === 'left' ? 'mulL' : 'mulR';
   return o.k;
@@ -271,5 +289,7 @@ export function recipeKey(r: AnyRecipe | null | undefined): string {
 export function entryFor(s: S, kind: MachineKind, r: AnyRecipe | null | undefined): LibEntry | undefined {
   if (!r) return undefined;
   const k = entryKeyOf(recipeKey(r));
-  return libraryFor(s, kind).find((x) => x.key === k);
+  const all = libraryFor(s, kind);
+  // a map law configured without its hom (the compiler settles it from the redex) is still that row
+  return all.find((x) => x.key === k) ?? all.find((x) => x.key.split('@')[0] === k.split('@')[0]);
 }

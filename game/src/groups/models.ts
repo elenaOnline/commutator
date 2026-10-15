@@ -181,6 +181,8 @@ function symbolsOf(f: Fact, acc: { atoms: Set<string>; z: Set<string>; maps: Set
 }
 
 const PLAIN_LIMIT = 4096;
+/** Largest set sort in a model. */
+export const SET_MAX = 4;
 const SAMPLE = 300;
 function rng(seed: number) { return () => { seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5; return (seed >>> 0) / 4294967296; }; }
 
@@ -222,9 +224,13 @@ function everyModel(sig: Sig, facts: Fact[], withEmpty: boolean, visit: (m: MMod
     }
     return true;
   };
+  // sets of size 1–4 (architect 2026-10-15: so small-model thresholds bind honestly); with three or more set
+  // sorts the product grows past the budget, so those levels stay at ≤ 3 — logged
+  const setMax = setSorts.length >= 3 ? 3 : SET_MAX;
+  if (setMax < SET_MAX) note('three or more set sorts: sets of size ≤ 3');
   const goSets = (i: number): boolean => {
     if (i === setSorts.length) return goKinded(0);
-    for (let k = 1; k <= 3; k++) { m.sets.set(setSorts[i]!, k); if (!goSets(i + 1)) return false; }
+    for (let k = 1; k <= setMax; k++) { m.sets.set(setSorts[i]!, k); if (!goSets(i + 1)) return false; }
     return true;
   };
   const goKinded = (i: number): boolean => {
@@ -346,7 +352,7 @@ function cardHolds(m: MModel, sig: Sig, c: Card, atoms: Assignment): boolean {
         const id = `§${b.id}`; bindVal[b.id] = id; sig2.sorts.set(id, { id, kind: 'group', label: b.id }); m2.groups.set(id, G);
         if (!goB(i + 1)) return false;
       } return true;
-      case 'set': for (let k = 1; k <= 3; k++) {
+      case 'set': for (let k = 1; k <= SET_MAX; k++) {
         const id = `§${b.id}`; bindVal[b.id] = id; sig2.sorts.set(id, { id, kind: 'set', label: b.id }); m2.sets.set(id, k);
         if (!goB(i + 1)) return false;
       } return true;
@@ -420,19 +426,39 @@ export function oracleCheckM(level: LevelManifest, factsByNode: Record<string, {
   for (const g of level.givens) deps.set(`g:${g.id}`, g.fact);
   for (const r of rooms) roomFacts(r).forEach((f, i) => deps.set(i ? `a:${r.id}/${i}` : `a:${r.id}`, f));
   const out: string[] = [];
+  // the same statement on the same hypotheses is one obligation (floors repeat facts along belts)
+  const done = new Set<string>();
   for (const [id, node] of Object.entries(factsByNode)) {
     const fact = node.fact;
     if (!node.ok || !fact || fact.k === 'size') continue;
     const missing = node.deps.filter((d) => !deps.has(d));
     if (missing.length) { out.push(`Node ${id}: unresolved dependencies ${missing.join(', ')}`); continue; }
+    const key = JSON.stringify([fact, [...node.deps].sort()]);
+    if (done.has(key)) continue;
+    done.add(key);
     const prem = node.deps.map((d) => deps.get(d)!);
     const acc = { atoms: new Set<string>(), z: new Set<string>(), maps: new Set<string>(), esorts: new Set<string>(), subs: new Set<string>() };
     for (const f of [fact, ...prem]) symbolsOf(f, acc);
+    // a CLOSED card (a lemma: no level symbol, every sort a parameter) does not depend on the level's model —
+    // check it once instead of once per model of the level's sorts
+    if (!prem.length && (fact.k === 'law' || fact.k === 'cond') && !acc.atoms.size && !acc.z.size && !acc.subs.size
+      && [...acc.maps].every((m0) => (fact.binds ?? []).some((b) => b.id === m0))
+      && [...acc.esorts].every((e0) => (fact.binds ?? []).some((b) => b.id === e0))
+      && Object.values(fact.metaSorts ?? {}).every((r) => typeof r !== 'string')
+      && (fact.binds ?? []).some((b) => b.k === 'grp')) {
+      const empty: MModel = { groups: new Map(), sets: new Map(), maps: new Map(), subs: new Map() };
+      if (!holdsM(empty, sig, fact, Object.create(null))) out.push(`Node ${id}: ${fact.k} fails for some interpretation of its parameters`);
+      continue;
+    }
     const atomIds = [...acc.atoms].sort(), zIds = [...acc.z].sort();
     let budget = 1_000_000;
     let violation: string | null = null;
+    // hypotheses that mention no atom / ℤ Tower (e.g. ∀-givens) depend only on the model: test them once per model
+    const atomFree = (f: Fact) => { const x = { atoms: new Set<string>(), z: new Set<string>(), maps: new Set<string>(), esorts: new Set<string>(), subs: new Set<string>() }; symbolsOf(f, x); return !x.atoms.size && !x.z.size; };
+    const premModel = prem.filter(atomFree), premAtoms = prem.filter((f) => !atomFree(f));
     everyModel(sig, [fact, ...prem], withEmpty, (m) => {
       const s: Assignment = Object.create(null);
+      if (!premModel.every((p) => holdsM(m, sig, p, s))) return true;
       const goA = (j: number): boolean => {
         if (j === atomIds.length) return goZ(0);
         const n = sizeOf(m, sig.atomSort.get(atomIds[j]!) ?? 'G');
@@ -442,7 +468,7 @@ export function oracleCheckM(level: LevelManifest, factsByNode: Record<string, {
       const goZ = (j: number): boolean => {
         if (j === zIds.length) {
           if (--budget < 0) return false;
-          if (!prem.every((p) => holdsM(m, sig, p, s)) || holdsM(m, sig, fact, s)) return true;
+          if (!premAtoms.every((p) => holdsM(m, sig, p, s)) || holdsM(m, sig, fact, s)) return true;
           violation = `Node ${id}: ${fact.k} fails with ${[...m.groups].map(([k, G]) => `${k}=${G.name}`).join(', ')} ${JSON.stringify(s)}`;
           return false;
         }
@@ -457,6 +483,62 @@ export function oracleCheckM(level: LevelManifest, factsByNode: Record<string, {
   return out;
 }
 
+/** Is a map constant in this model (one value on its whole domain)? */
+function constantMap(m: MModel, d: MapDecl): boolean {
+  const f = m.maps.get(d.id);
+  if (!f) return true;
+  const sizes = d.args.map((s) => sizeOf(m, s));
+  const seen = new Set<number>();
+  const rec = (args: number[]): boolean => {
+    if (args.length === sizes.length) { seen.add(f(args)); return seen.size < 2; }
+    for (let v = 0; v < sizes[args.length]!; v++) if (!rec([...args, v])) return false;
+    return true;
+  };
+  rec([]);
+  return seen.size < 2;
+}
+
+/**
+ * Hom / action parameters of a dock's ∀ target (Hom-Tower levels with no level maps, e.g. P9.3, P9.4, P14.1, P16.1):
+ * how many interpretations make some hom or action non-constant (catalogue groups, sets of size ≤ SET_MAX).
+ */
+export function nontrivialBinderModels(target: Card, cap = 10_000): number {
+  const binds = target.binds ?? [];
+  const homs = binds.filter((b) => b.k === 'hom' || b.k === 'act');
+  if (!homs.length) return 0;
+  const val: Record<string, FiniteGroup | number> = {};
+  const ref = (r: string | { k: 'sortmeta'; id: string }) => (typeof r === 'string' ? r : r.id);
+  let count = 0;
+  // group / set parameters, plus any level group a hom parameter names directly (it ranges over the catalogue too)
+  const sortsOf: { k: 'grp' | 'set'; id: string }[] = binds.filter((b): b is StructBinder & { k: 'grp' | 'set' } => b.k === 'grp' || b.k === 'set').map((b) => ({ k: b.k, id: b.id }));
+  for (const b of homs) for (const r of b.k === 'hom' ? [b.dom, b.cod] : [b.grp]) {
+    const id = ref(r);
+    if (!sortsOf.some((x) => x.id === id)) sortsOf.push({ k: 'grp', id });
+  }
+  const goSorts = (i: number): boolean => {
+    if (i === sortsOf.length) return goMaps(0, false);
+    const b = sortsOf[i]!;
+    if (b.k === 'grp') { for (const G of catalogue()) { val[b.id] = G; if (!goSorts(i + 1)) return false; } }
+    else for (let k = 1; k <= SET_MAX; k++) { val[b.id] = k; if (!goSorts(i + 1)) return false; }
+    return true;
+  };
+  const grpOf = (r: string | { k: 'sortmeta'; id: string }) => { const v = val[ref(r)]; return typeof v === 'object' ? v : catalogue().find((G) => G.order === 1)!; };
+  const goMaps = (j: number, nontrivial: boolean): boolean => {
+    if (j === homs.length) { if (nontrivial) count++; return count < cap; }
+    const b = homs[j]!;
+    if (b.k === 'hom') {
+      for (const t of homsBetween(grpOf(b.dom), grpOf(b.cod))) if (!goMaps(j + 1, nontrivial || new Set(t).size > 1)) return false;
+    } else if (b.k === 'act') {
+      const k = val[ref(b.on)];
+      if (typeof k !== 'number') return true;
+      for (const t of actionsOn(grpOf(b.grp), k)) if (!goMaps(j + 1, nontrivial || t.some((perm) => perm.some((v, p) => v !== p)))) return false;
+    }
+    return true;
+  };
+  goSorts(0);
+  return count;
+}
+
 /** Book phase C, pin 4: nontrivial models of a dock's allowed givens in a many-sorted level (see nontrivialModels). */
 export function nontrivialModelsM(level: LevelManifest, socketId: string, cap = 10_000): number {
   const sock = level.sockets.find((s) => s.id === socketId);
@@ -468,9 +550,14 @@ export function nontrivialModelsM(level: LevelManifest, socketId: string, cap = 
   for (const f of [...givens, sock.target]) symbolsOf(f, acc);
   const atomIds = [...acc.atoms].sort();
   let count = 0;
+  const usedMaps = [...acc.maps].filter((id) => sig.maps.has(id));
   everyModel(sig, [...givens, sock.target], withEmpty, (m) => {
-    // nontrivial: some group of order ≥ 2, and some map not constant (when there are maps)
-    if (![...m.groups.values()].some((G) => G.order >= 2)) return true;
+    // nontrivial: a group of order ≥ 2; or, in a level of sets only, a set of size ≥ 2 and some map not constant
+    if (m.groups.size) { if (![...m.groups.values()].some((G) => G.order >= 2)) return true; }
+    else {
+      if (![...m.sets.values()].some((k) => k >= 2)) return true;
+      if (usedMaps.length && !usedMaps.some((id) => !constantMap(m, sig.maps.get(id)!))) return true;
+    }
     const s: Assignment = Object.create(null);
     const goA = (j: number): boolean => {
       if (j === atomIds.length) { if (givens.every((f) => holdsM(m, sig, f, s))) count++; return count < cap; }

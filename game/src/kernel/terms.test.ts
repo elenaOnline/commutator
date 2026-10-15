@@ -94,7 +94,7 @@ describe('printing', () => {
     expect(K.factText({ k: 'neq', l: a, r: e }, L)).toBe('a ≠ e');
     expect(K.factText({ k: 'size', n: 7 }, L)).toBe('|G| = 7');
     expect(K.factText({ k: 'law', metas: ['x'], l: M(x, x), r: e }, L)).toBe('∀x. xx = e');
-    expect(K.factText({ k: 'cond', metas: ['x'], premises: [{ k: 'neq', l: x, r: e }], concl: { k: 'eq', l: M(a, x), r: x } }, L)).toBe('∀x. x ≠ e ⇒ ax = x');
+    expect(K.factText({ k: 'cond', metas: ['x'], premises: [{ k: 'neq', l: x, r: e }], concl: { k: 'eq', l: M(a, x), r: x } }, L)).toBe('∀x. x ≠ e ⟹ ax = x');
   });
   it('tex', () => {
     expect(K.factTex({ k: 'eq', l: I(M(a, b)), r: M(I(b), I(a)) }, L)).toBe('(ab)^{-1} = b^{-1}a^{-1}');

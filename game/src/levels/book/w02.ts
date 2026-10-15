@@ -71,6 +71,7 @@ export const LEVELS: LevelManifest[] = [
     id: 'P4.4', index: 7, campaign: 'book', world: 2, chapter: 4, title: 'Undo the Undo',
     method: 'Computation', insight: 'Prove it for an arbitrary element, then keep it', source: 'Pinter Thm 3(ii)',
     memo: 'Inverting twice should change nothing. Prove it for every element, then save it.',
+    lemmaNames: ['double inverse'],
     atoms: [], givens: [],
     sockets: [{ id: 's', target: { k: 'law', metas: ['x'], l: I(I(x)), r: x }, allowedGivens: [] }],
     tools: tools({ lift: true, merge: true, schemas: ['cancel', 'witness'] }), unlocks: [],
@@ -90,10 +91,14 @@ export const LEVELS: LevelManifest[] = [
   },
 ];
 
-/** Illustrative letters: AT('abc') → a, b, c in shape slots 0, 1, 2 (+ shift). */
-const AT = (s: string, shift = 0): AtomSpec[] => [...s].map((id, i) => ({ id, label: id, hue: i + shift }));
-/** Tower variables: TW('xy') → x, y as solid ∈G variables. */
-const TW = (s: string): AtomSpec[] => [...s].map((id, i) => ({ id, label: id, hue: i + 2, sort: 'G' as const }));
+/**
+ * Illustrative letters for card figures. One hue per letter across every card of these worlds, matching the level
+ * constants (a b c d) on the floor, so a letter keeps its shape: AT('abc') → a, b, c in their own slots.
+ */
+const LETTER_HUE: Record<string, number> = { a: 0, b: 1, c: 2, d: 3, p: 0, q: 1, r: 2, s: 3, u: 0, v: 1, w: 2, x: 2, y: 3, z: 4 };
+const AT = (s: string): AtomSpec[] => [...s].map((id) => ({ id, label: id, hue: LETTER_HUE[id]! }));
+/** Tower variables: TW('xy') → x, y as solid ∈G variables, in their letters' own hues. */
+const TW = (s: string): AtomSpec[] => [...s].map((id) => ({ id, label: id, hue: LETTER_HUE[id]!, sort: 'G' as const }));
 const cancelL: LibRef = { k: 'schema', id: 'cancel' };
 
 /** Concept cards for this world's levels, keyed by level id. */
@@ -101,7 +106,7 @@ export const CARDS: Record<string, ConceptCard[]> = {
   'P4.1': [
     {
       title: 'Uniqueness arguments',
-      body: 'To show that only one thing has a property, take two things that have it and show they are equal. The usual way is to compute one expression in two ways. Associativity lets you regroup $(pq)r$ as $p(qr)$, and any term $p$ can be written $pe$. A given rewrites its left side wherever that side appears.',
+      body: 'To show that only one thing has a property, take two things that have it and show they are equal. Associativity lets you regroup $(pq)r$ as $p(qr)$, and any term $p$ can be written $pe$. A given rewrites its left side wherever that side appears.',
       figures: [{ k: 'math', atoms: AT('pqr'), rows: [
         { label: 'regroup', seq: ['(pq)r', '=', 'p(qr)'] },
         { label: 'identity', seq: ['p', '=', 'pe'] },
@@ -109,12 +114,12 @@ export const CARDS: Record<string, ConceptCard[]> = {
     },
     {
       title: 'The Joiner',
-      body: 'A **Joiner** combines two facts. Set to **chain**, it takes two equations that end in the same term, $X = M$ and $Y = M$, and gives $X = Y$.',
+      body: 'A **Joiner** combines two facts. Set to **chain**, it links two equations through a term they share: from $p = q$ and $q = r$ it makes $p = r$.',
       machines: ['joiner'],
       figures: [{ k: 'math', atoms: AT('pqr'), rows: [
-        { label: 'first equation', seq: ['p', '=', 'r'] },
+        { label: 'first equation', seq: ['p', '=', 'q'] },
         { label: 'second equation', seq: ['q', '=', 'r'] },
-        { label: 'chained', seq: ['p', '=', 'q'] },
+        { label: 'chained', seq: ['p', '=', 'r'] },
       ] }],
     },
     {
@@ -165,10 +170,10 @@ export const CARDS: Record<string, ConceptCard[]> = {
         ] } }],
     },
     {
-      title: 'An e from an inverse pair',
-      body: 'Here only one side is given: $ab = e$. The inverse rule $xx^{-1} = e$, read backwards, turns an $e$ into a pair $xx^{-1}$ for any $x$ you pick. That is a way to put a new factor beside a term without changing its value. With other letters:',
+      title: 'Inserting an inverse pair',
+      body: 'The inverse rule $xx^{-1} = e$, read backwards, inserts a pair $xx^{-1}$ at a gap for any $x$ you pick. The value does not change, since the pair is $e$. If an $e$ is left beside other terms, a Rewriter set to remove $e$ clears it. With other letters:',
       figures: [{ k: 'math', atoms: AT('pq'), rows: [
-        { seq: ['p', '=', { t: 'pe', br: [[1, 2, 'identity']] }, '=', { t: 'p(qq^-1)', br: [[1, 2, 'inverse rule, backwards']] }] },
+        { seq: ['p', '=', { t: 'p(qq^-1)', br: [[1, 2, 'inserted pair']] }] },
       ] }],
     },
     {
@@ -189,7 +194,7 @@ export const CARDS: Record<string, ConceptCard[]> = {
         notes: [
           { at: [0.5, 2.1, 1.65], text: 'A **Tower** declares $x \\in G$.' },
           { at: [3, 0.5, 1], text: 'A fact about $x$ arrives at the **Generalizer**.' },
-          { at: [6, 0.5, 0], text: 'Out comes $\\forall x.\; xx^{-1} = e$: true for every element.' },
+          { at: [6, 0.5, 0], text: 'Out comes $\\forall x. xx^{-1} = e$: true for every element.' },
         ] } }],
     },
     {
@@ -211,12 +216,8 @@ export const CARDS: Record<string, ConceptCard[]> = {
       figures: [{ k: 'math', atoms: AT('ab'), rows: [{ seq: ['(ab)^-1', '=', 'a^-1b^-1'], strike: true, why: 'Wrong order. Check it in S₃.' }] }],
     },
     {
-      title: 'Choose where to cut',
-      body: '**Unique inverse** needs a premise $uv = e$, and you choose where $u$ ends and $v$ begins. Its conclusion names whatever follows the cut as the inverse of what comes before it.',
-      figures: [{ k: 'math', atoms: AT('pqr'), rows: [
-        { label: 'cut after p', seq: [{ t: 'pqr', br: [[0, 1, '$u$', 'over'], [1, 3, '$v$', 'over']] }, '=', 'e', '⟹', 'qr', '=', 'p^-1'] },
-        { label: 'cut after q⁻¹', seq: [{ t: 'q^-1p', br: [[0, 1, '$u$', 'over'], [1, 2, '$v$', 'over']] }, '=', 'e', '⟹', 'p', '=', '(q^-1)^-1'] },
-      ] }],
+      title: 'Matching a premise',
+      body: 'A theorem’s premise is a pattern, such as $uv = e$. A Theorem machine lists the ways the equation it receives can match that pattern, and you pick the match.',
     },
   ],
 };

@@ -10,7 +10,7 @@
 // says "read right to left"; a cited line is "line k". Maths is typeset by the shared renderer; no arrows.
 import type { Fact, NodeId, ProofNode, Room, Term } from '../kernel/types';
 import { MIRROR_NAMES, REGISTRY } from '../levels/levels';
-import { buildTranscript, schemaInfo, type EqLine, type Item, type ProseLine, type State } from './proof';
+import { MAP_WORDS, buildTranscript, schemaInfo, type EqLine, type Item, type ProseLine, type State } from './proof';
 import { adapt } from './transcript';
 import { campaignOf, deskFact, displayNo, openView, progressOf, richHTML, esc, fH, h, labels as labels0, nameHTML, safe, statementOf, tH, type S, type Store } from './util';
 
@@ -89,6 +89,18 @@ export function buildPaper(st: State): Paper {
     // a chain read backwards (left-side rewrites shown ending at the fixed right side) uses each rule the other way
     const flip = !!last && !same(l.rhs, last.r) && ns.length > 0 && ns.every((n) => n.k === 'step');
     const one: Row = { depth, kind: 'eq', lhs: l.lhs, rel: l.rel, rhs: l.rhs, nodes: l.nodes, why: ns, flip, line: l };
+    if (l.side === 'l') {
+      // the left side simplified forwards: one row per rule, each the left side after it (X = X₁ = X₂ …)
+      one.flip = false;
+      if (ns.length < 2 || !fs.every((f) => f && f.k === 'eq')) return [one];
+      const out: Row[] = [];
+      ns.forEach((n, j) => {
+        const prev = out[out.length - 1];
+        if (prev && prev.kind === 'eq' && same(prev.rhs, fs[j]!.l)) { prev.why.push(n); prev.nodes.push(n.id); return; }
+        out.push({ depth, kind: 'eq', lhs: j === 0 ? l.lhs : null, rel: '=', rhs: fs[j]!.l, nodes: [n.id], why: [n], flip: false, line: l });
+      });
+      return out;
+    }
     if (ns.length < 2 || !last || !ns.every((n) => n.k === 'step') || !fs.every((f) => f && f.k === last.k)) return [one];
     const out: Row[] = [];
     const push = (lhs: Term | null, rhs: Term, n: ProofNode) => {
@@ -112,7 +124,20 @@ export function buildPaper(st: State): Paper {
     const n = byId.get(it.nodes[0] ?? '');
     return n?.k === 'exit' ? n.room : null;
   };
-  const walk = (its: Item[], depth: number) => {
+  // The proof as blocks: a chain of lines (one equation and its "= …" continuations), or a room (its opening
+  // line, its argument, and the conclusion that follows it). Blocks are then put in dependency order, so a line
+  // never cites a later one (a fact built outside a room comes before the room that uses it).
+  type RoomMark = { roomSpan: true };
+  type Block = { k: 'rows'; rows: Row[] } | { k: 'room'; head: Row; inner: Block[]; after: Row[] };
+  const addRows = (rs: Row[], into: Block[]) => {
+    for (const r of rs) {
+      const last = into[into.length - 1];
+      if (r.kind === 'eq' && r.lhs === null && last?.k === 'rows' && last.rows[last.rows.length - 1]?.kind === 'eq') last.rows.push(r);
+      else into.push({ k: 'rows', rows: [r] });
+    }
+  };
+  const walk = (its: Item[], depth: number): Block[] => {
+    const out: Block[] = [];
     // a room's conclusion ("Hence ab ≠ a", and the work on it) follows its room at once, as on paper
     const here = new Set(its.filter((x) => x.t === 'room').map((x) => (x as { room: Room }).room.id));
     const after = new Map<string, Item[]>();
@@ -126,35 +151,72 @@ export function buildPaper(st: State): Paper {
       } else rest.push(its[i]!);
     }
     let prevKept = false;
-    const one = (it: Item, span?: [number, number]) => {
+    const one = (it: Item, into: Block[], mark?: boolean) => {
       if (it.t === 'eq' && it.ghost) return;
       const ns = (it as { nodes: NodeId[] }).nodes;
       const keep: boolean = ns.length ? keepNodes(ns) : prevKept; // a closing "= R" line follows its chain
       prevKept = keep;
       if (!keep) return;
-      if (it.t === 'prose') rows.push({ depth, kind: 'prose', item: it, nodes: it.nodes, span });
-      else if (it.t === 'eq') rows.push(...expand(it, depth));
+      if (it.t === 'prose') addRows([{ depth, kind: 'prose', item: it, nodes: it.nodes, ...(mark ? { span: [0, 0] as [number, number], roomSpan: true } : {}) } as Row], into);
+      else if (it.t === 'eq') addRows(expand(it, depth), into);
     };
     for (const it of rest) {
       if (it.t === 'room') {
         const assume = g.nodes.filter((n) => n.k === 'assume' && n.room === it.room.id).map((n) => n.id);
-        const mark = rows.length;
-        rows.push({ depth, kind: 'assume', room: it.room, nodes: assume });
-        const before = rows.length;
-        walk(it.items, depth + 1);
-        const kept = !(rows.length === before && !keepNodes(assume));
-        if (!kept) rows.splice(mark, 1); // an unused room leaves no trace
-        const span: [number, number] | undefined = kept ? [mark + 1, rows.length] : undefined;
+        const head: Row = { depth, kind: 'assume', room: it.room, nodes: assume };
+        const inner = walk(it.items, depth + 1);
+        const kept = !(inner.length === 0 && !keepNodes(assume)); // an unused room leaves no trace
         prevKept = false;
-        (after.get(it.room.id) ?? []).forEach((x, i) => one(x, i === 0 ? span : undefined));
+        const tail: Block[] = [];
+        (after.get(it.room.id) ?? []).forEach((x, i) => one(x, tail, i === 0 && kept));
+        if (kept) out.push({ k: 'room', head, inner, after: tail.flatMap((b) => (b.k === 'rows' ? b.rows : [])) });
+        else out.push(...tail);
         continue;
       }
-      one(it);
+      one(it, out);
+    }
+    return order(out);
+  };
+  /** Node ids a block states, and the ones it uses from elsewhere. */
+  const rowsOf = (b: Block): Row[] => (b.k === 'rows' ? b.rows : [b.head, ...b.inner.flatMap(rowsOf), ...b.after]);
+  const provides = (b: Block) => new Set(rowsOf(b).flatMap((r) => r.nodes)); // (a concluding line's fact is computed by the rows it cites)
+  const needs = (b: Block, own: Set<NodeId>) => {
+    const out = new Set<NodeId>();
+    for (const r of rowsOf(b)) {
+      const ids = [...r.nodes.flatMap((id) => { const n = byId.get(id); return n ? depsOf(n, g.nodes) : []; }), ...(r.kind === 'eq' ? [...(r.line.from ?? []), ...(r.line.refs ?? [])] : [])];
+      for (const id of ids) if (!own.has(id)) out.add(id);
+    }
+    return out;
+  };
+  /** Stable topological order: each block as early as the transcript put it, but after every block it uses. */
+  function order(bs: Block[]): Block[] {
+    const prov = bs.map(provides), need = bs.map((b, i) => needs(b, prov[i]!));
+    const placed: boolean[] = bs.map(() => false), out: Block[] = [];
+    const ready = (i: number) => bs.every((_, j) => j === i || placed[j] || ![...need[i]!].some((id) => prov[j]!.has(id)));
+    while (out.length < bs.length) {
+      let pick = bs.findIndex((_, i) => !placed[i] && ready(i));
+      if (pick < 0) pick = placed.findIndex((p) => !p); // a cycle cannot happen in a proof; keep the order if it does
+      placed[pick] = true; out.push(bs[pick]!);
+    }
+    return out;
+  }
+  const flat = (bs: Block[]) => {
+    for (const b of bs) {
+      if (b.k === 'rows') { rows.push(...b.rows); continue; }
+      const first = rows.length + 1;
+      rows.push(b.head);
+      flat(b.inner);
+      const last = rows.length;
+      for (const r of b.after) { if (r.kind === 'prose' && (r as Row & Partial<RoomMark>).roomSpan) r.span = [first, last]; rows.push(r); }
     }
   };
-  walk(tr.items, 0);
-  const lineOf = new Map<NodeId, number>();
-  rows.forEach((o, i) => o.nodes.forEach((id) => { if (!lineOf.has(id)) lineOf.set(id, i + 1); }));
+  flat(walk(tr.items, 0));
+  // where each fact is written: the first line that shows it, except that a concluding line ("X′ = Y, from …")
+  // is where its fact is STATED, so later lines cite that line (rawLineOf still finds the computation)
+  const rawLineOf = new Map<NodeId, number>();
+  rows.forEach((o, i) => o.nodes.forEach((id) => { if (!rawLineOf.has(id)) rawLineOf.set(id, i + 1); }));
+  const lineOf = new Map(rawLineOf);
+  rows.forEach((o, i) => { if (o.kind === 'eq' && o.line.owns) lineOf.set(o.line.owns, i + 1); });
   const lineRef = (id: NodeId): string => { const k = lineOf.get(id); return k ? `line ${k}` : ''; };
 
   // ── reasons, in plain words ──
@@ -167,7 +229,12 @@ export function buildPaper(st: State): Paper {
     const ks = Object.keys(sub);
     return ks.length ? ` with ${ks.map((m) => math(`<i>${esc(m)}</i> = ${tH(sub[m]!, L, 'proof')}`)).join(', ')}` : '';
   };
-  const schemaName = (id: string, mirror: boolean) => {
+  const schemaName = (id: string, mirror: boolean, structs?: Record<string, string>) => {
+    // the map laws name the actual map: "φ is a homomorphism", "acting by a product"
+    if (MAP_WORDS[id]) {
+      const f = structs?.f ? L[structs.f] ?? structs.f : 'f';
+      return id === 'hom.mul' ? `${math(`<i>${esc(f)}</i>`)} is a homomorphism` : esc(MAP_WORDS[id]!);
+    }
     const sc = st.ctx.registry[id];
     if (sc?.origin === 'authored') return esc(sc.name);
     if (mirror && MIRROR_NAMES[id]) return esc(MIRROR_NAMES[id]!.textbook);
@@ -199,14 +266,14 @@ export function buildPaper(st: State): Paper {
         if (op.k === 'applyMap') return `apply ${math(`<i>${esc(L[op.fn] ?? op.fn)}</i>`)} to both sides`;
         const r = op.rule, rev = (op.dir === 'rev') !== flip;
         if (r.k === 'axiom') return r.id === 'unitL' || r.id === 'unitR' ? 'identity' : 'inverse';
-        if (r.k === 'schema') return `${schemaName(r.id, !!r.mirror)}${backwards(rev)}`;
+        if (r.k === 'schema') return `${schemaName(r.id, !!r.mirror, op.structs)}${backwards(rev)}`;
         const c = cite(r.id);
         return c ? `${c}${withSubst(op.subst)}${backwards(rev)}` : '';
       }
       case 'apply': {
         const r = n.rule;
         const from = n.inputs.map(bare).filter(Boolean);
-        const head = r.k === 'schema' ? schemaName(r.id, !!r.mirror) : r.k === 'node' ? `${cite(r.id)}${withSubst(n.subst)}` : 'identity';
+        const head = r.k === 'schema' ? schemaName(r.id, !!r.mirror, n.structs) : r.k === 'node' ? `${cite(r.id)}${withSubst(n.subst)}` : 'identity';
         return from.length ? `${head}, from ${linesOf(from)}` : head;
       }
       case 'merge': { const xs = n.inputs.map(bare).filter(Boolean); return xs.length ? `from ${linesOf(xs)}` : 'transitivity'; }
@@ -248,7 +315,11 @@ export function buildPaper(st: State): Paper {
     if (o.kind === 'prose') return { no, depth: o.depth, kind: 'prose', html: proseHTML(o.item).replace(/ \((discharging the assumption)\)\.$/, '.'), reason: o.span ? `lines ${o.span[0]}–${o.span[1]}` : '', nodes: o.nodes };
     const l = o.line;
     let reason: string;
-    if (!o.why.length) {
+    if (l.from?.length && !o.why.length) {
+      // a concluding line: the two facts it combines (the equation, and the computation of its left side)
+      const xs = l.from.map((id) => { const n = byId.get(id); if (n?.k === 'given') return givenName(id); if (n?.k === 'assume') return 'the assumption'; const k = id === l.owns ? rawLineOf.get(id) : lineOf.get(id); return k ? `line ${k}` : ''; }).filter(Boolean);
+      reason = xs.length ? `from ${linesOf(xs)}` : '';
+    } else if (!o.why.length) {
       // the closing line of a chain read backwards: its reason is where the right side came from
       reason = /^assumption/.test(l.just) ? 'the assumption' : /^given/.test(l.just) ? `given ${math(`<i>${nameHTML(l.just.replace(/^given\s*/, ''))}</i>`)}` : (l.refs ?? []).map(cite).filter(Boolean).join(', ');
     } else {

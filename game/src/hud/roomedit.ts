@@ -103,9 +103,16 @@ export function roomAssumptionsEditor(s: S, store: Store, room: Room): HTMLEleme
   apply.addEventListener('click', () => { const as = wanted(); if (as) store.setRoomAssumptions(room.id, as); });
   for (const a of current) addRow(a);
   const els = atoms; // level letters and the floor's Tower variables
-  const chipTerms: Term[] = [...els.map((a) => ({ k: 'atom', id: a.id } as Term)), ...els.map((a) => ({ k: 'inv', arg: { k: 'atom', id: a.id } } as Term)), { k: 'e' }];
+  const chipTerms: Term[] = [...els.map((a) => ({ k: 'atom', id: a.id } as Term)), ...els.filter((a) => vars.get(a.id) !== 'Z').map((a) => ({ k: 'inv', arg: { k: 'atom', id: a.id } } as Term)), { k: 'e' }];
   sec.append(h('div', { class: 'h3-label' }, h('span', {}, 'Assumptions'), h('span', { class: 'h3-dim' }, 'one desk each')), list, add,
-    slotChips(() => last ?? rows[0]!.l, chipTerms, L, H, vars), msg, h('div', { class: 'h3-roomfoot' }, apply));
+    slotChips(() => last ?? rows[0]!.l, chipTerms, L, H, vars), msg, h('div', { class: 'h3-roomfoot' }, roomDeleteButton(store, room), h('span', { class: 'h3-flex' }), apply));
   update();
   return sec;
+}
+
+/** Delete a room (desk and gate go, machines inside stay). Sits at the footer's far left, never beside a close. */
+export function roomDeleteButton(store: Store, room: Room): HTMLElement {
+  const b = h('button', { class: 'lw-key small ghost danger h3-roomdel', title: 'Delete this room: its desk and gate go, machines inside stay (⌘Z undoes). Shortcut: select the room, then ⌫.' }, 'Delete room');
+  b.addEventListener('click', () => { store.remove([room.id]); store.select([]); store.openLens(null); });
+  return b;
 }

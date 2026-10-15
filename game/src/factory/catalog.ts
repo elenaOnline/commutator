@@ -95,7 +95,10 @@ export function libCard(ctx: KernelCtx, ref: LibRef | null | undefined): Card | 
   switch (ref.k) {
     case 'schema': return schemaOf(ctx, ref.id)?.card ?? null;
     case 'given': { const f = ctx.level.givens.find((g) => g.id === ref.givenId)?.fact; return f && (f.k === 'law' || f.k === 'cond') ? f : null; }
-    case 'lagrange': { const s = ctx.level.givens.find((g) => g.fact.k === 'size')?.fact; return s && s.k === 'size' ? pressCard(s.n) : null; }
+    case 'lagrange': {
+      const s = ctx.level.givens.find((g) => g.fact.k === 'size' && (ref.sort === undefined || (g.fact.s ?? 'G') === ref.sort))?.fact;
+      return s && s.k === 'size' ? pressCard(s.n, false, s.s) : null;
+    }
     case 'axiom': return null;
   }
 }
@@ -117,7 +120,7 @@ export function libName(ctx: KernelCtx, ref: LibRef | null | undefined): string 
       return st.length ? `${base} (${st.join(', ')})` : base;
     }
     case 'given': return ctx.level.givens.find((g) => g.id === ref.givenId)?.name ?? ref.givenId;
-    case 'lagrange': return 'Lagrange (imported)';
+    case 'lagrange': return ref.sort && ref.sort !== 'G' ? `Lagrange in ${(ctx.level.sorts ?? []).find((x) => x.id === ref.sort)?.label ?? ref.sort} (imported)` : 'Lagrange (imported)';
     case 'axiom': return { unitL: 'e x = x', unitR: 'x e = x', invL: 'x⁻¹x = e', invR: 'x x⁻¹ = e' }[ref.id];
   }
 }
@@ -164,7 +167,12 @@ export function libraryRefs(ctx: KernelCtx, kind: 'rule' | 'theorem' | 'card', c
     const lv = { ...ctx.level, maps: mscope };
     for (const id of Object.keys(MAP_SCHEMAS)) if (mapAllowed(id, lv)) pushSchema(id, MAP_SCHEMAS[id]!.card);
   }
-  if ((kind === 'rule' || kind === 'card') && ctx.level.givens.some((g) => g.fact.k === 'size')) out.push({ k: 'lagrange' });
+  if (kind === 'rule' || kind === 'card') {
+    // one Lagrange per group sort with a size given; a single |G| keeps the old sortless ref
+    const sorts = [...new Set(ctx.level.givens.flatMap((g) => (g.fact.k === 'size' ? [g.fact.s ?? 'G'] : [])))];
+    if (sorts.length === 1 && sorts[0] === 'G') out.push({ k: 'lagrange' });
+    else for (const s of sorts) out.push({ k: 'lagrange', sort: s });
+  }
   // Imported power laws the order lists (all laws); 'power.literal' is one family entry with an r knob —
   // the lens sets ref.id = 'power.literal:<r>' once r is chosen.
   if (kind === 'rule' || kind === 'card') {

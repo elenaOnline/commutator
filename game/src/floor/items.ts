@@ -6,6 +6,8 @@ import type { Term } from '../kernel/types';
 import type { ItemValue, Packet, RunState } from '../factory/types';
 import { FAMILY, FONT, INK, VAR } from '../ui/tokens';
 import { eulerBlobSVG } from '../ui/euler';
+import { eTag, isActionApp, sortCtx, styleOfTerm, type SortStyle } from '../ui/sorts';
+import { termText } from '../kernel';
 import { P, f1, shade, type G2, type S2 } from '../board/geom';
 import { beadPath, beadShape } from '../bench/shapes';
 import type { Labels } from '../board/mathsvg';
@@ -18,7 +20,9 @@ const R = 6.5;           // bead radius px
 const PITCH = 2 * R + 1.9;
 const LANE = 0.2;       // grid offset of each rail from the belt centre-line
 
-type Tok = { k: 'atom'; label: string; slot: number } | { k: 'inv'; label: string; slot: number } | { k: 'var'; label: string; inv: boolean; sort: 'G' | 'Z' } | { k: 'e' } | { k: 'crate'; inv: boolean; inner: Tok[]; exp?: string } | { k: 'more'; n: number };
+type Tok = { k: 'atom'; label: string; slot: number } | { k: 'inv'; label: string; slot: number } | { k: 'var'; label: string; inv: boolean; sort: 'G' | 'Z' } | { k: 'e'; tag?: string }
+  /** fn: a map frame f(…) (Book phase C) — the map's name before a frame around its argument(s), tinted by the result's sort. */
+  | { k: 'crate'; inv: boolean; inner: Tok[]; exp?: string; fn?: string; fnInk?: string; tint?: SortStyle | null } | { k: 'more'; n: number } | { k: 'comma' };
 
 let VARS: Map<string, 'G' | 'Z'> = new Map();
 function toks(t: Term, L: Labels, S: Record<string, number>): Tok[] {
@@ -27,7 +31,7 @@ function toks(t: Term, L: Labels, S: Record<string, number>): Tok[] {
     switch (f.k) {
       case 'atom': return VARS.has(f.id) ? { k: 'var', label: L[f.id] ?? f.id, inv: false, sort: VARS.get(f.id)! } : { k: 'atom', label: L[f.id] ?? f.id, slot: S[f.id] ?? 0 };
       case 'meta': return { k: 'atom', label: f.id, slot: 0 };
-      case 'e': return { k: 'e' };
+      case 'e': { const tag = eTag(f); return tag ? { k: 'e', tag } : { k: 'e' }; }
       case 'inv':
         if (f.arg.k === 'atom' && VARS.has(f.arg.id)) return { k: 'var', label: L[f.arg.id] ?? f.arg.id, inv: true, sort: VARS.get(f.arg.id)! };
         if (f.arg.k === 'atom' || f.arg.k === 'meta') return { k: 'inv', label: f.arg.k === 'atom' ? L[f.arg.id] ?? f.arg.id : f.arg.id, slot: f.arg.k === 'atom' ? S[f.arg.id] ?? 0 : 0 };
@@ -36,8 +40,10 @@ function toks(t: Term, L: Labels, S: Record<string, number>): Tok[] {
       // a stack: base^exponent (symbolic exponents) — a crate with its exponent printed on its corner
       case 'pow': return { k: 'crate', inv: false, inner: toks(f.base, L, S), exp: polyText(f.exp, L) };
       case 'int': return { k: 'atom', label: polyText(f.val, L), slot: 0 };
-      // Book phase C: f(x) rides as a crate labelled by its map (plain until the Maps visuals land)
-      case 'app': return { k: 'crate', inv: false, inner: f.args.flatMap((a) => toks(a, L, S)), exp: L[f.fn] ?? f.fn };
+      // Book phase C: f(x) is a frame — the map's name, then its argument(s) in a frame like the inverse crate
+      // an action applied reads g(p): the group element names the frame around the point, in its group's ink
+      case 'app': if (isActionApp(f)) { const g = f.args[0]!; const gl = termText(g, L); return { k: 'crate', inv: false, fn: g.k === 'atom' || g.k === 'meta' || (g.k === 'inv' && (g.arg.k === 'atom' || g.arg.k === 'meta')) ? gl : `(${gl})`, fnInk: styleOfTerm(g)?.ink, tint: styleOfTerm(f), inner: toks(f.args[1]!, L, S) }; }
+        return { k: 'crate', inv: false, fn: L[f.fn] ?? f.fn.replace(/^\$\d+:/, ''), tint: styleOfTerm(f), inner: f.args.flatMap((a, i) => [...(i ? [{ k: 'comma' } as Tok] : []), ...toks(a, L, S)]) };
     }
   });
 }
@@ -50,10 +56,13 @@ const SUB_W = 4.3;         // px per subscript digit (7px Latin Modern)
 const SUP_W = 7.6;         // px for a ⁻¹ (6.5px) inside an inverted variable's pill
 /** Pill width of a variable bead: a circle for x, wider for each subscript digit and for its own ⁻¹. */
 const varW = (label: string, inv = false) => 2 * R + Math.max(0, splitVar(label).sub.length * SUB_W + (inv ? SUP_W : 0) - 2);
+/** Room a map frame's name needs before its rim (f, σ, f₁). */
+const FN_U = (fn: string) => 0.42 + fn.length * 0.18;
 /** Room a crate's own ⁻¹ needs after its rim (so it never sits on an inner ⁻¹). */
 const CRATE_INV = 0.62;
 const units = (t: Tok): number => {
-  if (t.k === 'crate') return t.inner.reduce((s, x) => s + units(x), 0) + 0.5 + (t.exp ? 0.35 + t.exp.length * 0.32 : 0) + (t.inv ? CRATE_INV : 0);
+  if (t.k === 'crate') return t.inner.reduce((s, x) => s + units(x), 0) + 0.5 + (t.exp ? 0.35 + t.exp.length * 0.32 : 0) + (t.inv ? CRATE_INV : 0) + (t.fn ? FN_U(t.fn) : 0);
+  if (t.k === 'comma') return 0.38;
   if (t.k === 'more') return 1.6;
   // a variable widens for its subscript and for its own ⁻¹ (the track is diagonal: 1.12 ≈ 1 / cos of its slope)
   if (t.k === 'var') return Math.max(1, (varW(t.label, t.inv) + 1.9) * 1.12 / PITCH);
@@ -84,7 +93,8 @@ function bead(t: Tok, x: number, y: number): string {
     const size = 2 * r + 2;
     return `<path d="${beadPath(beadShape(slot), size, 1)}" transform="translate(${f1(x - size / 2)},${f1(y - size / 2)})" stroke-linejoin="round" ${attrs}/>`;
   };
-  if (t.k === 'e') return `<circle cx="${f1(x)}" cy="${f1(y)}" r="${R - 0.5}" fill="${FAMILY.identity.ink}"/><circle cx="${f1(x)}" cy="${f1(y)}" r="${R - 0.5}" fill="none" stroke="${FAMILY.identity.text}" stroke-width=".8" opacity=".7"/>${tx} fill="${INK.navy}">e</text>`;
+  if (t.k === 'e') return `<circle cx="${f1(x)}" cy="${f1(y)}" r="${R - 0.5}" fill="${FAMILY.identity.ink}"/><circle cx="${f1(x)}" cy="${f1(y)}" r="${R - 0.5}" fill="none" stroke="${FAMILY.identity.text}" stroke-width=".8" opacity=".7"/>` +
+    (t.tag ? `<text x="${f1(x - 1.6)}" y="${f1(y + 3.3)}" text-anchor="middle" font-family="${FONT.math}" font-style="italic" font-size="10.5" fill="${INK.navy}">e<tspan font-size="6.4" dy="2">${esc(t.tag)}</tspan></text>` : `${tx} fill="${INK.navy}">e</text>`);
   if (t.k === 'inv') return shape(t.slot, R - 0.8, `fill="#fff" stroke="${INK.navy}" stroke-width="1.7"`) + `${tx} fill="${INK.navy}">${esc(t.label)}</text>`;
   if (t.k === 'atom') return shape(t.slot, R, `fill="${INK.navy}"`) + `${tx} fill="#fff">${esc(t.label)}</text>`;
   if (t.k === 'var') {
@@ -105,17 +115,29 @@ function bead(t: Tok, x: number, y: number): string {
 }
 
 /** Lay a word centred at c along screen unit vector d. Returns svg + px length. */
-function word(ts: Tok[], c: S2, d: S2, angle: number): { svg: string; len: number } {
+function word(ts: Tok[], c: S2, d: S2, angle: number, style: SortStyle | null = null): { svg: string; len: number } {
   const len = wordUnits(ts) * PITCH;
   let s = -wordUnits(ts) / 2;
   let out = '', under = '';
   const at = (u: number): S2 => [c[0] + d[0] * u * PITCH, c[1] + d[1] * u * PITCH];
   // tray so beads read on the coloured rails
-  under += `<g transform="translate(${f1(c[0])},${f1(c[1])}) rotate(${f1(angle)})"><rect x="${f1(-len / 2 - 2.5)}" y="${f1(-R - 2.4)}" width="${f1(len + 5)}" height="${f1(2 * R + 4.8)}" rx="${f1(R + 2.4)}" fill="#fff" opacity=".94"/></g>`;
+  under += `<g transform="translate(${f1(c[0])},${f1(c[1])}) rotate(${f1(angle)})"><rect x="${f1(-len / 2 - 2.5)}" y="${f1(-R - 2.4)}" width="${f1(len + 5)}" height="${f1(2 * R + 4.8)}" rx="${f1(R + 2.4)}" fill="${style?.fill ?? '#fff'}" opacity=".94"${style ? ` stroke="${style.ring}" stroke-width=".9"` : ''}/></g>`;
   const put = (list: Tok[]) => {
     for (const t of list) {
       const w = units(t);
-      if (t.k === 'crate') {
+      if (t.k === 'crate' && t.fn) {
+        // a map frame: its name, then a frame (navy ring on the result's sort ground) around the argument(s)
+        const fu = FN_U(t.fn), body = w - fu;
+        const lp = at(s + fu / 2);
+        out += `<text x="${f1(lp[0])}" y="${f1(lp[1] + 3.6)}" text-anchor="middle" font-family="${FONT.math}" font-style="italic" font-size="11.5" fill="${t.fnInk ?? INK.navy}" paint-order="stroke" stroke="#fff" stroke-width="2.4">${esc(t.fn)}</text>`;
+        const mid = at(s + fu + body / 2), wpx = body * PITCH - 1, hpx = 2 * R + 3;
+        under += `<g transform="translate(${f1(mid[0])},${f1(mid[1])}) rotate(${f1(angle)})"><rect x="${f1(-wpx / 2)}" y="${f1(-hpx / 2)}" width="${f1(wpx)}" height="${f1(hpx)}" rx="4" fill="${t.tint?.fill ?? '#fff'}" stroke="${INK.navy}" stroke-width="1.4"/></g>`;
+        const s0 = s; s += fu + 0.25; put(t.inner); s = s0 + w;
+      } else if (t.k === 'comma') {
+        const p = at(s + 0.19);
+        out += `<text x="${f1(p[0])}" y="${f1(p[1] + 5)}" text-anchor="middle" font-family="${FONT.math}" font-size="11" fill="${INK.navy}">,</text>`;
+        s += units(t);
+      } else if (t.k === 'crate') {
         // the crate's own ⁻¹ sits after its rim, in room of its own (never on an inner bead's ⁻¹)
         const body = w - (t.inv ? CRATE_INV : 0);
         const mid = at(s + body / 2), wpx = body * PITCH - 1, hpx = 2 * R + 3;
@@ -154,7 +176,12 @@ export const valueKey = (v: ItemValue) => JSON.stringify(v);
  */
 export function packetSVG(v: ItemValue, axis: Axis, L: Labels, S: Record<string, number>, compact = false, vars?: Map<string, 'G' | 'Z'>): { svg: string; len: number } {
   VARS = vars ?? new Map();
-  const key = axis + (compact ? 'c' : '') + [...VARS].map(([k, s]) => k + s).join(',') + valueKey(v);
+  const sc = sortCtx.cur;
+  const key = axis + (compact ? 'c' : '') + [...VARS].map(([k, s]) => k + s).join(',') + (sc.multi ? `|${[...sc.styles.keys()].join(',')}|${sc.eTags}` : '') + valueKey(v);
+  // Book phase C: the item's sort — its tray tint and its tag (NORMS › Sorts); null on one-group floors
+  const lead = v.k === 'fact' ? (v.fact.k === 'eq' || v.fact.k === 'neq' ? v.fact.l : v.fact.k === 'mem' ? v.fact.t : null) : v.k === 'term' ? v.term : null;
+  const st = lead ? styleOfTerm(lead) : null;
+  const tagAt = (p: S2) => (st ? `<text x="${f1(p[0])}" y="${f1(p[1] + 3.4)}" text-anchor="middle" font-family="${FONT.math}" font-style="italic" font-size="10" fill="${st.ink}" paint-order="stroke" stroke="#fff" stroke-width="2.6">${esc(st.label)}</text>` : '');
   const hit = cache.get(key); if (hit) return hit;
   const A = AX[axis];
   const MAX = compact ? 2.7 : 6;
@@ -166,13 +193,14 @@ export function packetSVG(v: ItemValue, axis: Axis, L: Labels, S: Record<string,
     // both words start at the same leading edge so the rung reads as the front of the carrier
     const lc: S2 = [A.up[0] + A.d[0] * (lw - mx) / 2, A.up[1] + A.d[1] * (lw - mx) / 2];
     const rc: S2 = [A.dn[0] + A.d[0] * (rw - mx) / 2, A.dn[1] + A.d[1] * (rw - mx) / 2];
-    const a = word(tl, lc, A.d, A.angle), b = word(tr, rc, A.d, A.angle);
+    const a = word(tl, lc, A.d, A.angle, st), b = word(tr, rc, A.d, A.angle, st);
     const off = -mx / 2 - 6;
     const ra: S2 = [A.up[0] + A.d[0] * off, A.up[1] + A.d[1] * off], rb: S2 = [A.dn[0] + A.d[0] * off, A.dn[1] + A.d[1] * off];
     let rung = `<line x1="${f1(ra[0])}" y1="${f1(ra[1])}" x2="${f1(rb[0])}" y2="${f1(rb[1])}" stroke="#fff" stroke-width="5" stroke-linecap="round"/><line x1="${f1(ra[0])}" y1="${f1(ra[1])}" x2="${f1(rb[0])}" y2="${f1(rb[1])}" stroke="${INK.navy}" stroke-width="2.2" stroke-linecap="round"/>` +
       `<circle cx="${f1(ra[0])}" cy="${f1(ra[1])}" r="2.5" fill="${INK.navy}"/><circle cx="${f1(rb[0])}" cy="${f1(rb[1])}" r="2.5" fill="${INK.navy}"/>`;
     if (v.fact.k === 'neq') { const m: S2 = [(ra[0] + rb[0]) / 2, (ra[1] + rb[1]) / 2]; rung += `<line x1="${f1(m[0] - 5)}" y1="${f1(m[1] + 6)}" x2="${f1(m[0] + 5)}" y2="${f1(m[1] - 6)}" stroke="${ORANGE}" stroke-width="2.4" stroke-linecap="round"/>`; }
-    o = rung + a.svg + b.svg;
+    o = rung + a.svg + b.svg + tagAt([A.d[0] * (mx / 2 + 8), A.d[1] * (mx / 2 + 8)]);
+    if (st) len += 10;
   } else if (v.k === 'fact' && v.fact.k === 'mem') {
     // Book phase B: a membership t ∈ H. ONE rail (its term, navy beads on the centre line), then ∈, then the
     // subgroup as an Euler blob in the subgroup ink: "this term sits in that set". No rung: it is not an equation.
@@ -182,7 +210,7 @@ export function packetSVG(v: ItemValue, axis: Axis, L: Labels, S: Record<string,
     const bw = 30 * 0.88 * (1 + (/[₀-₉]+$/.exec(label)?.[0].length ?? 0) * 0.16);
     const total = wl + 20 + bw;
     const along = (u: number): S2 => [A.d[0] * u, A.d[1] * u];
-    const w = word(tt, along(wl / 2 - total / 2), A.d, A.angle);
+    const w = word(tt, along(wl / 2 - total / 2), A.d, A.angle, st);
     const ep = along(wl - total / 2 + 10), bp = along(total / 2 - bw / 2);
     o = w.svg +
       `<text x="${f1(ep[0])}" y="${f1(ep[1] + 4.2)}" text-anchor="middle" font-family="${FONT.math}" font-size="16" fill="${INK.navy}" paint-order="stroke" stroke="#fff" stroke-width="3.2">∈</text>` +
@@ -195,8 +223,8 @@ export function packetSVG(v: ItemValue, axis: Axis, L: Labels, S: Record<string,
     o = `<rect x="-22" y="-9" width="44" height="17" rx="3" fill="#fff" stroke="${INK.navy}" stroke-width="1.5"/><text y="3.6" text-anchor="middle" font-family="${FONT.math}" font-size="11.5" fill="${INK.navy}">|<tspan font-style="italic">G</tspan>| = ${v.fact.n}</text>`;
   } else if (v.k === 'term') {
     const t = compress(toks(v.term, L, S), MAX);
-    const w = word(t, [0, 0], A.d, A.angle);
-    o = w.svg; len = w.len + 5;
+    const w = word(t, [0, 0], A.d, A.angle, st);
+    o = w.svg + tagAt([A.d[0] * (w.len / 2 + 9), A.d[1] * (w.len / 2 + 9)]); len = w.len + 5 + (st ? 10 : 0);
   } else if (v.k === 'card') {
     const earned = v.ref.k === 'schema';
     // a given's card wears the given green; any other card made on the floor the equation aqua

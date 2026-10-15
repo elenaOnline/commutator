@@ -122,6 +122,7 @@ export const JAMS = {
   towerUnnamed: 'Name this Tower.',
   towerDup: (x: string, _who: string) => `${x} is taken. Rename this Tower.`,
   noLagrange: 'Lagrange needs a |G| = n given.',
+  noLagrangeIn: (s: string) => `Lagrange in ${s} needs a |${s}| = n given.`,
   libNotRule: (f: string, k: ItemKind) => `${f} is ${NOUN[k]}. A rule needs an equation or a law.`,
   libNotCard: (f: string, k: ItemKind) => `${f} is ${NOUN[k]}. A Theorem needs a law or an if–then card.`,
   forallLibrary: 'Library cards are already universal. ∀ needs a fact made here.',
@@ -140,12 +141,13 @@ export const JAMS = {
   memGate: (f: string) => `${f} is not an equation or a membership. This gate takes =, ≠ or ∈.`,
   /** Open docks (Book phase A): name the broken rule, never a value. */
   openMentions: (want: string, letters: string) => `Needs ${want}. The answer may not use ${letters}.`,
-  openTower: (want: string) => `Needs ${want}, with an answer in this order's letters. A Tower is not one.`,
+  openTower: (want: string) => `Needs ${want}. Write the answer in this order's letters, not a Tower.`,
   /** A dock with several wired inlets names the belt a reason is about. */
   dockFrom: (who: string, reason: string) => `From the ${who}: ${reason}`,
-  socketStack: (_want: string, have: string, needed: string, hint: string) => `Got ${have}, the goal has ${needed}. ${hint[0]!.toUpperCase()}${hint.slice(1)}.`,
+  socketStack: (_want: string, have: string, needed: string, hint: string) => `Got ${have}, but the goal has ${needed}. ${hint[0]!.toUpperCase()}${hint.slice(1)}.`,
   multiplyNeq: (f: string) => `${f} is an inequation. Multiply needs an equation.`,
   gateNeedsBot: (f: string) => `This room closes on ⊥. ${f} is not ⊥.`,
+  chainNoShared: (a: string, b: string) => `${a} and ${b} share no side. Chain needs a common term.`,
   bothSame: (k: 'eq' | 'neq') => `Both inlets carry ${k === 'eq' ? 'equations' : 'inequations'}. Clash needs one = and one ≠.`,
   // Lemma Book
   lemmaNotCard: 'Only ∀ or an Assume gate makes a lemma.',
@@ -624,7 +626,7 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
     }
     const g: ProofGraph = { nodes: [...byNode.values()].filter((x) => seen.has(x.id)), rooms: kRooms, ...gdecl };
     const res = kcheck(g, ctx0).nodes[n.id];
-    if (!res?.ok || !res.fact) throw new KErr(res?.error ?? 'the kernel rejected this step');
+    if (!res?.ok || !res.fact) throw new KErr(res?.error ?? 'The kernel refuses this step.');
     deps.clear();
     for (const d of res.deps) deps.add(d);
     return res.fact;
@@ -633,7 +635,7 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
     const deps = new Set<string>();
     const use = (id: NodeId): Fact => {
       const f = pfact.get(id);
-      if (!f) throw new KErr('an ingredient of this step is not valid');
+      if (!f) throw new KErr('An input is broken. Fix it first.');
       for (const d of pdeps.get(id) ?? []) deps.add(d);
       return f;
     };
@@ -650,7 +652,7 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
         }
         case 'assume': {
           const r = roomsK.get(n.room);
-          if (!r) throw new KErr('there is no such room to suppose in');
+          if (!r) throw new KErr('Its room is gone.');
           const slot = n.slot ?? 0;
           const a = assumptionsOf(r)[slot];
           if (!a) throw new KErr(JAMS.deskSlot);
@@ -661,9 +663,9 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
         }
         case 'step': {
           const inp = use(n.input);
-          if (inp.k === 'law' || inp.k === 'cond') throw new KErr('a universal statement cannot be rewritten; cite it as a rule instead');
+          if (inp.k === 'law' || inp.k === 'cond') throw new KErr('A ∀ statement can’t be rewritten. Route it to the rule port.');
           if (n.op.k === 'invert') {
-            if (inp.k !== 'eq' && inp.k !== 'neq') throw new KErr('only an equation or an inequation can be inverted on both sides');
+            if (inp.k !== 'eq' && inp.k !== 'neq') throw new KErr('Only an equation or inequation can be inverted.');
             f = { k: inp.k, l: norm({ k: 'inv', arg: inp.l }), r: norm({ k: 'inv', arg: inp.r }) };
             break;
           }
@@ -678,7 +680,7 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
           const card = resolveCond(n.rule, ctx, rf, L, n.structs);
           const ins = n.inputs.map((id, i) => {
             const x = use(id);
-            if (x.k !== 'eq' && x.k !== 'neq' && x.k !== 'mem') throw new KErr(`premise ${i + 1} must be an equation, an inequation or a membership`);
+            if (x.k !== 'eq' && x.k !== 'neq' && x.k !== 'mem') throw new KErr(`Premise ${i + 1} is not an equation, inequation or membership.`);
             return x;
           });
           f = applyCore(card, ins, n.subst, ctx);
@@ -686,8 +688,8 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
         }
         case 'merge': {
           const a = use(n.inputs[0]), b = use(n.inputs[1]);
-          if (a.k !== 'eq' || b.k !== 'eq') throw new KErr('only two equations can be merged');
-          if (!same(norm(a.r), norm(b.r))) throw new KErr(`the right-hand sides ${T(a.r)} and ${T(b.r)} differ; both equations must end in the same element`);
+          if (a.k !== 'eq' || b.k !== 'eq') throw new KErr('Chain needs two equations.');
+          if (!same(norm(a.r), norm(b.r))) throw new KErr(`The right sides ${T(a.r)} and ${T(b.r)} differ. Chain needs a shared side.`);
           f = { k: 'eq', l: norm(a.l), r: norm(b.l) };
           break;
         }
@@ -696,40 +698,40 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
           const [q, ne] = a.k === 'eq' && b.k === 'neq' ? [a, b] : b.k === 'eq' && a.k === 'neq' ? [b, a] : [null, null];
           if (!q || !ne) throw new KErr(JAMS.anvilKinds);
           const hit = (same(norm(q.l), norm(ne.l)) && same(norm(q.r), norm(ne.r))) || (same(norm(q.l), norm(ne.r)) && same(norm(q.r), norm(ne.l)));
-          if (!hit) throw new KErr(`${F(q)} and ${F(ne)} do not contradict each other`);
+          if (!hit) throw new KErr(`${F(q)} and ${F(ne)} don’t contradict each other.`);
           f = { k: 'bot' };
           break;
         }
         case 'product': {
           const a = use(n.inputs[0]), b = use(n.inputs[1]);
-          if (a.k !== 'eq' || b.k !== 'eq') throw new KErr('a product of equations needs two equations');
+          if (a.k !== 'eq' || b.k !== 'eq') throw new KErr('Product needs two equations.');
           f = { k: 'eq', l: norm({ k: 'mul', fs: [a.l, b.l] }), r: norm({ k: 'mul', fs: [a.r, b.r] }) };
           break;
         }
         case 'generalize': { use(n.input); f = kernelEval(n, deps); break; }
         case 'exit': {
           const r = roomsK.get(n.room);
-          if (!r) throw new KErr('there is no such room to close');
+          if (!r) throw new KErr('Its room is gone.');
           if (r.kind === 'assume') { use(n.input); f = kernelEval(n, deps); break; }
           const inp = use(n.input);
-          if (inp.k !== 'bot') throw new KErr('a room is closed only by a contradiction (⊥)');
+          if (inp.k !== 'bot') throw new KErr('This room closes only on ⊥.');
           deps.delete(`a:${r.id}`);
           f = r.kind === 'suppose' ? { k: 'neq', l: norm(r.l), r: norm(r.r) } : { k: 'eq', l: norm(r.l), r: norm(r.r) };
           break;
         }
         case 'press': {
           const inp = use(n.input);
-          if (inp.k !== 'size') throw new KErr('the Lagrange press needs the order of the group (|G| = n)');
-          f = pressCard(inp.n, !!(n as { power?: boolean }).power);
+          if (inp.k !== 'size') throw new KErr('Lagrange needs a |G| = n given.');
+          f = pressCard(inp.n, !!(n as { power?: boolean }).power, inp.s);
           break;
         }
-        default: throw new KErr('unknown kind of step');
+        default: throw new KErr('Unknown kind of step.');
       }
       pfact.set(n.id, f);
       pdeps.set(n.id, deps);
       return { ok: true, fact: f };
     } catch (e) {
-      return { ok: false, error: e instanceof KErr ? e.message : `malformed step (${(e as Error)?.message ?? 'unknown'})` };
+      return { ok: false, error: e instanceof KErr ? e.message : `This step is malformed (${(e as Error)?.message ?? 'unknown'}).` };
     }
   };
 
@@ -756,17 +758,25 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
     givenNode.set(gd.id, nid);
     libNode({ k: 'given', id: nid, scope: ROOT, givenId: gd.id, meta: { station: `lib:given:${gd.id}`, gesture: 'given' } });
   }
-  const sizeGiven = ctx.level.givens.find((g) => g.fact.k === 'size');
-  const lagrangeNode = sizeGiven ? 'lib#lagrange' : undefined;
-  // Lagrange in two shapes on the same |G| given: the word x x … x (classic orders) and the power x^{|G|}
-  // (Phase B). A Rewriter picks the power shape when its equation has powers, a card the power shape
-  // on orders that enable the power imports.
+  // Lagrange in two shapes on each |S| given: the word x x … x (classic orders) and the power x^{|S|} (Phase B). A
+  // Rewriter picks the power shape when its equation has powers, a card the power shape on orders that enable the
+  // power imports. Book phase C: one press PER GROUP SORT with a size given ("Lagrange in K"); the default group G
+  // keeps the old node ids. A sortless Lagrange ref means the first size given (old saves).
+  const sizeGivens: { sort: string; gid: string }[] = [];
+  for (const g of ctx.level.givens) if (g.fact.k === 'size' && !sizeGivens.some((x) => x.sort === ((g.fact as { s?: string }).s ?? 'G'))) sizeGivens.push({ sort: (g.fact as { s?: string }).s ?? 'G', gid: g.id });
+  const pressIds = (sort: string) => (sort === 'G' ? { word: 'lib#lagrange', pow: 'lib#lagrange.pow' } : { word: `lib#lagrange@${sort}`, pow: `lib#lagrange.pow@${sort}` });
   const powerLevel = ctx.level.tools.schemas.some((id) => id.startsWith('power.'));
-  const lagrangePow = sizeGiven ? 'lib#lagrange.pow' : undefined;
-  if (sizeGiven) {
-    libNode({ k: 'press', id: 'lib#lagrange', scope: ROOT, input: givenNode.get(sizeGiven.id)!, meta: { station: 'lib:lagrange', gesture: 'Lagrange (imported)' } });
-    libNode({ k: 'press', id: 'lib#lagrange.pow', scope: ROOT, input: givenNode.get(sizeGiven.id)!, power: true, meta: { station: 'lib:lagrange', gesture: 'Lagrange (imported)' } } as ProofNode);
+  for (const sg of sizeGivens) {
+    const ids = pressIds(sg.sort);
+    libNode({ k: 'press', id: ids.word, scope: ROOT, input: givenNode.get(sg.gid)!, meta: { station: 'lib:lagrange', gesture: 'Lagrange (imported)' } });
+    libNode({ k: 'press', id: ids.pow, scope: ROOT, input: givenNode.get(sg.gid)!, power: true, meta: { station: 'lib:lagrange', gesture: 'Lagrange (imported)' } } as ProofNode);
   }
+  /** The press nodes for a Lagrange ref (its sort, else the first size given). */
+  const lagrangeFor = (ref: { sort?: string }) => {
+    const sg = ref.sort !== undefined ? sizeGivens.find((x) => x.sort === ref.sort) : sizeGivens[0];
+    return sg ? pressIds(sg.sort) : undefined;
+  };
+  const lagrangeName = (ref: { sort?: string }) => (ref.sort && ref.sort !== 'G' ? `Lagrange in ${(ctx.level.sorts ?? []).find((x) => x.id === ref.sort)?.label ?? ref.sort} (imported)` : 'Lagrange (imported)');
   const hasPow = (f: Fact | undefined) => !!f && JSON.stringify(f).includes('"k":"pow"');
   const givenName = (id: string) => ctx.level.givens.find((g) => g.id === id)?.name ?? id;
 
@@ -792,9 +802,10 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
         return { ref: { k: 'schema', id: ref.id, ...(ref.mirror ? { mirror: true } : {}) }, text: name, card, ...(ref.structs ? { structs: ref.structs } : {}) };
       }
       case 'lagrange': {
-        const ln = hasPow(on) ? lagrangePow : lagrangeNode;
-        if (!ln || !pfact.get(ln)) return jam(ln ? libErr.get(ln) ?? JAMS.noLagrange : JAMS.noLagrange);
-        return { ref: { k: 'node', id: ln }, fact: pfact.get(ln)!, text: `Lagrange (imported): ${F(pfact.get(ln)!)}` };
+        const ids = lagrangeFor(ref);
+        const ln = ids ? (hasPow(on) ? ids.pow : ids.word) : undefined;
+        if (!ln || !pfact.get(ln)) return jam(ln ? libErr.get(ln) ?? JAMS.noLagrange : ref.sort ? JAMS.noLagrangeIn(ref.sort) : JAMS.noLagrange);
+        return { ref: { k: 'node', id: ln }, fact: pfact.get(ln)!, text: `${lagrangeName(ref)}: ${F(pfact.get(ln)!)}` };
       }
     }
     return jam(JAMS.unknownRecipe);
@@ -816,9 +827,10 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
         return { ref: { k: 'schema', id: ref.id, ...(ref.mirror ? { mirror: true } : {}) }, card, name: sideName(ref.id, ref.mirror, schemaInfo(ref.id, ctx)?.name ?? ref.id) };
       }
       case 'lagrange': {
-        const ln = powerLevel ? lagrangePow : lagrangeNode;
-        if (!ln || !pfact.get(ln)) return jam(ln ? libErr.get(ln) ?? JAMS.noLagrange : JAMS.noLagrange);
-        return { ref: { k: 'node', id: ln }, card: pfact.get(ln) as Card, name: 'Lagrange (imported)' };
+        const ids = lagrangeFor(ref);
+        const ln = ids ? (powerLevel ? ids.pow : ids.word) : undefined;
+        if (!ln || !pfact.get(ln)) return jam(ln ? libErr.get(ln) ?? JAMS.noLagrange : ref.sort ? JAMS.noLagrangeIn(ref.sort) : JAMS.noLagrange);
+        return { ref: { k: 'node', id: ln }, card: pfact.get(ln) as Card, name: lagrangeName(ref) };
       }
     }
     return jam(JAMS.unknownRecipe);
@@ -1289,7 +1301,26 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
             emit({ k: 'clash', inputs: [qn!, nn!] } as never, 'contradiction', 'clash');
           } else {
             for (const v of [a, b]) if (v.fact.k !== 'eq') jam(JAMS.wrongKind(['eq'], F(v.fact), v.fact.k));
-            if (rc.k === 'chain') emit({ k: 'merge', inputs: [a.node, b.node] } as never, 'transitivity', 'merge');
+            if (rc.k === 'chain') {
+              // Chain is transitivity as displayed (a = b, b = c ⟹ a = c), in any orientation: find the shared
+              // side, orient both inputs by recorded swaps so they meet on the right, then merge (X = M, Y = M ⟹ X = Y).
+              // Preference: the display's reading (first input's right side meets the second's left side).
+              const fa = a.fact as Pallet & { k: 'eq'; l: Term; r: Term }, fb = b.fact as Pallet & { k: 'eq'; l: Term; r: Term };
+              const eqT = (x: Term, y: Term) => same(norm(x), norm(y));
+              const readings = ([
+                { k: 'rl', ok: eqT(fa.r, fb.l), swapA: false, swapB: true, shared: fa.r },
+                { k: 'rr', ok: eqT(fa.r, fb.r), swapA: false, swapB: false, shared: fa.r },
+                { k: 'll', ok: eqT(fa.l, fb.l), swapA: true, swapB: true, shared: fa.l },
+                { k: 'lr', ok: eqT(fa.l, fb.r), swapA: true, swapB: false, shared: fa.l },
+              ] as const).filter((x) => x.ok);
+              if (!readings.length) jam(JAMS.chainNoShared(F(fa), F(fb)));
+              const rd = readings[0]!;
+              r.join = { reading: rd.k, shared: T(rd.shared), fits: readings.map((x) => x.k) };
+              let na = a.node, nb = b.node;
+              if (rd.swapA) { emit({ k: 'step', input: a.node, op: { k: 'swap' } } as never, 'auto-swap', 'swap.a'); na = lastNode(); }
+              if (rd.swapB) { emit({ k: 'step', input: b.node, op: { k: 'swap' } } as never, 'auto-swap', 'swap.b'); nb = lastNode(); }
+              emit({ k: 'merge', inputs: [na, nb] } as never, 'transitivity', 'merge');
+            }
             else if (rc.k === 'product') emit({ k: 'product', inputs: [a.node, b.node] } as never, 'multiply equations', 'product');
             else jam(JAMS.unknownRecipe);
           }
@@ -1473,7 +1504,7 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
         cause[id] = cause[badUp] ?? badUp;
       } else {
         const failed = r.nodes.map((n) => chk.nodes[n]).find((nr) => nr && !nr.ok);
-        if (failed) r.status = { k: 'jammed', reason: undeclared(failed.error ?? 'the kernel rejected this step') };
+        if (failed) r.status = { k: 'jammed', reason: undeclared(failed.error ?? 'The kernel refuses this step.') };
       }
     }
     // final values come from the kernel's result, never from the preview
@@ -1529,15 +1560,15 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
       : (pf.k === tg.k && (tg.k === 'eq' || tg.k === 'neq') && (pf.k === 'eq' || pf.k === 'neq') && same(norm(pf.l), norm(tg.l)) && same(norm(pf.r), norm(tg.r))));
     const extra = pr?.deps.filter((d) => !allowed.has(d)) ?? [];
     if (cr.ok && !!so?.ok && !!pr?.ok && matches && !extra.length) return undefined;
-    return (extra.length || !so?.ok ? so?.error : undefined) ?? Object.values(cr.nodes).find((n) => !n.ok)?.error ?? 'the kernel does not accept this delivery';
+    return (extra.length || !so?.ok ? so?.error : undefined) ?? Object.values(cr.nodes).find((n) => !n.ok)?.error ?? 'The kernel refuses this delivery.';
   };
   const sockets: Compiled['sockets'] = {};
   for (const sd of ctx.level.sockets) {
     const st = socketStatic[sd.id];
     const sm = machines.find((m) => m.config.kind === 'socket' && m.config.socketId === sd.id);
-    if (!sm || !st) { sockets[sd.id] = { ok: false, reason: 'there is no dock for this goal on the floor' }; continue; }
+    if (!sm || !st) { sockets[sd.id] = { ok: false, reason: 'No dock for this goal is on the floor.' }; continue; }
     const r = results[sm.id]!;
-    if (r.status.k !== 'ok' || !st.P) { sockets[sd.id] = { ...(st.by ? { by: st.by } : {}), ok: false, reason: r.status.k !== 'ok' ? r.status.reason : st.reason ?? 'nothing arrives' }; continue; }
+    if (r.status.k !== 'ok' || !st.P) { sockets[sd.id] = { ...(st.by ? { by: st.by } : {}), ok: false, reason: r.status.k !== 'ok' ? r.status.reason : st.reason ?? 'Nothing arrives yet.' }; continue; }
     // every inlet that would deliver is re-checked on its own closure; any certified inlet may seal the dock
     const live = (st.cands ?? [{ port: 'q', by: st.by, P: st.P }]).filter((cd) => !cd.by || results[cd.by]?.status.k === 'ok');
     const certified: { port: string; by?: string; P: NodeId }[] = [];
@@ -1549,7 +1580,7 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
     }
     const ok = certified.length > 0;
     const by = ok ? certified[0]!.by : firstBy ?? st.by;
-    const reason = ok ? undefined : firstReason ?? 'the kernel does not accept this delivery';
+    const reason = ok ? undefined : firstReason ?? 'The kernel refuses this delivery.';
     sockets[sd.id] = { ...(by ? { by } : {}), ok, ...(reason ? { reason } : {}) };
     if (ok && isOpen(sd)) {
       const answers: NonNullable<Compiled['sockets'][string]['answers']> = {};
@@ -1688,7 +1719,7 @@ export function verifyLemma(l: SavedLemma, ctx: KernelCtx, earlier: string[] = [
     const authoredOut = (id: string) => ctx.registry[id]?.origin === 'authored' && !allowed.has(id);
     for (const id of citedSchemas(l.canvas)) if (id === l.id || authoredOut(id)) return { ok: false, reason: JAMS.lemmaSelf };
     const level = ctx.level.id === l.levelId ? ctx.level : LEVEL_BY_ID[l.levelId];
-    if (!level) return { ok: false, reason: `the order ${l.levelId} it was proved on no longer exists` };
+    if (!level) return { ok: false, reason: `Order ${l.levelId}, where it was proved, is gone.` };
     const registry = Object.fromEntries(Object.entries(ctx.registry).filter(([id]) => id !== l.id && !authoredOut(id)));
     const schemas = ctx.level.tools.schemas.filter((id) => id !== l.id && !authoredOut(id));
     const vctx: KernelCtx = { level: { ...level, tools: { ...ctx.level.tools, schemas } }, registry };
@@ -1699,7 +1730,7 @@ export function verifyLemma(l: SavedLemma, ctx: KernelCtx, earlier: string[] = [
     if (!sameCardUpToPermutation(res.card, l.card)) return { ok: false, reason: JAMS.lemmaChanged };
     return { ok: true };
   } catch (e) {
-    return { ok: false, reason: `the saved proof could not be read (${(e as Error)?.message ?? 'unknown'})` };
+    return { ok: false, reason: `The saved proof can’t be read (${(e as Error)?.message ?? 'unknown'}).` };
   }
 }
 

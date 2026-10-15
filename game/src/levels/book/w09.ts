@@ -1,6 +1,7 @@
 // THE BOOK · World 9 — Cyclic Groups (Pinter 11). See design/pinter/SYNTHESIS.md §3 and design/pinter/AUTHOR-BRIEF.md.
 import type { LevelManifest, Monomial, Pallet, PatFact, Poly, Term, Toolset } from '../../kernel/types';
 import type { AtomSpec, ConceptCard } from '../cards';
+import { polyAdd, polyConst, polyMul } from '../../kernel/poly';
 
 // ── local builders (normalized terms) ──
 const A = (id: string): Term => ({ k: 'atom', id });
@@ -31,11 +32,34 @@ const EARNED = ['cancel', 'witness', 'socks'];
 /** Every import the book has handed out by chapter 11 (worked out in world 8). */
 const POWERS = ['power.add', 'power.zero', 'power.conjugate', 'power.multiply', 'power.one', 'power.identity'];
 
-// P11.1 Subgroups of a Cyclic Group (Thm 2 core) is not here yet: it needs the Members extension (subgroup
-// Towers and the membership fact `t ∈ H`, with the import "powers of a member are members"). When Members lands, the
-// level goes in this file as P11.1, ahead of P11.2, with index 45 (P11.2 and P11.3 keep 46 and 47).
+// P11.1 Subgroups of a Cyclic Group (Thm 2 core) is the Members level of this world (KERNEL-EXT §4): a level subgroup H, memberships
+// `t ∈ H`, and the IMPORT `sub.pow` ("powers of a member are members", listed in its toolset like the power laws). Its pow nodes are
+// built with the kernel's polynomial helpers. P11.1 has index 45; P11.2 and P11.3 keep 46 and 47.
+
+/** The exponent 3q + r (q, r ℤ metas of the dock). */
+const THREE_Q_PLUS_R: Poly = polyAdd(polyMul(polyConst(3), ZM('q')), ZM('r'));
+const mem = (t: Term): Pallet => ({ k: 'mem', t, sub: { k: 'sub', id: 'H' } });
+const pmem = (t: Term): PatFact => ({ k: 'mem', t, sub: { k: 'sub', id: 'H' } });
 
 export const LEVELS: LevelManifest[] = [
+  {
+    // Notation: pow nodes (a³ = a^(3)). H is a level subgroup; the given is a³ ∈ H. Towers q₁, r₁ (ℤ). Imports: sub.pow and the power laws.
+    // Assume desk a^(3q₁+r₁) ∈ H · Theorem sub.pow on the given at n := −q₁: (a³)^(−q₁) ∈ H · Theorem closed under products on the desk and that:
+    // a^(3q₁+r₁)(a³)^(−q₁) ∈ H · power.multiply on (a³)^(−q₁) → a^(−3q₁) · power.add on a^(3q₁+r₁)a^(−3q₁) → a^(r₁) ∈ H · gate · ∀.
+    id: 'P11.1', index: 45, campaign: 'book', world: 9, chapter: 11, title: 'Subgroups of a Cyclic Group',
+    method: 'Subgroup test', source: 'Pinter 11, Theorem 2',
+    insight: 'Multiply a member by a power of a³ to cut the exponent down to the remainder r.',
+    memo: 'H contains a³. Show: if a^(3q+r) is in H, so is aʳ.',
+    atoms: [{ id: 'a', label: 'a', hue: 0 }], subgroups: [{ id: 'H', label: 'H' }],
+    givens: [{ id: 'g', name: 'a³ ∈ H', fact: mem(PW(a, Z(3))) }],
+    sockets: [{
+      id: 's', allowedGivens: ['g'],
+      target: { k: 'cond', metas: ['q', 'r'], premises: [pmem(PW(a, THREE_Q_PLUS_R))], concl: pmem(PW(a, ZM('r'))) },
+    }],
+    tools: tools({ lift: true, merge: true, suppose: true, schemas: [...EARNED, ...POWERS, 'sub.e', 'sub.pow'] }), unlocks: [],
+    idea: 'The powers of a member are members.',
+    par: { parts: 7, axioms: 6 }, uses: ['P5.1', 'P10.3'],
+  },
   {
     // Notation: pow nodes. Assume nothing. Tower x₁, i₁, j₁, m₁.
     // Spool (xⁱxʲ)ᵐ → power.add (inside the base) → power.multiply → power.add backwards (im, jm) → power.multiply backwards (i, m) and (j, m) → dock.
@@ -87,6 +111,17 @@ const TW = (str: string, sort: 'G' | 'Z' = 'G', shift = 2): AtomSpec[] => [...st
 
 /** Concept cards for this world's levels, keyed by level id. */
 export const CARDS: Record<string, ConceptCard[]> = {
+  'P11.1': [
+    {
+      title: 'Powers of a member',
+      body: 'Every subgroup $H$ now has a new recipe, **powers of a member are members**: if $x \\in H$ and $n$ is an integer, then $x^n \\in H$. It is imported, like the laws of exponents. It is proved by induction on $n$ with closure under products, and for negative $n$ with closure under inverses. The game does not ask you to prove it again.',
+    },
+    {
+      title: 'Subgroups of a cyclic group',
+      body: 'A group is **cyclic** when it consists of the powers of one element $a$. Every subgroup of a cyclic group is again made of the powers of one element. To show this, divide an exponent by a smaller one: $k = mq + r$ with remainder $r$. If $a^m$ and $a^k$ are in $H$, the dock shows that $a^r$ is in $H$ too.',
+    },
+  ],
+
   'P11.2': [
     {
       title: 'Powers of one element',

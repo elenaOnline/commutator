@@ -7,6 +7,7 @@
 import type { Family, LevelManifest, Schema, Term } from '../kernel/types';
 import type { LibRef, Machine } from '../factory/types';
 import { FAMILY, INK, SUBGROUP, VAR } from '../ui/tokens';
+import { sortCtx } from '../ui/sorts';
 import { shade } from '../board/geom';
 import { schemaMachineName, schemaOf } from '../factory/catalog';
 import { MIRROR_NAMES, SIDE_PAIRS } from '../levels/levels';
@@ -29,6 +30,8 @@ export interface Look {
   tower?: 'G' | 'Z';      // Tower: its variable's sort (glyph x∈G / n∈ℤ, transmitter on the back corner)
   /** Book phase B: a Subgroup Tower (H₁ ≤ G, or N₁ ⊴ G when normal), in the subgroup ink. */
   subTower?: 'sub' | 'normal';
+  /** Book phase C: a group Tower (G₁) or a Hom Tower (f₁ : G₁ → H₁). */
+  structTower?: { group?: boolean; hom?: { dom: string; cod: string } };
   /** Book phase B: a subgroup axiom's box ends its glyph in the subgroup, drawn as a small Euler set (xy ∈ (H)). */
   subBlob?: { label: string; normal: boolean };
 }
@@ -78,6 +81,14 @@ function libLook(lc: LookCtx, ref: LibRef, asTheorem: boolean): Look {
       // Book phase B: the subgroup axioms are machines of their kind, like the group laws — a box in the subgroup
       // ink with the closure as its glyph. (Earned "contains e" keeps the gold plate; imported powers the hatch.)
       const SUB_GLYPH: Record<string, string> = { 'sub.mul': 'xy ∈', 'sub.inv': 'x⁻¹ ∈', 'sub.conj': 'gxg⁻¹ ∈' };
+      // Book phase C: the map kinds' laws are boxes of their kind too (like the group laws): the law as the glyph
+      const MAP_GLYPH: Record<string, string> = { 'hom.mul': 'f(xy)', 'hom.pow': 'f(xⁿ)', 'act.mul': '(gh)(p)', 'act.e': 'e(p)' };
+      if (MAP_GLYPH[ref.id]) {
+        const fnId = ref.structs ? Object.values(ref.structs)[0] : undefined;
+        const fl = fnId ? lc.level.maps?.find((x) => x.id === fnId)?.label ?? fnId : 'f';
+        const glyph = ref.id.startsWith('hom.') ? MAP_GLYPH[ref.id]!.replace('f', fl) : MAP_GLYPH[ref.id]!;
+        return fam('structure', glyph, ref.id.startsWith('hom.') ? 'HOMOMORPHISM LAW' : 'ACTION LAW');
+      }
       if (SUB_GLYPH[ref.id]) {
         const n = schemaName(lc, ref.id, ref.mirror);
         // the subgroup the recipe names (its chosen one), else the card's own letter
@@ -104,6 +115,9 @@ export function lookOf(m: Machine, lc: LookCtx): Look {
     case 'gate': return fam('scope', '⊣', 'EXIT GATE');
     case 'tower': {
       // Book phase B: a Subgroup Tower declares a subgroup H₁ ≤ G (N₁ ⊴ G): the subgroup ink, the set glyph
+      // Book phase C: a group Tower wears its group's sort ink; a Hom Tower is navy with its signature
+      if (c.group) { const st = sortCtx.cur.styles.get(c.varId); const ink = st && !st.plain ? st.ink : INK.navy2; return { fam: 'scope', ink, hull: shade(ink, 0.3), on: '#FFFFFF', glyph: c.label, label: c.label, tower: 'G', structTower: { group: true } }; }
+      if (c.hom) return { fam: 'scope', ink: INK.navy, hull: shade(INK.navy, 0.3), on: '#FFFFFF', glyph: c.label, label: c.label, tower: 'G', structTower: { hom: c.hom } };
       if (c.sub === 'sub' || c.sub === 'normal') return { fam: 'scope', ink: SUBGROUP.ink, hull: shade(SUBGROUP.ink, 0.3), on: '#FFFFFF', glyph: c.label, label: c.label, tower: 'G', subTower: c.sub };
       const sort = c.sort === 'Z' ? 'Z' : 'G', V = VAR[sort];
       return { fam: 'scope', ink: V.ring, hull: shade(V.ring, 0.3), on: '#FFFFFF', glyph: c.label, label: c.label, tower: sort };
@@ -128,6 +142,8 @@ export function lookOf(m: Machine, lc: LookCtx): Look {
       if (!r) return neutral('OPERATOR', '✣');
       if (r.k === 'multiply') return fam('structure', r.side === 'left' ? 't*' : '*t', r.side === 'left' ? 'MULTIPLY LEFT' : 'MULTIPLY RIGHT');
       if (r.k === 'invert') return fam('inverse', '( )⁻¹', 'INVERT');
+      // Book phase C: apply f to both sides — a structure operation like multiply, its glyph the frame f( )
+      if (r.k === 'apply') { const mp = lc.level.maps?.find((x) => x.id === r.fn); const n = mp?.label ?? r.fn; return fam('structure', `${n}( )`, `APPLY ${n.toUpperCase()}`); }
       return fam('equation', '=', 'SWAP');
     }
     case 'joiner': {

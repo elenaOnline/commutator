@@ -16,7 +16,7 @@ import { bareSlot, slotChips, type BareSlot } from './slot';
 import { libCard } from './library';
 import { hasDistinctMirror } from '../factory/catalog';
 import { sideName } from './merge';
-import { armPreset, earnedPresets, pending, pinned, presetKey, type Preset } from './presets';
+import { armPreset, earnedPresets, hotbarPresets, pending, pinned, presetKey, type Preset } from './presets';
 
 export interface HotbarApi {
   render: (s: S) => void;
@@ -54,8 +54,9 @@ export function mountHotbar(layer: HTMLElement, store: Store): HotbarApi {
   };
   /** Presets: earned theorems / Lemma Book entries (automatic) and pinned recipes. `both` adds the mirrored sides (drawer). */
   const presetEntries = (s: S, both = false): Entry[] => {
-    const ps: Preset[] = [...earnedPresets(s)];
-    for (const p of pinned()) if (!ps.some((q) => q.key === p.key)) ps.push(p);
+    // the bar carries the most recent few (plus pinned); the drawer (both) carries every one
+    const ps: Preset[] = both ? [...earnedPresets(s)] : hotbarPresets(s);
+    if (both) for (const p of pinned()) if (!ps.some((q) => q.key === p.key)) ps.push(p);
     if (both) for (const p of earnedPresets(s)) {
       const ref = (p.recipe as { ref?: { k: string; id?: string } }).ref;
       const sc = ref?.k === 'schema' && ref.id ? s.ctx.registry[ref.id] : undefined;
@@ -252,16 +253,30 @@ export function mountHotbar(layer: HTMLElement, store: Store): HotbarApi {
     slotR = mkSlot('r', rv, 'RHS of the assumption', () => { lastSlot = 'r'; });
     extras = []; extraRows.replaceChildren();
     layoutRows();
-    const els = s.level.atoms;
-    const chips: Term[] = [...els.map((a) => ({ k: 'atom', id: a.id } as Term)), ...els.map((a) => ({ k: 'inv', arg: { k: 'atom', id: a.id } } as Term)), { k: 'e' }];
+    // the level's letters and the floor's Tower variables (x₁, y₁ …), each with its inverse (not for n ∈ ℤ)
+    const els = atomsAll(s);
+    const grp = els.filter((a) => vars.get(a.id) !== 'Z');
+    const chips: Term[] = [...els.map((a) => ({ k: 'atom', id: a.id } as Term)), ...grp.map((a) => ({ k: 'inv', arg: { k: 'atom', id: a.id } } as Term)), { k: 'e' }];
     roomChips.replaceChildren(slotChips(() => lastFocus ?? (lastSlot === 'l' ? slotL! : slotR!), chips, L, H, vars));
   };
   const multi = () => roomKind === 'assume' && extras.length > 0;
+  // Typing must stay fluid: the row's nodes are moved only when the slots themselves are new. Re-appending a
+  // focused input blurs it, which is what made every keystroke drop focus (playtest W1–3, blocker 1).
+  const rowLab = h('span', { class: 'h3-dim math' });
   const layoutRows = () => {
     if (!slotL || !slotR) return;
-    roomRow.replaceChildren(multi() ? pLabel(0) : h('span', { class: 'h3-dim' }, 'assume'), slotL.el, rel, slotR.el);
+    const kids = roomRow.children;
+    if (kids[0] !== rowLab || kids[1] !== slotL.el || kids[2] !== rel || kids[3] !== slotR.el) roomRow.replaceChildren(rowLab, slotL.el, rel, slotR.el);
+    const lab = multi() ? 'p1' : 'assume';
+    if (rowLab.dataset.k !== lab) {
+      rowLab.dataset.k = lab;
+      if (multi()) rowLab.innerHTML = '<i>P</i><sub class="m-sub">1</sub>'; else rowLab.textContent = 'assume';
+    }
     extraRows.hidden = !multi();
-    addA.hidden = roomKind !== 'assume' || extras.length >= MAXA - 1;
+    // the popover keeps one height across Suppose / Classical / Assume (it never jumps under the pointer)
+    addA.hidden = extras.length >= MAXA - 1;
+    addA.style.visibility = roomKind === 'assume' ? '' : 'hidden';
+    addA.tabIndex = roomKind === 'assume' ? 0 : -1;
   };
   const addAssumption = (lv = '', rv = '', relv: 'eq' | 'neq' = 'eq') => {
     if (extras.length >= MAXA - 1) return;

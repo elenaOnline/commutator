@@ -6,6 +6,7 @@ import type { DeskAssumption, Fact, Family, LevelManifest, Pallet, PatFact, Stru
 import * as K from '../kernel';
 import { campSave, progressOf, type CampaignSave, type FactoryStore, type FState } from '../state/factoryStore';
 import { campaignOf } from '../levels/campaigns';
+import { eTag, isActionApp } from '../ui/sorts';
 import { LEVELS, REGISTRY, MIRROR_NAMES, SIDE_PAIRS } from '../levels/levels';
 import { LEVEL_BY_ID } from '../levels/campaigns';
 import type { ItemValue, Machine, MachineKind, MachineSpec } from '../factory/types';
@@ -16,7 +17,10 @@ const fH0 = (f: Fact | PatFact, L: Record<string, string>, mode: 'stmt' | 'proof
 export { tU, richHTML, schemaNames, schemaLemmaNo, nameHTML } from '../shell/util';
 import { labels as labels0 } from '../shell/util';
 /** Level letters, plus (Book phase B) the level's subgroups by name, so `t ∈ H` prints H. */
-export const labels = (level: LevelManifest): Record<string, string> => ({ ...labels0(level), ...Object.fromEntries((level.subgroups ?? []).map((g) => [g.id, g.label])) });
+export const labels = (level: LevelManifest): Record<string, string> => ({ ...labels0(level), ...Object.fromEntries((level.subgroups ?? []).map((g) => [g.id, g.label])),
+  ...Object.fromEntries((level.sorts ?? []).map((g) => [g.id, g.label])), ...Object.fromEntries((level.maps ?? []).map((g) => [g.id, g.label])),
+  // kernel-printed text (jams, transcript, paper) writes an action applied as α(p), as the floor does: mark actions
+  ...Object.fromEntries((level.maps ?? []).filter((m) => m.kind === 'action').map((m) => [K.actionMark(m.id), '1'])) });
 
 /** The floor's Tower labels and their sorts (set by the app on every render): typeset maths marks them. */
 export const varRegistry = { labels: new Map<string, 'G' | 'Z'>() };
@@ -43,7 +47,34 @@ export function fixVars(html: string): string {
     });
 }
 void SUBS;
-export const tH = (...a: Parameters<typeof tH0>): string => fixVars(tH0(...a));
+/**
+ * A term as typeset HTML. Book phase C: an identity carries its group as a subscript (e_K) once the floor has two
+ * groups (NORMS › Sorts); map terms read f(ab), σ(g, p). Positional Lemma Book binders ($0:f) print by their name.
+ */
+export const tH = (t: Term, L: Record<string, string>, mode?: 'stmt' | 'proof'): string => {
+  const tags: string[] = [];
+  const L2: Record<string, string> = { ...L };
+  const walk = (x: Term): Term => {
+    switch (x.k) {
+      case 'e': { const tg = eTag(x); if (!tg) return x; const id = `¶e${tags.length}¶`; tags.push(tg); L2[id] = id; return { k: 'atom', id }; }
+      case 'inv': return { ...x, arg: walk(x.arg) };
+      case 'mul': return { ...x, fs: x.fs.map(walk) };
+      case 'pow': return { ...x, base: walk(x.base) };
+      case 'app': {
+        // an action applied reads g(p) (Pinter): the group element, then the point in brackets
+        if (isActionApp(x)) { const id = `¶a${acts.length}¶`; acts.push(x.args[0]!); L2[id] = id; return { k: 'app', fn: id, args: [walk(x.args[1]!)] }; }
+        if (!(x.fn in L2) && x.fn.startsWith('$')) L2[x.fn] = posName(x.fn); return { ...x, args: x.args.map(walk) };
+      }
+      default: return x;
+    }
+  };
+  const acts: Term[] = [];
+  const html = fixVars(tH0(walk(t), L2, mode));
+  const html2 = acts.length ? html.replace(/<i class="m-atom[^"]*">¶a(\d+)¶<\/i>/g, (_m, n: string) => { const g = acts[+n]!; const gh = tH(g, L, mode); return g.k === 'mul' || g.k === 'pow' ? `(${gh})` : gh; }) : html;
+  return tags.length ? html2.replace(/<i class="m-atom[^"]*">¶e(\d+)¶<\/i>/g, (_m, n: string) => `<i class="m-e">e</i><sub class="m-sub m-esort">${nameHTML(tags[+n]!)}</sub>`) : html2;
+};
+/** A positional Lemma Book binder id ($0:f, $1:H) prints by its name. */
+export const posName = (id: string): string => (/^\$\d+:(.+)$/.exec(id)?.[1] ?? id);
 
 // ───────── open docks (Book phase A): the dock's shape with hole chips, filled with the answer on delivery ─────────
 /**
@@ -93,11 +124,21 @@ export function dockAnswers(s: FState): Record<string, Subst | null> {
 type AnyFact = Fact | PatFact;
 /** A subgroup's name in maths: a level subgroup / Subgroup Tower by its label (H, N₁), a card's binder by its letter. */
 export function subH(ref: SubRef, L: Record<string, string>): string {
-  return `<i class="m-subg">${nameHTML(L[ref.id] ?? ref.id)}</i>`;
+  return `<i class="m-subg">${nameHTML(L[ref.id] ?? posName(ref.id))}</i>`;
 }
 /** The ∀ prefix of a card: structure binders first (∀H ≤ G, ∀N ⊴ G), then the element metas. */
 function quantH(metas: string[], binds: StructBinder[] | undefined, L: Record<string, string>): string {
-  const bs = (binds ?? []).map((b) => (b.k === 'sub' ? `${subH({ k: 'submeta', id: b.id }, L)} <span class="m-rel">${b.normal ? '⊴' : '≤'}</span> <i>G</i>` : `<i>${esc(L[b.id] ?? b.id)}</i>`));
+  const nm = (id: string) => `<i>${nameHTML(L[id] ?? posName(id))}</i>`;
+  const sr = (r: string | { k: 'sortmeta'; id: string } | undefined) => (r === undefined ? '<i>G</i>' : nm(typeof r === 'string' ? r : r.id));
+  // Book phases B–C: ∀H ≤ G, ∀N ⊴ G, ∀G₁ (a group), ∀f : G₁ → H, ∀σ : G × Ω → Ω
+  const bs = (binds ?? []).map((b) => {
+    switch (b.k) {
+      case 'sub': return `${subH({ k: 'submeta', id: b.id }, L)} <span class="m-rel">${b.normal ? '⊴' : '≤'}</span> ${sr(b.sort)}`;
+      case 'hom': return `${nm(b.id)} : ${sr(b.dom)} <span class="m-rel">→</span> ${sr(b.cod)}`;
+      case 'act': return `${nm(b.id)} : ${sr(b.grp)} × ${sr(b.on)} <span class="m-rel">→</span> ${sr(b.on)}`;
+      default: return nm(b.id);
+    }
+  });
   const ms = metas.map((m) => `<i>${m}</i>`);
   return [...bs, ...(ms.length ? [ms.join(', ')] : [])].length ? `∀${[...bs, ...(ms.length ? [ms.join(', ')] : [])].join(', ')}.&ensp;` : '';
 }
@@ -109,16 +150,43 @@ export function fH(f: AnyFact, L: Record<string, string>, mode: 'stmt' | 'proof'
   const rel = (r: string) => ` <span class="m-rel">${r}</span> `;
   switch (f.k) {
     case 'mem': return tH(f.t, L, mode) + rel('∈') + subH(f.sub, L);
-    case 'law': return fixVars(quantH(f.metas, f.binds, L) + tH0(f.l, L, mode) + rel('=') + tH0(f.r, L, mode));
+    case 'law': return quantH(f.metas, f.binds, L) + tH(f.l, L, mode) + rel('=') + tH(f.r, L, mode);
     case 'cond': return quantH(f.metas, f.binds, L) + f.premises.map((p) => fH(p, L, mode)).join(', ') + rel('⟹') + fH(f.concl, L, mode);
+    case 'eq': return tH(f.l, L, mode) + rel('=') + tH(f.r, L, mode);
+    case 'neq': return tH(f.l, L, mode) + rel('≠') + tH(f.r, L, mode);
+    // Book phase C: the order of a named group, |K| = 3
+    case 'size': return f.s ? `|${subH({ k: 'sub', id: f.s }, L).replace('m-subg', 'm-sortname')}|${rel('=')}${f.n}` : fixVars(fH0(f, L, mode));
     default: return fixVars(fH0(f, L, mode));
   }
 }
 /** LaTeX for any fact or card statement: `\\implies` for implication, `t \\in H` for a membership. */
-export function factTeX(f: AnyFact, L: Record<string, string>, mode: 'stmt' | 'proof' = 'proof'): string {
-  const sub = (r: SubRef) => (L[r.id] ?? r.id).replace(/([A-Za-z])([₀₁₂₃₄₅₆₇₈₉]+)/g, (_m, a: string, d: string) => `${a}_{${[...d].map((c) => c.charCodeAt(0) - 0x2080).join('')}}`);
+export function factTeX(f: AnyFact, L0: Record<string, string>, mode: 'stmt' | 'proof' = 'proof'): string {
+  // Book phase C: e_{K} once two groups are in play; positional binders by name
+  const L: Record<string, string> = { ...L0 };
+  const tex = (n: string) => n.replace(/([A-Za-z])([₀₁₂₃₄₅₆₇₈₉]+)/g, (_m, a: string, d: string) => `${a}_{${[...d].map((c) => c.charCodeAt(0) - 0x2080).join('')}}`);
+  const walkT = (x: Term): Term => {
+    switch (x.k) {
+      case 'e': { const tg = eTag(x); if (!tg) return x; const id = `¶E${tg}`; L[id] = `e_{${tex(tg)}}`; return { k: 'atom', id }; }
+      case 'inv': return { ...x, arg: walkT(x.arg) };
+      case 'mul': return { ...x, fs: x.fs.map(walkT) };
+      case 'pow': return { ...x, base: walkT(x.base) };
+      case 'app': { if (!(x.fn in L)) L[x.fn] = tex(posName(x.fn)); return { ...x, args: x.args.map(walkT) }; }
+      default: return x;
+    }
+  };
+  const termTex0 = (t: Term, L2: Record<string, string>, m: 'stmt' | 'proof') => termTexRaw(walkT(t), L2, m);
+  const sub = (r: SubRef) => (L[r.id] ?? posName(r.id)).replace(/([A-Za-z])([₀₁₂₃₄₅₆₇₈₉]+)/g, (_m, a: string, d: string) => `${a}_{${[...d].map((c) => c.charCodeAt(0) - 0x2080).join('')}}`);
   const q = (metas: string[], binds?: StructBinder[]) => {
-    const parts = [...(binds ?? []).map((b) => (b.k === 'sub' ? `${sub({ k: 'submeta', id: b.id })} ${b.normal ? '\\trianglelefteq' : '\\leq'} G` : b.id)), ...(metas.length ? [metas.join(', ')] : [])];
+    const sr = (r: string | { k: 'sortmeta'; id: string } | undefined) => (r === undefined ? 'G' : tex(posName(typeof r === 'string' ? r : r.id)));
+    const one = (b: StructBinder): string => {
+      switch (b.k) {
+        case 'sub': return `${sub({ k: 'submeta', id: b.id })} ${b.normal ? '\\trianglelefteq' : '\\leq'} ${sr(b.sort)}`;
+        case 'hom': return `${tex(posName(b.id))} \\colon ${sr(b.dom)} \\to ${sr(b.cod)}`;
+        case 'act': return `${tex(posName(b.id))} \\colon ${sr(b.grp)} \\times ${sr(b.on)} \\to ${sr(b.on)}`;
+        default: return tex(posName(b.id));
+      }
+    };
+    const parts = [...(binds ?? []).map(one), ...(metas.length ? [metas.join(', ')] : [])];
     return parts.length ? `\\forall ${parts.join(',\\ ')}.\\; ` : '';
   };
   switch (f.k) {
@@ -255,17 +323,20 @@ export function towerVars(s: S): TowerVar[] {
   for (const m of s.canvas.machines) {
     const c = m.config as { kind: string; varId?: string; label?: string; sort?: 'G' | 'Z' };
     // a Subgroup Tower declares a subgroup, not an element: it is not a term letter (subgroupsOf lists it)
-    if (c.kind === 'tower' && c.varId && !(c as { sub?: string }).sub) out.push({ id: c.varId, label: c.label || c.varId, machine: m.id, sort: c.sort === 'Z' ? 'Z' : 'G' });
+    if (c.kind === 'tower' && c.varId && !(c as { sub?: string }).sub && !(c as { group?: boolean }).group && !(c as { hom?: unknown }).hom) out.push({ id: c.varId, label: c.label || c.varId, machine: m.id, sort: c.sort === 'Z' ? 'Z' : 'G' });
   }
   return out;
 }
 /** Level atoms plus Tower variables, for term entry (parseTerm) and labels. */
 export function atomsAll(s: S): import('../kernel/types').AtomDecl[] {
-  const vs = towerVars(s).map((v, i) => ({ id: v.id, label: v.label, hue: (s.level.atoms.length + i) % 6, variable: true, sort: v.sort }));
-  const g = (s.compiled?.graph?.vars ?? []).filter((v) => !vs.some((w) => w.id === v.id));
+  // Tower variables always wear the variable look: one round bead in the variable tint, whatever the level (#16)
+  const vs = towerVars(s).map((v) => ({ id: v.id, label: v.label, hue: 0, variable: true, sort: v.sort }));
+  const g = (s.compiled?.graph?.vars ?? []).filter((v) => !vs.some((w) => w.id === v.id)).map((v) => ({ ...v, hue: 0 }));
   return [...s.level.atoms, ...vs, ...g];
 }
-export const labelsAll = (s: S): Record<string, string> => ({ ...Object.fromEntries(atomsAll(s).map((a) => [a.id, a.label])), ...Object.fromEntries(subgroupsOf(s).map((g) => [g.id, g.label])) });
+export const labelsAll = (s: S): Record<string, string> => ({ ...labels(s.level), ...Object.fromEntries(atomsAll(s).map((a) => [a.id, a.label])), ...Object.fromEntries(subgroupsOf(s).map((g) => [g.id, g.label])),
+  // Book phase C: group and Hom Towers name sorts and maps (G₁, f₁)
+  ...Object.fromEntries(s.canvas?.machines.flatMap((m) => { const c = m.config as { kind: string; varId?: string; label?: string; group?: boolean; hom?: unknown }; return c.kind === 'tower' && c.varId && (c.group || c.hom) ? [[c.varId, c.label ?? c.varId]] : []; }) ?? []) });
 /** Book phase B: the subgroups in play — the level's, then the floor's Subgroup Towers (H₁ ≤ G, N₁ ⊴ G). */
 export function subgroupsOf(s: S): { id: string; label: string; normal: boolean; tower: boolean }[] {
   const out = (s.level.subgroups ?? []).map((g) => ({ id: g.id, label: g.label, normal: !!g.normal, tower: false }));
@@ -357,7 +428,7 @@ export async function copyText(text: string): Promise<boolean> {
 export const ideaOf = (lv: LevelManifest): string => lv.idea;
 
 // ───────── statements: card targets (∀ goals) as textbook sentences ─────────
-import { statementOf as statementOf0, termTex as termTex0 } from '../shell/util';
+import { statementOf as statementOf0, termTex as termTex0, termTex as termTexRaw } from '../shell/util';
 type St = ReturnType<typeof statementOf0>;
 /** "Lemma n. For all …" for any order, including ∀ goals (law / conditional-card docks). */
 export function statementOf(level: LevelManifest, opts: { any?: boolean } = {}): St {

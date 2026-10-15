@@ -56,3 +56,30 @@ describe('many-sorted oracle', () => {
     expect(typeof modelLog).toBe('object');
   });
 });
+
+describe('nontrivialModels for set levels, the set bound, Hom-Tower docks (authors 2026-10-15)', () => {
+  const S = (id: string) => ({ id, kind: 'set' as const, label: id });
+  it('a pure-set level counts sets of size ≥ 2 with a non-constant map', () => {
+    const inj: Fact = { k: 'cond', metas: ['x', 'y'], metaSorts: { x: 'A', y: 'A' }, premises: [{ k: 'eq', l: app('f', M('x')), r: app('f', M('y')) }], concl: { k: 'eq', l: M('x'), r: M('y') } };
+    const L = mkLevel({ sorts: [S('A'), S('B')], maps: [{ id: 'f', label: 'f', args: ['A'], res: 'B' }], atoms: [],
+      givens: [{ id: 'i', name: 'i', fact: inj }], sockets: [{ id: 's', target: inj as never, allowedGivens: ['i'] }] } as never);
+    const r = nontrivialModels(L, 's');
+    expect(r.count).toBeGreaterThan(10);
+    expect(r.ok).toBe(true);
+  });
+  it('P6.2-like bijections (f injective with a section): sets up to size 4 make the threshold bind honestly', () => {
+    const sec: Fact = { k: 'law', metas: ['y'], metaSorts: { y: 'B' }, l: app('f', app('s', M('y'))), r: M('y') };
+    const inj: Fact = { k: 'cond', metas: ['x', 'y'], metaSorts: { x: 'A', y: 'A' }, premises: [{ k: 'eq', l: app('f', M('x')), r: app('f', M('y')) }], concl: { k: 'eq', l: M('x'), r: M('y') } };
+    const L = mkLevel({ sorts: [S('A'), S('B')], maps: [{ id: 'f', label: 'f', args: ['A'], res: 'B' }, { id: 's', label: 's', args: ['B'], res: 'A' }], atoms: [],
+      givens: [{ id: 'i', name: 'i', fact: inj }, { id: 'sec', name: 'sec', fact: sec }], sockets: [{ id: 's', target: inj as never, allowedGivens: ['i', 'sec'] }] } as never);
+    expect(nontrivialModels(L, 's').count).toBeGreaterThanOrEqual(32);
+  });
+  it('a ∀f dock on a Hom-Tower level counts non-constant homs between catalogue groups', () => {
+    const target: Fact = { k: 'law', metas: [], l: app('f', { k: 'e', s: 'S' }), r: { k: 'e', s: 'T' },
+      binds: [{ k: 'grp', id: 'S' }, { k: 'grp', id: 'T' }, { k: 'hom', id: 'f', dom: { k: 'sortmeta', id: 'S' }, cod: { k: 'sortmeta', id: 'T' } }] };
+    const L = mkLevel({ sockets: [{ id: 's', target: target as never, allowedGivens: [] }] } as never);
+    let n = 0;
+    for (const G of catalogue()) for (const H of catalogue()) for (const t of homsBetween(G, H)) if (new Set(t).size > 1) n++;
+    expect(nontrivialModels(L, 's').count).toBe(n);
+  });
+});

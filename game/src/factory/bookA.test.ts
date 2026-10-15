@@ -111,8 +111,8 @@ describe('multi-desk Assume rooms on the floor', () => {
     expect(desks.map((m) => (m.config as { slot?: number }).slot ?? 0)).toEqual([0, 1]);
     const comp = f.compile();
     const Lb = K.labelsOf([...f.ctx.level.atoms, ...comp.graph.vars!]);
-    expect(K.factText((comp.machines[gate]!.out as { card: K.Card }).card, Lb)).toBe('x₁ = a, y₁ = a ⇒ x₁ = y₁');
-    expect(K.factText((comp.machines[all]!.out as { card: K.Card }).card, Lb)).toBe('∀x, y. x = a, y = a ⇒ x = y');
+    expect(K.factText((comp.machines[gate]!.out as { card: K.Card }).card, Lb)).toBe('x₁ = a, y₁ = a ⟹ x₁ = y₁');
+    expect(K.factText((comp.machines[all]!.out as { card: K.Card }).card, Lb)).toBe('∀x, y. x = a, y = a ⟹ x = y');
     expect(comp.solvable, JSON.stringify([comp.sockets, comp.machines])).toBe(true);
     expect(f.run().s.delivered.s).toBeDefined();
     oracleOk(f, comp);

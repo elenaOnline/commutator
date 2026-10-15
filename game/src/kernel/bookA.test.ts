@@ -220,7 +220,7 @@ describe('witness docks: holes under ∀ are Skolem terms over the binders', () 
     // shape only: the oracle, not the dock, is what knows ∀u,v. u v⁻¹ v = e is false; the kernel never proves it
   });
 
-  it('cond witness docks: ∀x. x x = e ⇒ x⁻¹ = ?', () => {
+  it('cond witness docks: ∀x. x x = e ⟹ x⁻¹ = ?', () => {
     const tg = cond(['x'], [eq(P(x, x), K.E)], eq(I(x), M('w')));
     const sd: SocketDecl = { id: 's', target: tg, allowedGivens: [], holes: [H('w')] };
     const fact = cond(['u'], [eq(P(M('u'), M('u')), K.E)], eq(I(M('u')), M('u')));
@@ -256,9 +256,9 @@ describe('multi-desk Assume rooms', () => {
     const m = p.merge(desks[0]!, desks[1]!);                  // x₁ = y₁
     const ex = p.exit(room, m);
     expect(p.res.nodes[ex]!.deps).toEqual([]);
-    expect(p.text(ex)).toBe('x₁ = a, y₁ = a ⇒ x₁ = y₁');
+    expect(p.text(ex)).toBe('x₁ = a, y₁ = a ⟹ x₁ = y₁');
     const g = p.generalize(ex);
-    expect(p.text(g)).toBe('∀x, y. x = a, y = a ⇒ x = y');
+    expect(p.text(g)).toBe('∀x, y. x = a, y = a ⟹ x = y');
     oracleOk(p);
   });
 
@@ -266,7 +266,7 @@ describe('multi-desk Assume rooms', () => {
     const p = new Player(mkCtx());
     const { room, desks } = p.openDesks([['eq', 'a', 'b'], ['neq', 'c', 'd'], ['eq', 'b', 'c']]);
     const ex = p.exit(room, desks[1]!);
-    expect(p.text(ex)).toBe('a = b, c ≠ d, b = c ⇒ c ≠ d');
+    expect(p.text(ex)).toBe('a = b, c ≠ d, b = c ⟹ c ≠ d');
     expect(p.res.nodes[ex]!.deps).toEqual([]);
     oracleOk(p);
   });
@@ -347,7 +347,7 @@ describe('open-dock pins (SYNTHESIS §4.1 pin 5)', () => {
     // ab = ?? (P4.s4) and a = ?b?⁻¹ (P12.2) are not trivially filled
     expect(K.trivialFill({ id: 's', target: eq(P(a, b), P(M('h'), M('h'))), allowedGivens: [], holes: [H('h')] })).toBeNull();
     expect(K.trivialFill({ id: 's', target: eq(a, P(M('h'), b, I(M('h')))), allowedGivens: [], holes: [H('h')] })).toBeNull();
-    // cond: ∀x. xx = e ⇒ x⁻¹ = ? is not filled by xx = e ⇒ x⁻¹ = x⁻¹ only if ? may not be x⁻¹ — it may, so it is trivial
+    // cond: ∀x. xx = e ⟹ x⁻¹ = ? is not filled by xx = e ⟹ x⁻¹ = x⁻¹ only if ? may not be x⁻¹ — it may, so it is trivial
     expect(K.trivialFill({ id: 's', target: cond(['x'], [eq(P(x, x), K.E)], eq(I(x), M('w'))), allowedGivens: [], holes: [H('w')] })).not.toBeNull();
     void y;
   });

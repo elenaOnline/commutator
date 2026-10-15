@@ -40,7 +40,7 @@ describe('Paper view: the main campaign\'s reference proofs', () => {
     const r = reasons(sOf(f, run(f).comp));
     expect(r[0]).toBe('given h');
     expect(r[1]).toMatch(/^multiply on the left by a/);
-    expect(r).toContain('by line 2');
+    expect(r).toContain('from lines 2 and 4'); // the left side simplified forwards, then combined with line 2
   });
   it('T01 opens the Assume room as a numbered line and indents its argument', () => {
     const f = reference('T01');

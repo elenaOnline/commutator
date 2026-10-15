@@ -6,7 +6,14 @@ import { beads } from '../beads';
 import { markVarBeads } from '../strip';
 import { esc, h } from '../util';
 import { mdInline } from './tex';
-import { parseDisplay, parseDisplayFig, type DFactor, type DFig } from './parse';
+import { parseDisplay, parseDisplayFig, type DFactor, type DFig, type Subgroup } from './parse';
+import { eulerBlobHTML } from '../../ui/euler';
+import { letterSlot } from '../../ui/letters';
+
+/** A subgroup on a card, drawn as on the floor: its Euler set (a second inner outline when normal). */
+export function subgroupEl(sub: Subgroup, bd: number): HTMLElement {
+  return h('span', { class: 'cc-sub', style: `--bd:${bd}px`, html: eulerBlobHTML(sub.label, Math.round(bd * 0.8), { normal: sub.normal, title: `the ${sub.normal ? 'normal ' : ''}subgroup ${sub.label}` }) });
+}
 
 /** Everything a figure needs to draw its letters. */
 export interface Letters {
@@ -16,11 +23,14 @@ export interface Letters {
   vars: Map<string, 'G' | 'Z'>;
 }
 export function lettersOf(specs: AtomSpec[]): Letters {
-  const atoms: AtomDecl[] = specs.map((a) => ({ id: a.id, label: a.label, hue: a.hue }));
+  // a letter keeps its shape on cards and floor alike: the shape comes from the letter (ui/letters), never from
+  // the card's own list; Tower variables (a sort) wear the variable look whatever their hue
+  const hue = (a: AtomSpec) => (a.sort ? a.hue : letterSlot(a.label));
+  const atoms: AtomDecl[] = specs.map((a) => ({ id: a.id, label: a.label, hue: hue(a) }));
   return {
     atoms,
     L: Object.fromEntries(specs.map((a) => [a.id, a.label])),
-    H: Object.fromEntries(specs.map((a) => [a.id, a.hue])),
+    H: Object.fromEntries(specs.map((a) => [a.id, hue(a)])),
     vars: new Map(specs.filter((a) => a.sort).map((a) => [a.id, a.sort!])),
   };
 }
@@ -83,7 +93,8 @@ export function figStrip(src: string, lt: Letters, bd: number): HTMLElement {
   e.parts.forEach((p, i) => {
     if (i) wrap.append(h('span', { class: 'cc-rel math' }, '⟹'));
     wrap.append(wordEl(p.l, lt, bd));
-    if (p.r) wrap.append(h('span', { class: 'cc-rel math' }, p.rel ?? '='), wordEl(p.r, lt, bd));
+    if (p.sub) wrap.append(h('span', { class: 'cc-rel math' }, '∈'), subgroupEl(p.sub, bd));
+    else if (p.r) wrap.append(h('span', { class: 'cc-rel math' }, p.rel ?? '='), wordEl(p.r, lt, bd));
   });
   return wrap;
 }

@@ -449,7 +449,7 @@ describe('v4 r2: card sockets up to symmetry; stacks versus words in messages', 
     const { room } = w.p.openRoom('assume', 'x₁', 'e');
     const s = w.p.start('x₁ x₁^-1', room);
     const q = w.p.step(s, { k: 'rewrite', rule: { k: 'axiom', id: 'invR' }, dir: 'fwd', at: { side: 'r', path: [], range: [0, 2] }, subst: { x: w.X1 } });
-    const g = w.p.generalize(w.p.exit(room, q)); // ∀x. x = e ⇒ x x⁻¹ = e
+    const g = w.p.generalize(w.p.exit(room, q)); // ∀x. x = e ⟹ x x⁻¹ = e
     const fact = w.p.fact(g) as Card;
     const flipped: Card = { k: 'cond', metas: ['y'], premises: [{ k: 'eq', l: K.meta('y'), r: e }], concl: { k: 'eq', l: e, r: M(K.meta('y'), K.inv(K.meta('y'))) } };
     const premFlipped: Card = { k: 'cond', metas: ['y'], premises: [{ k: 'eq', l: e, r: K.meta('y') }], concl: { k: 'eq', l: M(K.meta('y'), K.inv(K.meta('y'))), r: e } };

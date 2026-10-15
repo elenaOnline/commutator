@@ -13,6 +13,7 @@ import * as K from '../kernel';
 import { queued } from '../factory/runtime';
 import type * as FF from '../factory';
 import { FONT, INK, VAR, reducedMotion } from '../ui/tokens';
+import { setSortCtx } from '../ui/sorts';
 import { MATH_CSS } from '../ui/math';
 import { P, f1, type G2, type S2 } from '../board/geom';
 import { factHTML, factSVG, factWidth, setVarInks, termHTML, termSVG, type Labels } from './math';
@@ -68,7 +69,7 @@ type Gesture =
   | { k: 'box'; x0: number; y0: number; x1: number; y1: number; add: boolean }
   | { k: 'move'; ids: string[]; start: Tile; delta: Tile; ok: boolean | null; reason?: string }
   | { k: 'belt'; why?: { reason: string; blockers: string[] }; from: Endpoint; branchOf?: string; branchI?: number; extendOf?: string; via: Tile[]; kind: ItemKind; fam: import('../kernel/types').Family; startG: G2; click: boolean; snap: Snap | null; path: Tile[] | null; real: boolean; noRoute: boolean; key: string }
-  | { k: 'room'; start: Tile; cur: Tile }
+  | { k: 'room'; start: Tile; cur: Tile; sx: number; sy: number; cx: number; cy: number }
   | { k: 'resize'; id: string; h: string; rect0: Rect; rect: Rect };
 
 type Target =
@@ -232,6 +233,7 @@ class Floor {
   private fullRender() {
     const s = this.s;
     this.labels = labelsOf(s.level);
+    setSortCtx(s.ctx, s.compiled?.graph ?? null); // Book phase C: items wear their sort
     this.slots = Object.fromEntries(s.level.atoms.map((a) => [a.id, a.hue]));
     this.cx = this.ctxFor(s);
     try {
@@ -754,7 +756,18 @@ class Floor {
   private renderHandles() {
     const ui = this.s.ui;
     const rooms = this.s.canvas.rooms.filter((r) => ui.selection.includes(r.id) || ui.tool.k === 'room');
-    this.L.handles!.innerHTML = rooms.map((r) => roomHandles(this.g.k === 'resize' && this.g.id === r.id ? this.g.rect : r.rect, r.id)).join('');
+    let html = rooms.map((r) => roomHandles(this.g.k === 'resize' && this.g.id === r.id ? this.g.rect : r.rect, r.id)).join('');
+    // a selected room carries its own delete, under its south corner (away from the heading; never beside a close)
+    const one = ui.selection.length === 1 ? this.s.canvas.rooms.find((r) => r.id === ui.selection[0]) : undefined;
+    if (one && this.g.k !== 'resize' && ui.tool.k !== 'room') {
+      const R = one.rect, c = P(R.x + R.w, R.y + R.h);
+      const text = 'Delete room  ⌫', w = 22 + text.length * 6.4;
+      html += `<g class="fl-rdel" data-rdel="${esc(one.id)}" role="button" aria-label="Delete this room (its desk and gate go; machines inside stay)" style="cursor:pointer">` +
+        `<rect x="${f1(c[0] - w / 2)}" y="${f1(c[1] + 12)}" width="${f1(w)}" height="24" rx="12" fill="#fff" stroke="${JAM}" stroke-width="1.3"/>` +
+        `<text x="${f1(c[0])}" y="${f1(c[1] + 28)}" text-anchor="middle" font-family="${FONT.ui}" font-size="12" font-weight="600" fill="${JAM}" style="pointer-events:none">${esc(text)}</text>` +
+        `<title>Removes the room, its desk and its gate. Machines inside stay. ⌘Z undoes.</title></g>`;
+    }
+    this.L.handles!.innerHTML = html;
   }
 
   // ───────────────────────────── alt overlay ─────────────────────────────
@@ -837,7 +850,14 @@ class Floor {
     const probe: Machine = { id: '__ghost', kind: tool.kind, at: { x: 0, y: 0 }, rot: this.s.ui.rot, config };
     const fp = footprint(probe, this.s.ctx);
     const w = Math.max(...fp.map((t) => t.x)) + 1, h = Math.max(...fp.map((t) => t.y)) + 1;
-    return { ...probe, at: { x: tile.x - Math.floor((w - 1) / 2), y: tile.y - Math.floor((h - 1) / 2) } };
+    let at = { x: tile.x - Math.floor((w - 1) / 2), y: tile.y - Math.floor((h - 1) / 2) };
+    // aimed inside a room near its wall: slide the machine wholly inside (it never lands outside by surprise)
+    const room = F.roomAt(this.s.canvas, tile);
+    if (room && w <= room.rect.w && h <= room.rect.h) {
+      const R = room.rect;
+      at = { x: Math.min(Math.max(at.x, R.x), R.x + R.w - w), y: Math.min(Math.max(at.y, R.y), R.y + R.h - h) };
+    }
+    return { ...probe, at };
   }
 
   private updateGhost() {
@@ -931,11 +951,22 @@ class Floor {
     const reason = verdict && !verdict.ok ? verdict.reason : !verdict && overlap ? 'Occupied.' : cuts ? `Cuts ${cuts} belt${cuts > 1 ? 's' : ''}. They stay, dashed.` : '';
     if (cands.length > 1 && !reason) splices = -cands.length;
     if (note && /^Spliced/.test(note) && !reason) splices = Math.max(splices, 1);
+    // where it lands, before the drop: the room it would sit in lights up; next to a wall but outside, say so
+    const home = F.roomAt(this.s.canvas, tiles[0]!);
+    const inHome = !!home && tiles.every((t) => F.roomAt(this.s.canvas, t)?.id === home.id);
+    let place = '';
+    if (inHome && home) under = `<path d="${groundRect(home.rect.x, home.rect.y, home.rect.x + home.rect.w, home.rect.y + home.rect.h, 0.02, 0.3)}" fill="${VIOLET}" fill-opacity=".08" stroke="${VIOLET}" stroke-width="2.2" stroke-opacity=".75"/>` + under;
+    else {
+      const near = this.s.canvas.rooms.find((r) => tiles.some((t) => t.x >= r.rect.x - 1 && t.x <= r.rect.x + r.rect.w && t.y >= r.rect.y - 1 && t.y <= r.rect.y + r.rect.h));
+      if (near) place = 'Outside the room';
+    }
+    if (inHome && home && !reason) place = 'Inside the room';
     const top = P((g.x0 + g.x1) / 2, (g.y0 + g.y1) / 2, 0.6);
     const tag = reason && !this.toastUp() ? this.tagSVG(top[0], top[1] - 14, reason, JAM)
       : completes && !this.toastUp() ? this.tagSVG(top[0], top[1] - 14, completes === 1 ? 'Completes the open belt' : `Completes ${completes} open belts`, INK.navy)
       : splices && !this.toastUp() ? this.tagSVG(top[0], top[1] - 14,
-        splices < 0 ? `Touches ${-splices} belts. Splicing needs one.` : note && /^Spliced/.test(note) ? note : 'Splices into the belt', INK.navy) : '';
+        splices < 0 ? `Touches ${-splices} belts. Splicing needs one.` : note && /^Spliced/.test(note) ? note : 'Splices into the belt', INK.navy)
+      : place && !this.toastUp() ? this.tagSVG(top[0], top[1] - 14, place, place.startsWith('In') ? VIOLET : INK.navy) : '';
     this.L.under!.innerHTML = under;
     const ports = g.ports.map((p) => { const svg = portSVG({ m: '__ghost', port: p, edge: portEdge(p), out: [p.tile.x + 0.5, p.tile.y + 0.5], taken: true, kind: p.accepts[0] ?? 'eq' }, g); return svg.slice(0, svg.indexOf('<circle class="fl-hit"')) + '</g>'; }).join('');
     this.L.ghost!.innerHTML = `<g class="fl-ghostm${ok ? '' : ' is-bad'}">${belts}${ports}${machineSVG(g, this.cx)}${arrows}</g><g class="fl-preview"></g>${tag}`;
@@ -1189,14 +1220,71 @@ class Floor {
     for (const id of g.ids) this.elByM.get(id)?.classList.add('is-moving');
   }
 
+  /**
+   * The room a drag paints. The dragged SCREEN rectangle is what the player means ("drag a rectangle"), so the
+   * room is the tile rectangle covering its four corners: a diagonal, horizontal or vertical drag all work.
+   * Then it cooperates with the floor: it grows to take in a machine it would cut through, and stops short of
+   * a dock or given (which never sit in a room). `note` says what it did and why.
+   */
+  private roomDrag(g: Extract<Gesture, { k: 'room' }>): { rect: Rect; note: string } {
+    const tileAt = (x: number, y: number) => tileOf(gridOf(toWorld(this.cam(), this.view, x, y)));
+    const cs = [tileAt(g.sx, g.sy), tileAt(g.cx, g.cy), tileAt(g.cx, g.sy), tileAt(g.sx, g.cy)];
+    let x0 = Math.min(...cs.map((t) => t.x)), x1 = Math.max(...cs.map((t) => t.x)) + 1;
+    let y0 = Math.min(...cs.map((t) => t.y)), y1 = Math.max(...cs.map((t) => t.y)) + 1;
+    const st = g.start;
+    let note = '';
+    const boxes = this.s.canvas.machines.filter((m) => m.kind !== 'desk' && m.kind !== 'gate').map((m) => {
+      const fp = footprint(m, this.s.ctx);
+      return { m, bx0: Math.min(...fp.map((t) => t.x)), bx1: Math.max(...fp.map((t) => t.x)) + 1, by0: Math.min(...fp.map((t) => t.y)), by1: Math.max(...fp.map((t) => t.y)) + 1 };
+    });
+    const fixed = (m: Machine) => m.config.kind === 'socket' || m.config.kind === 'given' || m.kind === 'socket' || m.kind === 'given';
+    for (let pass = 0; pass < 8; pass++) {
+      let changed = false;
+      for (const b of boxes) {
+        const ix = Math.min(x1, b.bx1) - Math.max(x0, b.bx0), iy = Math.min(y1, b.by1) - Math.max(y0, b.by0);
+        if (ix <= 0 || iy <= 0) continue; // no overlap
+        const whole = b.bx0 >= x0 && b.bx1 <= x1 && b.by0 >= y0 && b.by1 <= y1;
+        if (fixed(b.m)) {
+          // stop short of it, on whichever side keeps the most room (the drag's first tile always stays inside)
+          const opts: [number, number, number, number][] = [];
+          if (st.x < b.bx0) opts.push([x0, b.bx0, y0, y1]);
+          if (st.x >= b.bx1) opts.push([b.bx1, x1, y0, y1]);
+          if (st.y < b.by0) opts.push([x0, x1, y0, b.by0]);
+          if (st.y >= b.by1) opts.push([x0, x1, b.by1, y1]);
+          const best = opts.sort((a, c) => (c[1] - c[0]) * (c[3] - c[2]) - (a[1] - a[0]) * (a[3] - a[2]))[0];
+          if (!best) continue;
+          [x0, x1, y0, y1] = best;
+          note = `Stops at the ${b.m.config.kind === 'given' || b.m.kind === 'given' ? 'given' : 'dock'}: those stay outside every room.`;
+          changed = true;
+        } else if (!whole) {
+          // a machine half inside: take all of it in
+          x0 = Math.min(x0, b.bx0); x1 = Math.max(x1, b.bx1); y0 = Math.min(y0, b.by0); y1 = Math.max(y1, b.by1);
+          changed = true;
+        }
+      }
+      if (!changed) break;
+    }
+    return { rect: { x: x0, y: y0, w: Math.max(1, x1 - x0), h: Math.max(1, y1 - y0) }, note };
+  }
+
   private renderRoomPreview() {
     const g = this.g;
     if (g.k === 'room') {
-      const rect = rectOf(g.start, g.cur);
+      const { rect, note } = this.roomDrag(g);
       const tool = this.s.ui.tool;
       const kind = tool.k === 'room' ? tool.kind : 'suppose';
       const spec = this.roomSpec();
       this.L.ghost!.innerHTML = roomSVG({ id: '__ghost', kind, rel: spec?.rel, l: spec?.l ?? null, r: spec?.r ?? null, rect, assumes: spec?.assumes }, this.labels, true);
+      // say, before the release, what the release will do: the size, and any refusal in the editor's words
+      const small = rect.w < MIN_ROOM || rect.h < MIN_ROOM;
+      const verdict = small || !spec ? null : safe(() => F.paintRoom(this.s.canvas, rect, kind, spec.l, spec.r, this.s.ctx, spec.rel, spec.assumes && spec.assumes.length > 1 ? spec.assumes : undefined), null);
+      const why = small ? TOO_SMALL : !spec ? "Pick the room's assumption first." : verdict && !verdict.ok ? verdict.reason : note;
+      const bad = small || !spec || (!!verdict && !verdict.ok);
+      const top = P(rect.x + rect.w / 2, rect.y + rect.h / 2);
+      const pt = toWorld(this.cam(), this.view, g.cx, g.cy);
+      const label = `${rect.w} × ${rect.h}${why ? ` · ${why}` : ''}`;
+      this.L.ghost!.innerHTML += this.tagSVG(pt[0], pt[1] - 26, label, bad ? JAM : INK.navy);
+      void top;
       this.L.under!.innerHTML = '';
     } else if (g.k === 'resize') {
       const room = this.s.canvas.rooms.find((r) => r.id === g.id); if (!room) return;
@@ -1337,7 +1425,7 @@ class Floor {
       const eqs = `${L0} = ${R0}`, neqs = `${L0} ≠ ${R0}`;
       const a = r.kind === 'assume' ? (r.rel === 'neq' ? neqs : eqs) : r.kind === 'suppose' ? eqs : neqs;
       const x = r.kind === 'assume' ? `${a} ⟹ <i>Q</i>` : r.kind === 'suppose' ? neqs : eqs;
-      return `<div class="fl-tip-h">${r.kind === 'assume' ? 'Assume room' : 'Room'}</div><div class="fl-tip-row"><span class="fl-tip-k">assumes</span><span class="math">${a}</span></div><div class="fl-tip-row"><span class="fl-tip-k">exports</span><span class="math">${x}</span></div><div class="fl-tip-foot">Facts leave only by the gate.</div>`;
+      return `<div class="fl-tip-h">${r.kind === 'assume' ? 'Assume room' : 'Room'}</div><div class="fl-tip-row"><span class="fl-tip-k">assumes</span><span class="math">${a}</span></div><div class="fl-tip-row"><span class="fl-tip-k">exports</span><span class="math">${x}</span></div><div class="fl-tip-foot">Facts leave only by the gate. Click the room's floor to select it; ⌫ deletes it.</div>`;
     }
     return '';
   }
@@ -1431,6 +1519,14 @@ class Floor {
     if (e.button === 2) { this.cancel(true); return; }
     if (e.button === 1 || this.space) { this.startPan(e, p); return; }
     if (e.button !== 0) return;
+    const rdel = (e.target as Element | null)?.closest?.('[data-rdel]') as HTMLElement | null;
+    if (rdel && e.button === 0) {
+      const id = rdel.dataset.rdel!;
+      e.preventDefault();
+      this.timed('remove', e, () => this.store.remove([id]));
+      this.store.select([]);
+      return;
+    }
     const badge = (e.target as Element | null)?.closest?.('[data-badge]') as HTMLElement | null;
     if (badge && e.button === 0) {
       const id = badge.dataset.badge!;
@@ -1447,7 +1543,7 @@ class Floor {
     if (tool.k === 'room') {
       if (t.k === 'rh') return this.startResize(t, e);
       const tl = this.pointerTile();
-      this.g = { k: 'room', start: tl, cur: tl };
+      this.g = { k: 'room', start: tl, cur: tl, sx: p.x, sy: p.y, cx: p.x, cy: p.y };
       r(this.root, e); this.updateGhost(); return;
     }
     if (tool.k === 'place') { this.g = { k: 'press', x: p.x, y: p.y, target: t, shift: e.shiftKey }; r(this.root, e); return; }
@@ -1509,7 +1605,13 @@ class Floor {
         return;
       }
       case 'belt': { this.setHoverFrom(this.targetOf(e)); this.updateBeltGesture(); this.updateGhost(); return; }
-      case 'room': { const t = this.pointerTile(); if (t.x !== g.cur.x || t.y !== g.cur.y) { this.g = { ...g, cur: t }; this.updateGhost(); } return; }
+      case 'room': {
+        const t = this.pointerTile();
+        const was = this.roomDrag(g).rect;
+        this.g = { ...g, cur: t, cx: p.x, cy: p.y };
+        if (JSON.stringify(this.roomDrag(this.g as typeof g).rect) !== JSON.stringify(was)) this.updateGhost();
+        return;
+      }
       case 'resize': {
         const gp = this.pointerGrid();
         const rect = resizeRect(g.rect0, g.h, gp);
@@ -1622,10 +1724,11 @@ class Floor {
       case 'room': {
         this.g = { k: 'none' };
         this.clearPreview();
-        const rect = rectOf(g.start, g.cur);
+        const { rect } = this.roomDrag(g);
         const tool = this.s.ui.tool;
         const spec = this.roomSpec();
         if (!spec) { this.say("Pick the room's assumption first."); return; }
+        if (rect.w < MIN_ROOM || rect.h < MIN_ROOM) { this.say(TOO_SMALL); return; }
         this.timed('room', e, () => this.store.paintRoom(rect, tool.k === 'room' ? tool.kind : 'suppose', spec.l, spec.r, spec.rel, spec.assumes));
         return;
       }
@@ -1731,6 +1834,9 @@ class Floor {
       if (t.k === 'machine' && !e.shiftKey) this.store.openLens(id);
       return;
     }
+    // the floor of a room selects the room (handles, ⌫ and its Delete button); a second click lets go
+    const inRoom = tool.k === 'select' && !e.shiftKey ? F.roomAt(this.s.canvas, this.pointerTile()) : null;
+    if (inRoom && !sel.includes(inRoom.id)) { this.store.select([inRoom.id]); this.store.openLens(null); return; }
     if (!e.shiftKey) { this.store.select([]); this.store.openLens(null); }
   }
 
@@ -1840,6 +1946,12 @@ class Floor {
     if (k === 'f') { this.fit(); e.preventDefault(); return; }
     if (k === 'delete' || k === 'backspace') {
       const ids = ui.selection.length ? ui.selection : ui.hover && ui.hover.k !== 'port' ? [ui.hover.id] : [];
+      // a desk or gate stands for its room: select the room first, so the next ⌫ deletes it knowingly
+      const parts = ids.map((id) => this.s.canvas.machines.find((m) => m.id === id)).filter((m) => m && (m.kind === 'desk' || m.kind === 'gate')) as Machine[];
+      if (parts.length && parts.length === ids.length) {
+        const room = (parts[0]!.config as { room?: string }).room;
+        if (room) { this.store.select([room]); this.store.openLens(null); this.say('The room is selected. Press ⌫ again to delete it. Its desk and gate go; machines inside stay.'); e.preventDefault(); return; }
+      }
       if (ids.length) { this.timed('remove', e, () => this.store.remove(ids)); e.preventDefault(); }
     }
   }
@@ -1874,6 +1986,11 @@ function kindWord(ks: ItemKind[], cap = false): string {
   const bare = s.replace(/^(a|an) /, '');
   return bare.charAt(0).toUpperCase() + bare.slice(1);
 }
+
+/** The editor's minimum room (factory/editor.ts MIN_ROOM): a desk with its face tile, the gate with its inner tile, and a machine. */
+const MIN_ROOM = 3;
+const TOO_SMALL = `Too small: a room needs at least ${MIN_ROOM} × ${MIN_ROOM} tiles, for its desk, its gate and a machine.`;
+const safe = <T,>(f: () => T, d: T): T => { try { return f(); } catch { return d; } };
 
 function rectOf(a: Tile, b: Tile): Rect {
   return { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(a.x - b.x) + 1, h: Math.abs(a.y - b.y) + 1 };

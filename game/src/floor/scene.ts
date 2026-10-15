@@ -17,7 +17,9 @@ import {
   polyD, railOpacity, roundOpen,
 } from './svg';
 
-export const labelsOf = (lv: LevelManifest): Labels => ({ ...Object.fromEntries(lv.atoms.map((a) => [a.id, a.label])), ...Object.fromEntries((lv.subgroups ?? []).map((g) => [g.id, g.label])) });
+export const labelsOf = (lv: LevelManifest): Labels => ({ ...Object.fromEntries(lv.atoms.map((a) => [a.id, a.label])), ...Object.fromEntries((lv.subgroups ?? []).map((g) => [g.id, g.label])),
+  ...Object.fromEntries((lv.sorts ?? []).map((g) => [g.id, g.label])), ...Object.fromEntries((lv.maps ?? []).map((g) => [g.id, g.label])),
+  ...Object.fromEntries((lv.maps ?? []).filter((m) => m.kind === 'action').map((m) => [K.actionMark(m.id), '1'])) });
 
 export function heightOf(m: Machine): number {
   switch (m.kind) {
@@ -228,18 +230,22 @@ function chordAt(poly: [number, number][], y: number): [number, number] | null {
 export function fitPlate(name: string, face: [number, number][], cx: number, cy: number, tag: boolean): { lines: string[]; xs: number[]; fs: number; y0: number } {
   const words = plateWords(name);
   const lift = tag ? -4 : 0; // an IMPORTED line goes under the title
-  const place = (yMid: number, w: number): number | null => {
-    const ch = chordAt(face, yMid);
-    if (!ch || ch[1] - ch[0] - 4 < w) return null;
-    return Math.min(Math.max(cx, ch[0] + 2 + w / 2), ch[1] - 2 - w / 2);
+  // a line fits only if the face is wide enough at its cap height AND at its baseline (the top face is a
+  // parallelogram: a line that fits through its middle can still cross the rim above or below — #18)
+  const place = (yMid: number, w: number, fs = 7): number | null => {
+    const a = chordAt(face, yMid - fs * 0.5), b = chordAt(face, yMid + fs * 0.42), m = chordAt(face, yMid);
+    if (!a || !b || !m) return null;
+    const lo = Math.max(a[0], b[0], m[0]), hi = Math.min(a[1], b[1], m[1]);
+    if (hi - lo - 6 < w) return null;
+    return Math.min(Math.max(cx, lo + 3 + w / 2), hi - 3 - w / 2);
   };
   let best: { lines: string[]; xs: number[]; fs: number; y0: number } | null = null;
   for (let k = 1; k <= Math.min(3, Math.max(1, words.length)); k++) {
     const lines = splitLines(words, k);
-    for (let fs = 9.4; fs >= 6; fs -= 0.2) {
+    for (let fs = 9.4; fs >= 5.8; fs -= 0.2) {
       const lead = fs + 2;
       const y0 = cy + 3.5 + lift - ((lines.length - 1) / 2) * lead;
-      const xs = lines.map((ln, i) => place(y0 + i * lead - fs * 0.36, plateTextW(ln, fs)));
+      const xs = lines.map((ln, i) => place(y0 + i * lead - fs * 0.36, plateTextW(ln, fs) + 3, fs));
       const tagOk = !tag || place(y0 + lines.length * lead - 3.5, plateTextW('IMPORTED', 6.8) * 1.4) !== null;
       if (xs.every((x) => x !== null) && tagOk) {
         if (!best || fs > best.fs + 0.01) best = { lines, xs: xs as number[], fs, y0 };
@@ -248,8 +254,9 @@ export function fitPlate(name: string, face: [number, number][], cx: number, cy:
     }
   }
   if (best) return best;
-  const lines = splitLines(words, 2);
-  return { lines, xs: lines.map(() => cx), fs: 6, y0: cy + 3.5 + lift - ((lines.length - 1) / 2) * 8 };
+  // nothing fits legibly: print no words at all — the plate keeps its maths glyph (NORMS: glyphs are maths, not
+  // pictograms or squeezed words); the name is in the lens and on hover
+  return { lines: [], xs: [], fs: 13, y0: cy + 4 + lift };
 }
 
 export interface Ctx { L: Labels; level: LevelManifest; comp: Compiled | null; schemaName: (id: string, mirror: boolean) => string }
@@ -276,7 +283,7 @@ function givenFact(m: Machine, lv: LevelManifest): Fact | undefined {
 export function machineSVG(g: MGeo, cx: Ctx, varLabels?: Map<string, string>): string {
   const m = g.m;
   if (m.kind === 'socket') return socketSVG(g, cx, false);
-  if (m.kind === 'tower') return towerSVG(g, varLabels);
+  if (m.kind === 'tower') return towerSVG(g, varLabels ?? new Map(Object.entries(cx.L)));
   const h = heightOf(m);
   const L = g.look;
   const B = box(g.x0, g.y0, g.x1, g.y1, h, 0.09, 0.2, L.sheet ? 0.3 : 0);
@@ -304,6 +311,8 @@ export function machineSVG(g: MGeo, cx: Ctx, varLabels?: Map<string, string>): s
     const face = [[g.x0 + m, g.y0 + m], [g.x1 - m, g.y0 + m], [g.x1 - m, g.y1 - m], [g.x0 + m, g.y1 - m]].map(([x, y]) => P(x!, y!, h) as [number, number]);
     const { lines, xs, fs, y0 } = fitPlate(L.title ?? '', face, c[0], c[1], !!L.tag);
     const halo = `paint-order="stroke" stroke="${INK.navy}" stroke-width="3" stroke-linejoin="round"`;
+    // no words fit: the plate shows the Theorem's maths glyph; its name is in the lens and on hover (#18)
+    if (!lines.length) o += `<text x="${f1(c[0])}" y="${f1(c[1] + 6)}" text-anchor="middle" font-family="${FONT.math}" font-size="18" fill="#fff">⟹</text>`;
     lines.forEach((ln, i) => {
       o += `<text x="${f1(xs[i]!)}" y="${f1(y0 + i * (fs + 2))}" text-anchor="middle" font-family="${FONT.ui}" font-weight="600" font-size="${f1(fs)}" letter-spacing=".08em" fill="#fff" ${halo}>${esc(ln.replace(/ OP$/, ''))}${/ OP$/.test(ln) ? `<tspan font-size="7.5" baseline-shift="35%" fill="${INK.gold}"> OP</tspan>` : ''}</text>`;
     });
@@ -372,7 +381,12 @@ export function towerSVG(g: MGeo, varLabels?: Map<string, string>): string {
   const gp = P((g.x0 + g.x1) / 2 + 0.1, (g.y0 + g.y1) / 2 + 0.1, h);
   // x₁ ∈ G for an element, n₁ ∈ ℤ for an integer; a Subgroup Tower reads H₁ ≤ G (N₁ ⊴ G for a normal subgroup)
   const rel = L.subTower ? (L.subTower === 'normal' ? '⊴' : '≤') : '∈';
-  o += `<text x="${f1(gp[0] + 2)}" y="${f1(gp[1] + 7)}" text-anchor="middle" font-family="${FONT.math}" font-size="${label.length > 2 ? 14 : 17}" fill="${L.on}">${varSVG(label)}<tspan font-size="72%" dx="1.5">${rel}${isZ && !L.subTower ? 'ℤ' : '<tspan font-style="italic">G</tspan>'}</tspan></text>`;
+  const st = L.structTower;
+  const lab = (id: string) => `<tspan font-style="italic">${esc(varLabels?.get(id) ?? id)}</tspan>`;
+  const carrier = m.config.kind === 'tower' && m.config.carrier ? m.config.carrier : null;
+  if (st?.group) o += `<text x="${f1(gp[0] + 2)}" y="${f1(gp[1] + 7)}" text-anchor="middle" font-family="${FONT.math}" font-size="17" fill="${L.on}">${varSVG(label)}</text>`;
+  else if (st?.hom) o += `<text x="${f1(gp[0] + 2)}" y="${f1(gp[1] + 6)}" text-anchor="middle" font-family="${FONT.math}" font-size="12.5" fill="${L.on}">${varSVG(label)}<tspan font-size="80%" dx="1"> : ${lab(st.hom.dom)} → ${lab(st.hom.cod)}</tspan></text>`;
+  else o += `<text x="${f1(gp[0] + 2)}" y="${f1(gp[1] + 7)}" text-anchor="middle" font-family="${FONT.math}" font-size="${label.length > 2 ? 14 : 17}" fill="${L.on}">${varSVG(label)}<tspan font-size="72%" dx="1.5">${rel}${isZ && !L.subTower ? 'ℤ' : carrier ? lab(carrier) : '<tspan font-style="italic">G</tspan>'}</tspan></text>`;
   o += `</g>`;
   // transmitter on the back corner: collar and mast as small cylinders standing on the top face, then the bulb
   const bp = P(g.x0 + 0.3, g.y0 + 0.3, h), bx = bp[0], by = bp[1];

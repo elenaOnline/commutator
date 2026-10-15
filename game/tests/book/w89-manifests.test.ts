@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { REGISTRY } from '../../src/levels/levels';
 import { BOOK_123 } from './kit-w123';
 import { BOOK_89 } from './kit-w89';
+import { MEMBERS_IDS } from './members-ids';
 import { BOOK_LEVELS, BOOK_CARDS } from '../../src/levels/book';
 import type { Card, Fact, Pallet, Term } from '../../src/kernel/types';
 
@@ -22,9 +23,9 @@ const factAtoms = (f: Fact | Pallet | Card, out: Set<string>) => {
 const POW_ORDER = ['power.add', 'power.zero', 'power.conjugate', 'power.multiply', 'power.one', 'power.identity'];
 
 describe('Book worlds 8–9 manifests', () => {
-  it('are the SYNTHESIS list, in order (P11.1 needs Members and is not here yet)', () => {
+  it('are the SYNTHESIS list, in order (P11.1 is the Members level, tested in members-manifests.test.ts)', () => {
     expect(BOOK_89.map((l) => l.id)).toEqual(IDS);
-    expect(BOOK_LEVELS.filter((l) => l.world === 8 || l.world === 9).map((l) => l.id)).toEqual(IDS);
+    expect(BOOK_LEVELS.filter((l) => (l.world === 8 || l.world === 9) && !MEMBERS_IDS.includes(l.id)).map((l) => l.id)).toEqual(IDS);
   });
   it('carry the Book fields, with strictly increasing indices, a coarse method and a post-∎ insight', () => {
     BOOK_89.forEach((l, i) => {

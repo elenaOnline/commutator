@@ -5,13 +5,15 @@
 // brackets and carets work INSIDE a power's base too (child 0 enters the base, like an inverse).
 import * as K from '../kernel';
 import type { Side, Term } from '../kernel/types';
-import { renderRail, beadsInline, type Hues } from '../bench/render';
+import { renderRail, beadsInline, labelHTML, type Hues } from '../bench/render';
+import { eTag, isActionApp, styleOfTerm } from '../ui/sorts';
 import { esc } from './util';
 
 type Labels = Record<string, string>;
 interface O { side: Side; L: Labels; hues: Hues; gaps: boolean }
+/** Needs the address-exact renderer: a power, a map frame (Book phase C) or a sorted identity (e_K), anywhere. */
 export const hasPow = (t: Term): boolean =>
-  t.k === 'pow' || (t.k === 'inv' && hasPow(t.arg)) || (t.k === 'mul' && t.fs.some(hasPow));
+  t.k === 'pow' || t.k === 'app' || (t.k === 'e' && !!eTag(t)) || (t.k === 'inv' && hasPow(t.arg)) || (t.k === 'mul' && t.fs.some(hasPow));
 const wordOf = (t: Term): Term[] => (t.k === 'mul' ? t.fs : [t]);
 const key = (p: number[]) => p.join('.');
 
@@ -26,6 +28,47 @@ const expHTML = (exp: Parameters<typeof K.exponentText>[0], L: Labels) =>
 
 /** One factor at address fpath (its word is at wpath, index i). */
 function factorEl(f: Term, fpath: number[], o: O): HTMLElement {
+  // Book phase C: e with its group (e_K) once two groups are in play
+  if (f.k === 'e' && eTag(f)) {
+    const n = document.createElement('span');
+    n.className = 'bn-f bn-e';
+    n.dataset.leaf = 'e';
+    n.innerHTML = `<span class="bn-disc"><i>e</i><sub class="bn-sub">${esc(eTag(f)!)}</sub></span>`;
+    return n;
+  }
+  // Book phase C: a map frame f(…) — the name, then a frame around the argument(s); argument i is child i
+  if (f.k === 'app') {
+    const n = document.createElement('span');
+    n.className = 'bn-f h3-app';
+    const st = styleOfTerm(f);
+    if (st) n.style.setProperty('--app-ground', st.fill);
+    n.dataset.leaf = `f:${JSON.stringify(f)}`;
+    const act = isActionApp(f);
+    const fn = document.createElement(act ? 'span' : 'i');
+    fn.className = 'h3-app-fn math';
+    if (act) {
+      // an action applied reads g(p): the group element (its own beads, child 0) names the frame around the point
+      const g = f.args[0]!;
+      fn.classList.add('h3-app-g');
+      const gw = document.createElement('span');
+      gw.className = 'bn-word';
+      wordInto(gw, g, [...fpath, 0], o);
+      if (g.k === 'mul') fn.append('(', gw, ')'); else fn.append(gw);
+    } else fn.innerHTML = labelHTML(o.L[f.fn] ?? f.fn.replace(/^\$\d+:/, ''));
+    const frame = document.createElement('span');
+    frame.className = 'h3-app-frame';
+    f.args.forEach((a, i) => {
+      if (act && i === 0) return;
+      if (i && !act) frame.append(Object.assign(document.createElement('span'), { className: 'h3-app-comma math', textContent: ',' }));
+      const w = document.createElement('span');
+      w.className = 'bn-word';
+      wordInto(w, a, [...fpath, i], o);
+      frame.append(w);
+    });
+    n.title = `${o.L[f.fn] ?? f.fn} applied`;
+    n.append(fn, frame);
+    return n;
+  }
   if (f.k === 'pow') {
     const n = document.createElement('span');
     n.className = 'bn-f h3-pow';

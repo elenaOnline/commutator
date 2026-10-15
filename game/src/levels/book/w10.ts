@@ -1,14 +1,14 @@
 // THE BOOK · World 10 — Equivalence Relations (Pinter 12). See design/pinter/SYNTHESIS.md §3 and design/pinter/AUTHOR-BRIEF.md.
 //
-// Phase-A levels only: P12.2 (witness docks) and P12.s1 (exponent holes). P12.1 Same Coset needs Members (a Subgroup Tower) and is
-// left as a placeholder in LEVELS, in campaign order.
+// P12.2 (witness docks) and P12.s1 (exponent holes) are phase A. P12.1 Same Coset is the Members level of this world (KERNEL-EXT §4):
+// its three docks are cards `∀H ≤ G …` (no level subgroup), proved with a Subgroup Tower H₁ and saved "for every subgroup".
 //
 // Notation: P12.2 is words (no exponents; the power imports are still in its toolset, as the book has handed them out). P12.s1 uses pow nodes with ℤ exponents: c^n is a pow node, n a ℤ Tower.
 // Holes: P12.2 has element holes (`∃g. a = g p g⁻¹`); P12.s1 has ℤ holes (`c^?`), both open docks (SocketDecl.holes).
 // Multi-desk rooms: P12.s1 trans is a two-desk Assume room. The saved lemmas it relies on are the player's own: double inverse (P4.4)
 // and negative power (P10.1).
 // Toolset: lift, merge, suppose, the earned cancel / witness / socks; P12.s1 also lists the power imports handed out by P10.4.
-import type { HoleDecl, LevelManifest, Monomial, Pallet, PatFact, Poly, Term, Toolset } from '../../kernel/types';
+import type { Card, HoleDecl, LevelManifest, Monomial, Pallet, PatFact, Poly, StructBinder, SubRef, Term, Toolset } from '../../kernel/types';
 import type { AtomSpec, ConceptCard } from '../cards';
 
 const A = (id: string): Term => ({ k: 'atom', id });
@@ -33,6 +33,20 @@ const WITNESS: HoleDecl = { id: 'g' };
 /** The exponent hole of a `c^?` dock. */
 const EXPONENT: HoleDecl = { id: 'k', sort: 'Z' };
 
+/** P12.1: the subgroup parameter H of a dock (a card `∀H ≤ G …`), and memberships in it. */
+const HB: StructBinder[] = [{ k: 'sub', id: 'H', normal: false }];
+const HM: SubRef = { k: 'submeta', id: 'H' };
+const pmem = (t: Term): PatFact => ({ k: 'mem', t, sub: HM });
+const diff = (v: Term, w: Term): Term => P(v, I(w));
+const SAME_COSET: Record<'s1' | 's2' | 's3', Card> = {
+  // reflexive: ∀H ∀x. xx⁻¹ ∈ H
+  s1: { k: 'cond', metas: ['x'], binds: HB, premises: [], concl: pmem(diff(x, x)) },
+  // symmetric: ∀H ∀x,y. xy⁻¹ ∈ H ⟹ yx⁻¹ ∈ H
+  s2: { k: 'cond', metas: ['x', 'y'], binds: HB, premises: [pmem(diff(x, y))], concl: pmem(diff(y, x)) },
+  // transitive: ∀H ∀x,y,z. xy⁻¹ ∈ H, yz⁻¹ ∈ H ⟹ xz⁻¹ ∈ H
+  s3: { k: 'cond', metas: ['x', 'y', 'z'], binds: HB, premises: [pmem(diff(x, y)), pmem(diff(y, z))], concl: pmem(diff(x, z)) },
+};
+
 const none: Toolset = { lift: false, merge: false, suppose: false, classical: false, press: false, schemas: [], conjecture: false };
 const tools = (t: Partial<Toolset>): Toolset => ({ ...none, ...t });
 const EARNED = ['cancel', 'witness', 'socks'];
@@ -40,7 +54,25 @@ const EARNED = ['cancel', 'witness', 'socks'];
 const POW = ['power.add', 'power.zero', 'power.conjugate', 'power.multiply', 'power.one', 'power.identity'];
 
 export const LEVELS: LevelManifest[] = [
-  // P12.1 Same Coset — needs Members (Subgroup Tower, closure recipes). Not authored here.
+  {
+    // No level subgroup: each dock is a card `∀H ≤ G …`, so the proofs run on a Subgroup Tower H₁ and Towers x₁, y₁, z₁, and all three are SAVED.
+    // refl: Theorem a subgroup contains e (H₁) → insert x₁x₁⁻¹ at the gap of e: x₁x₁⁻¹ ∈ H₁ → ∀.
+    // symm: Assume x₁y₁⁻¹ ∈ H₁ · closed under inverses → inverse of a product → double inverse (saved P4.4): y₁x₁⁻¹ ∈ H₁ → gate → ∀.
+    // trans: Assume x₁y₁⁻¹ ∈ H₁ and y₁z₁⁻¹ ∈ H₁ (two desks) · closed under products → cancel y₁⁻¹y₁: x₁z₁⁻¹ ∈ H₁ → gate → ∀.
+    id: 'P12.1', index: 50, campaign: 'book', world: 10, chapter: 12, title: 'Same Coset',
+    method: 'Equivalence relation', source: 'Pinter 12.D1',
+    insight: 'The three properties use the three facts about a subgroup: it contains e, it is closed under inverses, and it is closed under products.',
+    memo: 'x and y are related when xy⁻¹ is in H. Prove the three properties.',
+    atoms: [], givens: [],
+    sockets: [
+      { id: 's1', target: SAME_COSET.s1, allowedGivens: [] },
+      { id: 's2', target: SAME_COSET.s2, allowedGivens: [] },
+      { id: 's3', target: SAME_COSET.s3, allowedGivens: [] },
+    ],
+    tools: tools({ lift: true, merge: true, suppose: true, schemas: [...EARNED, ...POW, 'sub.e', 'sub.pow'] }), unlocks: [],
+    idea: 'Each property of the relation uses one fact about H.',
+    par: { parts: 15, axioms: 24 }, uses: ['P5.1', 'P4.4', 'P4.5'],
+  },
   {
     // Relation: a ~ b means a = g b g⁻¹ for some g. Words. Docks are witness docks (element holes), no multi-desk room needed.
     // refl: Spool aaa⁻¹, cancel on the left rail: a = aaa⁻¹ (g = a).
@@ -105,6 +137,21 @@ void y; void z; void AT;
 
 /** Concept cards for this world's levels, keyed by level id. */
 export const CARDS: Record<string, ConceptCard[]> = {
+
+  'P12.1': [
+    {
+      title: 'Equivalence relations',
+      body: 'A relation is an **equivalence relation** when it is reflexive (everything is related to itself), symmetric (if $u$ is related to $v$, then $v$ is related to $u$) and transitive (if $u$ is related to $v$ and $v$ is related to $w$, then $u$ is related to $w$). Each dock checks one of the three properties.',
+    },
+    {
+      title: 'Related by a subgroup',
+      body: 'Let $H$ be a subgroup of $G$. Call $u$ and $v$ related when $uv^{-1} \\in H$. The set of all elements related to $v$ is the **coset** $Hv$, the set of all products $hv$ with $h \\in H$. Cosets are the classes of this relation. The next chapter counts them.',
+    },
+    {
+      title: 'A Subgroup Tower',
+      body: 'To prove a statement for every subgroup, place a Subgroup Tower. It declares one subgroup $H_1$ of $G$ about which you know only the definition, and it broadcasts it like an element Tower. A ∀ machine binds it, so a saved lemma reads “for every subgroup $H$”. When you use that lemma, the lens asks which subgroup plays $H$.',
+    },
+  ],
 
   'P12.2': [
     {

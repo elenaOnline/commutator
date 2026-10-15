@@ -36,6 +36,6 @@ describe('P10.3 Odd Order', () => {
     const al = f.add({ kind: 'forall' }, { x: 54, y: 20 });
     f.wire(sp, r1); f.wire(r1, r2); f.wire(r2, r3); f.wire(desk, r3, 'rule'); f.wire(r3, r4); f.wire(r4, gate); f.wire(gate, al); f.wire(al, f.socket());
     const { comp } = deliver(f);
-    expect(K.factText(comp.sockets.s!.instance!, {})).toBe('∀x, m. x^(2m+1) = e ⇒ x = (x^2)^(m+1)');
+    expect(K.factText(comp.sockets.s!.instance!, {})).toBe('∀x, m. x^(2m+1) = e ⟹ x = (x^2)^(m+1)');
   });
 });

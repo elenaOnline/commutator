@@ -165,6 +165,6 @@ describe('library mirrors', () => {
     expect(hasDistinctMirror(sym.card)).toBe(false);
     expect(refs).toContainEqual({ k: 'schema', id: 'sq' });
     expect(refs).not.toContainEqual({ k: 'schema', id: 'sq', mirror: true });   // x x = e is its own mirror
-    expect(refs).toContainEqual({ k: 'schema', id: 'witness', mirror: true });  // uv = e ⇒ … differs from vu = e ⇒ …
+    expect(refs).toContainEqual({ k: 'schema', id: 'witness', mirror: true });  // uv = e ⟹ … differs from vu = e ⟹ …
   });
 });

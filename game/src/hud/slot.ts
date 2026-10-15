@@ -4,6 +4,7 @@
 // An empty slot has a dashed outline in the family accent and a grey placeholder letter; text that does not
 // read shows in red with "That doesn't read as a term." Parsing lives in slotparse.ts (shared with the tests).
 import { eulerBlobHTML } from '../ui/euler';
+import { parseExtra } from './slotparse';
 import * as K from '../kernel';
 import type { AtomDecl, Term } from '../kernel/types';
 import { beads } from './beads';
@@ -100,6 +101,12 @@ export function termSlot(o: TermSlotOpts): HTMLElement {
     const isVar = (t.k === 'atom' && o.vars.has(t.id)) || (t.k === 'inv' && t.arg.k === 'atom' && o.vars.has(t.arg.id));
     chip(`append ${textOf(t, o.L)}`, markVarBeads(beads(t, o.L, o.H), o.vars), isVar ? 'h3-var' : '', () => { input.value = slotAppend(input.value, textOf(t, o.L)); });
   }
+  // Book phase C: a map's chip opens its frame f( … ); identities of the other groups (e_K)
+  const maps = parseExtra.cur?.maps ?? [];
+  for (const m of maps) chip(`apply ${m.label}: type its argument inside`, h('span', { class: 'math h3-fnchip', html: `<i>${esc(m.label)}</i>(&thinsp;)` }), 'txt', () => { input.value = `${input.value}${m.label}(`; });
+  if (maps.length) chip('close the bracket', h('span', { class: 'math' }, ')'), 'txt', () => { input.value = `${input.value})`; });
+  const groups = (parseExtra.cur?.sorts ?? []).filter((x) => x.kind === 'group');
+  if (groups.length > 1) for (const g of groups) chip(`append e of ${g.label}`, h('span', { class: 'math', html: `<i>e</i><sub>${esc(g.label)}</sub>` }), 'txt', () => { input.value = slotAppend(input.value, `e_${g.label}`); });
   chip('delete last', '⌫', 'txt', () => { input.value = slotBackspace(input.value); });
   for (const q of o.quick ?? []) chip(`copy the incoming ${q.label} (syntax only)`, `= ${q.label}`, 'txt', () => { input.value = textOf(q.term, o.L); });
   if (o.onPort) {
@@ -155,6 +162,13 @@ export function slotChips(target: () => BareSlot, terms: Term[], L: Labels, H: H
     chips.append(b);
   };
   for (const t of terms) chip(`append ${textOf(t, L)}`, markVarBeads(beads(t, L, H), vars), '', (sl) => sl.set(slotAppend(sl.input.value, textOf(t, L))));
+  // Book phase C: a map's chip opens its frame, f( … ) — type the argument, then ")" (or the ) chip) closes it
+  const maps = parseExtra.cur?.maps ?? [];
+  for (const m of maps) chip(`apply ${m.label}: type its argument inside`, h('span', { class: 'math h3-fnchip', html: `<i>${esc(m.label)}</i>(&thinsp;)` }), 'txt', (sl) => sl.set(`${sl.input.value}${m.label}(`));
+  if (maps.length) chip('close the bracket', h('span', { class: 'math' }, ')'), 'txt', (sl) => sl.set(`${sl.input.value})`));
+  // identities of the other groups (e_K)
+  const groups = (parseExtra.cur?.sorts ?? []).filter((x) => x.kind === 'group');
+  if (groups.length > 1) for (const g of groups) chip(`append e of ${g.label}`, h('span', { class: 'math', html: `<i>e</i><sub>${esc(g.label)}</sub>` }), 'txt', (sl) => sl.set(slotAppend(sl.input.value, `e_${g.label}`)));
   chip('delete last', '⌫', 'txt', (sl) => sl.set(slotBackspace(sl.input.value)));
   return chips;
 }
@@ -209,7 +223,8 @@ export function nameSlot(o: NameSlotOpts): { slot: HTMLElement; chips: HTMLEleme
     chips.append(b);
   };
   for (const l of letters) chip(`name it ${l}`, h('i', { class: 'math' }, l), 'txt h3-letter', () => { input.value = withLetter(input.value, l); });
-  for (const d of [1, 2]) chip(`add subscript ${'₀₁₂'[d]}`, `□${'₀₁₂'[d]}`, 'txt', () => { input.value = withSubscript(input.value, d, letters[0]!); });
+  // subscripts read as the names they make (x₁, x₂), never as empty boxes (#19)
+  for (const d of [1, 2]) chip(`name it with subscript ${'₀₁₂'[d]}`, h('span', { class: 'math', html: `<i>${esc((input.value.replace(/[₀-₉]+$/, '') || letters[0]!))}</i><sub>${d}</sub>` }), 'txt', () => { input.value = withSubscript(input.value, d, letters[0]!); });
   // ⌫ edits the slot; the name commits on Enter / blur (an empty name is never committed)
   chip('delete last', '⌫', 'txt', () => { input.value = [...input.value].slice(0, -1).join(''); input.focus(); }, true);
   draw();

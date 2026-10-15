@@ -13,7 +13,7 @@ import { CARDS as C1 } from '../../src/levels/book/w01';
 import { CARDS as C2 } from '../../src/levels/book/w02';
 import { CARDS as C3 } from '../../src/levels/book/w03';
 import { type AtomSpec, type ConceptCard, type Figure, type MathCell } from '../../src/levels/cards';
-import { RELS, displayTerm, parseDisplay, parseDisplayFig, type DFactor } from '../../src/hud/figures/parse';
+import { RELS, displayTerm, parseDisplay, parseDisplayFig, parseSubgroup, type DFactor } from '../../src/hud/figures/parse';
 
 const CARDS: Record<string, ConceptCard[]> = { ...C1, ...C2, ...C3 };
 const LEVEL_BY_ID: Record<string, (typeof LEVELS)[number]> = Object.fromEntries(LEVELS.map((l) => [l.id, l]));
@@ -235,8 +235,9 @@ describe('Book worlds 1–3 · concept cards', () => {
           switch (f.k) {
             case 'math': {
               const atoms = atomsOf(id, f.atoms);
-              for (const r of f.rows) for (const x of r.seq) {
+              for (const r of f.rows) for (const [xi, x] of r.seq.entries()) {
                 if (typeof x === 'string' && (RELS.includes(x) || x === '⊥')) continue;
+                if (r.seq[xi - 1] === '∈' && parseSubgroup(cellText(x))) continue; // a subgroup, drawn as its Euler set
                 const fs = parseDisplay(cellText(x), atoms);
                 expect(fs, `${where}: ${cellText(x)}`).not.toBeNull();
                 if (typeof x !== 'string') for (const [from, to] of x.br) { expect(from, where).toBeGreaterThanOrEqual(0); expect(to, where).toBeGreaterThan(from); expect(to, `${where}: brace ${from}–${to} over ${x.t}`).toBeLessThanOrEqual(fs!.length); }
@@ -265,6 +266,27 @@ describe('Book worlds 1–3 · concept cards', () => {
     }
   });
 });
+describe('Book worlds 1–3 · letter shapes', () => {
+  it('a letter keeps one hue across every card, and matches the level’s own constant on the floor', () => {
+    const seen = new Map<string, number>();
+    for (const [id, cs] of Object.entries(CARDS)) for (const c of cs) for (const f of figuresOf(c)) {
+      if (f.k !== 'math' && f.k !== 'scene') continue;
+      for (const a of f.atoms ?? []) {
+        expect(seen.get(a.id) ?? a.hue, `${id} · ${c.title}: ${a.id}`).toBe(a.hue);
+        seen.set(a.id, a.hue);
+        const own = LEVEL_BY_ID[id]!.atoms.find((x) => x.id === a.id);
+        if (own) expect(a.hue, `${id}: ${a.id} on the floor`).toBe(own.hue);
+      }
+    }
+  });
+  it('no stray “;” from \\; spacing in card maths, and no named trick in a card title', () => {
+    for (const [id, cs] of Object.entries(CARDS)) for (const c of cs) {
+      expect(allText(c), `${id} · ${c.title}`).not.toMatch(/\.\\?;\s|\\;/);
+      expect(c.title, id).not.toMatch(/cut|rotat|seam/i);
+    }
+  });
+});
+
 describe('Book worlds 1–3 · level copy', () => {
   it('memos are at most two short sentences; ideas are one line', () => {
     for (const lv of LEVELS) {

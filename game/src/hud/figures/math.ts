@@ -3,8 +3,8 @@
 import type { MathRow } from '../../levels/cards';
 import { h } from '../util';
 import { mdInline } from './tex';
-import { RELS, parseDisplay } from './parse';
-import { wordEl, type Letters } from './terms';
+import { RELS, parseDisplay, parseSubgroup } from './parse';
+import { subgroupEl, wordEl, type Letters } from './terms';
 
 export function mathFigure(rows: MathRow[], lt: Letters, caption?: string, bd = 24): HTMLElement {
   const labelled = rows.some((r) => r.label);
@@ -12,9 +12,13 @@ export function mathFigure(rows: MathRow[], lt: Letters, caption?: string, bd = 
   for (const r of rows) {
     let over = false, under = false;
     const line = h('span', { class: `cc-line${r.strike ? ' struck' : ''}`, style: `--bd:${bd}px` });
-    for (const x of r.seq) {
+    for (const [xi, x] of r.seq.entries()) {
       if (typeof x === 'string' && (RELS.includes(x) || x === '⊥')) { line.append(h('span', { class: `cc-rel math${x === ',' ? ' comma' : ''}` }, x)); continue; }
       const src = typeof x === 'string' ? x : x.t;
+      // after ∈ comes a subgroup: drawn as its Euler set (H, or ⊴N for a normal subgroup)
+      const prev = r.seq[xi - 1];
+      const sub = prev === '∈' ? parseSubgroup(src) : null;
+      if (sub) { line.append(subgroupEl(sub, bd)); continue; }
       const fs = parseDisplay(src, lt.atoms);
       if (!fs) { line.append(h('span', { class: 'cc-fallback math' }, src)); continue; }
       const braces = (typeof x === 'string' ? [] : x.br).map(([from, to, label, side = 'under']) => {

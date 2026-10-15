@@ -147,10 +147,10 @@ describe('actions (adversary B3): laws without dependencies, not mirrorable', ()
     const p = new Player(ctx);
     const s = p.start(app('ev', P(A('a'), A('b')), A('p')));
     const m = p.step(s, { k: 'rewrite', rule: { k: 'schema', id: 'act.mul' }, dir: 'fwd', at: span('r', 0, 1), subst: { g: A('a'), h: A('b'), p: A('p') }, structs: { σ: 'ev' } });
-    expect(p.text(m)).toBe('ev(αβ, p) = ev(α, ev(β, p))');
+    expect(p.text(m)).toBe('(αβ)(p) = α(β(p))'); // Pinter's notation: the element applied to the point
     const r1 = p.step(m, { k: 'rewrite', rule: { k: 'node', id: 'g:hb' }, dir: 'fwd', at: { side: 'r', path: [1] }, subst: {} });
     const r2 = p.step(r1, { k: 'rewrite', rule: { k: 'node', id: 'g:ha' }, dir: 'fwd', at: span('r', 0, 1), subst: {} });
-    expect(p.text(r2)).toBe('ev(αβ, p) = p');
+    expect(p.text(r2)).toBe('(αβ)(p) = p');
     expect(p.res.sockets[0]!.ok, p.res.sockets[0]!.error).toBe(true);
     expect(K.MAP_SCHEMAS['act.mul']!.mirrorable).toBe(false);
     oracleOk(p);
@@ -162,7 +162,7 @@ describe('W5 functions on sets: P6.1 injective ∘ injective, P6.3 witness dock 
   const sets = [{ id: 'A', kind: 'set' as const, label: 'A' }, { id: 'B', kind: 'set' as const, label: 'B' }, { id: 'C', kind: 'set' as const, label: 'C' }];
   const maps = [{ id: 'f', label: 'f', args: ['A'], res: 'B' }, { id: 'g', label: 'g', args: ['B'], res: 'C' }];
   const x = M('x'), y = M('y');
-  it('P6.1: ∀x,y ∈ A. g(f(x)) = g(f(y)) ⇒ x = y from two injectivity givens', () => {
+  it('P6.1: ∀x,y ∈ A. g(f(x)) = g(f(y)) ⟹ x = y from two injectivity givens', () => {
     const injF: Card = { k: 'cond', metas: ['x', 'y'], metaSorts: { x: 'A', y: 'A' }, premises: [{ k: 'eq', l: app('f', x), r: app('f', y) }], concl: { k: 'eq', l: x, r: y } };
     const injG: Card = { k: 'cond', metas: ['u', 'v'], metaSorts: { u: 'B', v: 'B' }, premises: [{ k: 'eq', l: app('g', M('u')), r: app('g', M('v')) }], concl: { k: 'eq', l: M('u'), r: M('v') } };
     const target: Card = { k: 'cond', metas: ['x', 'y'], metaSorts: { x: 'A', y: 'A' }, premises: [{ k: 'eq', l: app('g', app('f', x)), r: app('g', app('f', y)) }], concl: { k: 'eq', l: x, r: y } };
@@ -175,7 +175,7 @@ describe('W5 functions on sets: P6.1 injective ∘ injective, P6.3 witness dock 
     const fx = p.apply({ k: 'node', id: 'g:ig' }, [desks[0]!], { u: app('f', X), v: app('f', Y) });
     const xy = p.apply({ k: 'node', id: 'g:if' }, [fx], { x: X, y: Y });
     const g = p.generalize(p.exit(room, xy));
-    expect(p.text(g)).toBe('∀x, y. g(f(x)) = g(f(y)) ⇒ x = y');
+    expect(p.text(g)).toBe('∀x, y. g(f(x)) = g(f(y)) ⟹ x = y');
     expect((p.fact(g) as Card).metaSorts).toEqual({ x: 'A', y: 'A' });
     expect(p.res.sockets[0]!.ok, p.res.sockets[0]!.error).toBe(true);
     // a value of the wrong set is refused
@@ -214,5 +214,14 @@ describe('mirrors with maps (pin 3)', () => {
       maps: [{ id: 'g', label: 'g', args: ['G'], res: 'H' }, { id: 'f', label: 'f', args: ['G'], res: 'H', kind: 'hom' }] }, [plain, homc]);
     expect(() => K.schemaCardOf('lemma:p', true, ctx)).toThrow(/not a homomorphism/);
     expect(() => K.schemaCardOf('lemma:h', true, ctx)).not.toThrow();
+  });
+});
+
+describe('printing (authors 2026-10-15)', () => {
+  it('the action laws read without σ; the dock prints ⟹', () => {
+    expect(K.factText(K.MAP_SCHEMAS['act.mul']!.card, {})).toBe('∀S a group. ∀Ω a set. ∀σ : S × Ω → Ω. ∀g, h, p. (gh)(p) = g(h(p))');
+    expect(K.factText(K.MAP_SCHEMAS['act.e']!.card, {})).toBe('∀S a group. ∀Ω a set. ∀σ : S × Ω → Ω. ∀p. e_S(p) = p');
+    const sd: K.SocketDecl = { id: 's', target: { k: 'cond', metas: ['x'], premises: [{ k: 'eq', l: P(M('x'), M('x')), r: K.E }], concl: { k: 'eq', l: M('x'), r: M('w') } }, allowedGivens: [], holes: [{ id: 'w' }] };
+    expect(K.dockText(sd, {})).toBe('∀x. xx = e ⟹ x = ?');
   });
 });

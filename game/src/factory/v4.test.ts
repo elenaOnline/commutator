@@ -79,7 +79,7 @@ describe('Towers and ∀ (Toolsmith)', () => {
   });
 });
 
-/** Assume room: assume (x₁y₁)⁵ = e; prove (y₁x₁)⁵ = e inside; gate exports ⇒; ∀ binds x, y. */
+/** Assume room: assume (x₁y₁)⁵ = e; prove (y₁x₁)⁵ = e inside; gate exports ⟹; ∀ binds x, y. */
 function conjugate(levelId = 'TCJ') {
   const target: K.Card = { k: 'cond', metas: ['x', 'y'], premises: [{ k: 'eq', l: pow5(P(x, y)), r: E }], concl: { k: 'eq', l: pow5(P(y, x)), r: E } };
   const lv = cardOrder(levelId, target);
@@ -98,7 +98,7 @@ function conjugate(levelId = 'TCJ') {
 }
 
 describe('Assume rooms', () => {
-  it('exports ∀x,y. (xy)⁵ = e ⇒ (yx)⁵ = e through the gate and ∀', () => {
+  it('exports ∀x,y. (xy)⁵ = e ⟹ (yx)⁵ = e through the gate and ∀', () => {
     const { f, gate, all, can, target, room } = conjugate();
     const comp = f.compile();
     expect(comp.scopeOf[can]).toBe(room);

@@ -113,6 +113,8 @@
 .h3-roommsg { font-size: 12.5px; min-height: 20px; color: var(--navy); }
 .h3-roommsg .math { font-size: 16px; }
 .h3-roomfoot { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+.h3-roomdel { color: var(--contradiction-text); }
+.h3-roomdel:hover { background: color-mix(in srgb, var(--contradiction-text) 10%, transparent); }
 .h3-presets { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .h3-preset { border: 1.5px solid var(--scope); background: #F7F4FD; color: var(--scope); border-radius: 999px; padding: 3px 11px; font-size: 12.5px; cursor: pointer; white-space: nowrap; }
 .h3-preset .math { font-size: 15px; color: var(--navy); }
@@ -713,3 +715,18 @@ button.h3-rel { border: 0; background: none; color: var(--navy); }
 .h3-plays-k { font-size: 16px; min-width: 3.2em; }
 .h3-plays-w { font-family: var(--font-ui); font-size: 12.5px; color: var(--text-dim); }
 .h3-glyph.fam-subg { background: #EEF3F1; color: #325D4E; box-shadow: inset 0 0 0 1.5px #325D4E; font-style: normal; }
+
+/* Book phase C: a map term is a frame — the map's name, then its argument(s) inside, like the inverse crate */
+.h3-app { display: inline-flex; align-items: center; gap: 2px; }
+.h3-app-fn { font-size: 1.05em; color: var(--navy); padding-right: 1px; }
+.h3-app-frame { display: inline-flex; align-items: center; gap: 2px; padding: 2px 4px; border-radius: 6px; box-shadow: inset 0 0 0 1.4px var(--navy); background: var(--app-ground, #fff); }
+.h3-app-comma { margin: 0 1px; }
+.bn-e .bn-sub { font-size: .62em; vertical-align: -.3em; font-style: italic; }
+.m-esort { font-style: italic; font-size: .7em; }
+
+/* #21: the ∀ / gate lens stacks input over output with a plain divider, so a card's own ⟹ is never confused with the machine's step */
+.h3-genline.h3-genstack { flex-direction: column; flex-wrap: nowrap; gap: 6px; padding: 12px 0 10px; }
+.h3-becomes { display: flex; align-items: center; gap: 8px; width: 100%; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-dim); }
+.h3-becomes::before, .h3-becomes::after { content: ''; flex: 1; border-top: 1px solid var(--hair); }
+.h3-mapchip { border: 0; background: #fff; border-radius: 999px; padding: 2px 10px; box-shadow: inset 0 0 0 1px #BFC3CF; cursor: pointer; font-size: 15px; color: var(--navy); }
+.h3-mapchip.on { box-shadow: inset 0 0 0 2px var(--navy); background: #F3F4F8; }

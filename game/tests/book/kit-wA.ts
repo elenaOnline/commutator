@@ -9,9 +9,14 @@ import { LEVELS as W11 } from '../../src/levels/book/w11';
 import { LEVELS as W13 } from '../../src/levels/book/w13';
 import { LEVELS as W14 } from '../../src/levels/book/w14';
 
+import { MEMBERS_IDS } from './members-ids';
+import { MAPS_IDS } from './maps-ids';
+import { WZ_IDS } from './wZ-ids';
+
 export * from './kit-w123';
 
-export const BOOK_A: LevelManifest[] = [...W04, ...W06, ...W07, ...W10, ...W11, ...W13, ...W14];
+/** The phase-A levels of those worlds (the Members levels P5.1, P5.4, P12.1, P13.1 are in kit-members; the Maps levels are in kit-wC). */
+export const BOOK_A: LevelManifest[] = [...W04, ...W06, ...W07, ...W10, ...W11, ...W13, ...W14].filter((l) => !MEMBERS_IDS.includes(l.id) && !MAPS_IDS.includes(l.id) && !WZ_IDS.includes(l.id));
 export const lvA = (id: string): LevelManifest => {
   const l = BOOK_A.find((x) => x.id === id);
   if (!l) throw new Error(`no phase-A Book level ${id}`);

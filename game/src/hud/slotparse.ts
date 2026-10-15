@@ -20,12 +20,14 @@ export function normaliseSlot(src: string): string {
   return src.replace(/_(\d+)/g, (_m, d: string) => subOf(d)).replace(/\^-1(?!\d)/g, '⁻¹');
 }
 
+/** Book phase C: the maps and sorts in scope (level declarations + group and Hom Towers), so slots read f(x) and e_H. */
+export const parseExtra: { cur: K.ParseExtra | undefined } = { cur: undefined };
 /** Read a slot's text against the atoms in scope (level atoms + Tower variables). */
 export function readSlot(src: string, atoms: AtomDecl[]): SlotRead {
   const text = normaliseSlot(src).trim();
   if (!text) return { k: 'empty' };
   let r: { ok: true; term: Term } | { ok: false; error: string };
-  try { r = K.parseTerm(text, atoms); } catch (e) { r = { ok: false, error: e instanceof Error ? e.message : String(e) }; }
+  try { r = K.parseTerm(text, atoms, parseExtra.cur); } catch (e) { r = { ok: false, error: e instanceof Error ? e.message : String(e) }; }
   return r.ok ? { k: 'ok', term: r.term } : { k: 'bad', text, error: r.error };
 }
 

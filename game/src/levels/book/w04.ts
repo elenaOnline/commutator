@@ -1,11 +1,12 @@
 // THE BOOK · World 4 — Subgroups (Pinter 5). See design/pinter/SYNTHESIS.md §3 and design/pinter/AUTHOR-BRIEF.md.
 //
-// Phase-A levels only (equational, no new kernel objects): P5.2, P5.3, P5.5, P5.s1, P5.s2. P5.1 and P5.4 need Members and
-// are left as placeholders in LEVELS (in campaign order) for the Members author.
+// P5.2, P5.3, P5.5, P5.s1 and P5.s2 are equational (phase A). P5.1 and P5.4 are the Members levels (phase B, KERNEL-EXT §4): a level
+// subgroup H, membership facts `t ∈ H`, and the subgroup axioms `sub.mul` / `sub.inv` (always available where a subgroup is in scope).
+// P5.1 EARNS `sub.e` (`unlocks: ['sub.e']`); it is not in P5.1's own toolset. P5.4 lists it, as every later subgroup level does.
 //
 // Notation: words (a⁴ = aaaa) — no integer exponents before ch. 10.
 // Toolset: everything introduced up to P4.12 (lift, merge, suppose) and the earned cancel / witness / socks. No power laws, no press.
-import type { LevelManifest, Pallet, Term, Toolset } from '../../kernel/types';
+import type { LevelManifest, Pallet, PatFact, SubRef, Term, Toolset } from '../../kernel/types';
 import type { AtomSpec, ConceptCard } from '../cards';
 
 const A = (id: string): Term => ({ k: 'atom', id });
@@ -18,18 +19,36 @@ const P = (...fs: Term[]): Term => {
 };
 const rep = (t: Term, n: number): Term => P(...Array.from({ length: n }, () => t));
 const eq = (l: Term, r: Term): Pallet => ({ k: 'eq', l, r });
-const a = A('a'), b = A('b');
-const x = M('x'), y = M('y');
+const a = A('a'), b = A('b'), c = A('c'), d = A('d');
+const x = M('x'), y = M('y'), u = M('u');
+/** The level's subgroup H, and memberships in it (a Pallet on belts and in givens, a PatFact inside a card). */
+const H: SubRef = { k: 'sub', id: 'H' };
+const mem = (t: Term): Pallet => ({ k: 'mem', t, sub: H });
+const pmem = (t: Term): PatFact => ({ k: 'mem', t, sub: H });
 
 const none: Toolset = { lift: false, merge: false, suppose: false, classical: false, press: false, schemas: [], conjecture: false };
 const tools = (t: Partial<Toolset>): Toolset => ({ ...none, ...t });
 /** Everything the Book has handed out by P4.5 (earned theorems; the player's saved lemmas are not listed). */
 const EARNED = ['cancel', 'witness', 'socks'];
 const atomsA = [{ id: 'a', label: 'a', hue: 0 }];
+const SUBGROUP_H = [{ id: 'H', label: 'H' }];
 const atomsAB = [...atomsA, { id: 'b', label: 'b', hue: 1 }];
 
 export const LEVELS: LevelManifest[] = [
-  // P5.1 A Subgroup Contains e — needs Members (`a ∈ H`, closure recipes). Not authored here.
+  {
+    // Subgroup H with only its two closure axioms. Theorem: closed under inverses (a ∈ H ⟹ a⁻¹ ∈ H) · Theorem: closed under products
+    // (a ∈ H and a⁻¹ ∈ H ⟹ aa⁻¹ ∈ H) · cancel inside the membership (aa⁻¹ ⟶ e). Earns sub.e.
+    id: 'P5.1', index: 21, campaign: 'book', world: 4, chapter: 5, title: 'A Subgroup Contains e',
+    method: 'Subgroup test', source: 'Pinter 5 (the definition of a subgroup)',
+    insight: 'A member and its inverse multiply to e, and closure under products puts that product in H.',
+    memo: 'H is a subgroup that contains a. Show H contains e.',
+    atoms: atomsA, subgroups: SUBGROUP_H,
+    givens: [{ id: 'g', name: 'a ∈ H', fact: mem(a) }],
+    sockets: [{ id: 's', target: mem(e), allowedGivens: ['g'] }],
+    tools: tools({ lift: true, merge: true, suppose: true, schemas: EARNED }), unlocks: ['sub.e'],
+    idea: 'Why every subgroup contains the identity.',
+    par: { parts: 3, axioms: 3 }, uses: ['P4.13'],
+  },
   {
     // Three docks = the subgroup test for the centre. s1: Spool x₁ → insert e on each side. s2: Spool abx₁ → Hb, Ha.
     // s3: Spool ax₁ → Ha on the right rail → × a⁻¹ on the left, cancel → × a⁻¹ on the right, cancel → swap.
@@ -67,7 +86,26 @@ export const LEVELS: LevelManifest[] = [
     idea: 'A law for every x can be used at any term.',
     par: { parts: 9, axioms: 11 }, uses: ['P4.8'],
   },
-  // P5.4 Conjugating by a Product — needs Members (membership desk). Not authored here.
+  {
+    // Tower u₁ · Assume desk u₁ ∈ H · Theorem Kd (u₁ ∈ H ⟹ du₁d⁻¹ ∈ H) · Theorem Kc (at du₁d⁻¹) · inverse of a product backwards on d⁻¹c⁻¹ →
+    // cdu₁(cd)⁻¹ ∈ H · gate · ∀.
+    id: 'P5.4', index: 24, campaign: 'book', world: 4, chapter: 5, title: 'Conjugating by a Product',
+    method: 'Subgroup test', source: 'Pinter 5.D7',
+    insight: 'Conjugate by d first, then by c. The two conjugations together are one conjugation by cd.',
+    memo: 'c and d each conjugate H into itself. Show cd does too.',
+    atoms: [{ id: 'c', label: 'c', hue: 0 }, { id: 'd', label: 'd', hue: 1 }], subgroups: SUBGROUP_H,
+    givens: [
+      { id: 'Kc', name: 'K_c', fact: { k: 'cond', metas: ['u'], premises: [pmem(u)], concl: pmem(P(c, u, I(c))) } },
+      { id: 'Kd', name: 'K_d', fact: { k: 'cond', metas: ['u'], premises: [pmem(u)], concl: pmem(P(d, u, I(d))) } },
+    ],
+    sockets: [{
+      id: 's', allowedGivens: ['Kc', 'Kd'],
+      target: { k: 'cond', metas: ['u'], premises: [pmem(u)], concl: pmem(P(c, d, u, I(P(c, d)))) },
+    }],
+    tools: tools({ lift: true, merge: true, suppose: true, schemas: [...EARNED, 'sub.e'] }), unlocks: [],
+    idea: 'A membership can be a hypothesis.',
+    par: { parts: 5, axioms: 12 }, uses: ['P5.1', 'P4.5'],
+  },
   {
     // s1: Spool bbbb → bb ⟶ aa (h₂ backwards) twice → a⁴ = e. s2: Spool abab → ba ⟶ abbb → s1 (routed) → pop.
     id: 'P5.5', index: 25, campaign: 'book', world: 4, chapter: 5, title: 'The Quaternion Relations',
@@ -130,6 +168,21 @@ void M; void y; void AT;
 /** Concept cards for this world's levels, keyed by level id. */
 export const CARDS: Record<string, ConceptCard[]> = {
 
+  'P5.1': [
+    {
+      title: 'Subgroups',
+      body: 'A **subgroup** of a group $G$ is a nonempty set $H$ of elements of $G$ that is closed under products and closed under inverses. Closed under products means that $x \\in H$ and $y \\in H$ give $xy \\in H$. Closed under inverses means that $x \\in H$ gives $x^{-1} \\in H$. The statement $x \\in H$ says that $x$ is an element of $H$.',
+    },
+    {
+      title: 'Why a subgroup is nonempty',
+      body: 'The empty set satisfies both closure properties, because it has no elements to test. Yet it is not a subgroup. That is why “nonempty” is part of the definition. In this order $H$ is nonempty, because the given says $a \\in H$.',
+    },
+    {
+      title: 'Memberships on the floor',
+      body: 'A membership such as $a \\in H$ travels on belts like an equation, but it has one term and no right side. Each closure property is a recipe of the Theorem machine, listed under the name of the subgroup. Equal terms are the same element, so a Rewriter can change the term inside a membership: from $w \\in H$ and $w = z$ it gives $z \\in H$.',
+    },
+  ],
+
   'P5.2': [
     {
       title: 'The centre of a group',
@@ -153,6 +206,17 @@ export const CARDS: Record<string, ConceptCard[]> = {
         { label: 'the law', seq: ['xxp', '=', 'p'] },
         { label: 'at $x = uv$', seq: [{ t: '(uv)(uv)p', br: [[0, 1, '$x$', 'over'], [1, 2, '$x$', 'over']] }, '=', 'p'] },
       ] }],
+    },
+  ],
+
+  'P5.4': [
+    {
+      title: 'A membership as a hypothesis',
+      body: 'An Assume room can take a membership as its assumption, such as $u \\in H$ for a Tower variable $u$. The desk hands that fact out, and the gate lets out the conditional $u \\in H \\implies \\ldots$. A given of that form is applied by a Theorem machine, which needs its premise on a belt.',
+    },
+    {
+      title: 'Conjugating a subgroup',
+      body: 'The **conjugate** of $u$ by $g$ is $gug^{-1}$. The givens say that conjugating by $c$ sends every member of $H$ to a member of $H$, and so does conjugating by $d$. The dock asks the same of one conjugation by the product of the two.',
     },
   ],
 

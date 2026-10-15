@@ -27,7 +27,7 @@ export function buildDoubleInverse() {
   const sw = f.add(op({ k: 'swap' }));
   const all = f.add({ kind: 'forall' });
   f.wire(sp, cn); f.wire(cn, t, 'p0'); f.wire(t, sw); f.wire(sw, all); f.wire(all, f.socket());
-  const lemma = saveLemma(f, all, DOUBLE_INVERSE_ID, 'double inverse', 1);
+  const lemma = saveLemma(f, all, DOUBLE_INVERSE_ID, lv('P4.4').lemmaNames![0]!, 1);
   return { f, lemma };
 }
 
@@ -41,7 +41,7 @@ export function buildIdempotent() {
   const c2 = f.add(cancel(), { x: 33, y: 8 });
   const all = f.add({ kind: 'forall' }, { x: 48, y: 20 });
   f.wire(r.desk, m); f.wire(m, c1); f.wire(c1, c2); f.wire(c2, r.gate); f.wire(r.gate, all); f.wire(all, f.socket());
-  const lemma = saveLemma(f, all, IDEMPOTENT_ID, 'the only idempotent is e', 2);
+  const lemma = saveLemma(f, all, IDEMPOTENT_ID, lv('P4.7').lemmaNames![0]!, 2);
   return { f, lemma };
 }
 
@@ -67,8 +67,8 @@ export function buildCommutator() {
   const pp = f.add(pop(), { x: 39, y: 22 });
   const all2 = f.add({ kind: 'forall' }, { x: 60, y: 20 });
   f.wire(r2.desk, m1); f.wire(m1, d1); f.wire(d1, d2); f.wire(d2, pp); f.wire(pp, r2.gate); f.wire(r2.gate, all2); f.wire(all2, f.socket('t'));
-  const fwd = saveLemma(f, all1, COMMUTATOR_FWD_ID, 'commutator ⟹', 3);
-  const bwd = saveLemma(f, all2, COMMUTATOR_BWD_ID, 'commutator ⟸', 4);
+  const fwd = saveLemma(f, all1, COMMUTATOR_FWD_ID, lv('P4.9').lemmaNames![0]!, 3);
+  const bwd = saveLemma(f, all2, COMMUTATOR_BWD_ID, lv('P4.9').lemmaNames![1]!, 4);
   return { f, fwd, bwd };
 }
 export type { SavedLemma };
@@ -94,6 +94,6 @@ export function buildOneSided() {
   const rot = f.add(thm('routed', 0, { x: kn(P(b, a)), y: kn(P(c, a)) }), { x: 32, y: 24 });
   const un = f.add(thm({ k: 'schema', id: 'witness', mirror: true }, 0, { u: kn(a), v: kn(P(c, a, b)) }), { x: 40, y: 24 });
   f.wire(f.given('h'), m); f.wire(m, c1); f.wire(c1, rot, 'p0'); f.wire(all1, rot, 'card'); f.wire(rot, un, 'p0'); f.wire(un, f.socket('t'));
-  const lemma = saveLemma(f, all1, ONE_SIDED_ID, 'xy = e ⟹ yx = e', 5);
+  const lemma = saveLemma(f, all1, ONE_SIDED_ID, lv('P4.10').lemmaNames![0]!, 5);
   return { f, lemma };
 }

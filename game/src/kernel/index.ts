@@ -91,7 +91,7 @@ export function parseTerm(src: string, atoms: AtomDecl[], extra?: P.ParseExtra):
 /** The axiom laws: unitL ∀x. e x = x ; unitR ∀x. x e = x ; invL ∀x. x⁻¹x = e ; invR ∀x. x x⁻¹ = e. */
 export function axiomCard(id: AxiomId): Card & { k: 'law' } { return Lg.axiomCard(id); }
 /** Lagrange corollary card for |G| = n: ∀x. xⁿ = e. */
-export function pressCard(n: number): Card & { k: 'law' } { return Lg.pressCard(n); }
+export function pressCard(n: number, power = false, sort?: string): Card & { k: 'law' } { return Lg.pressCard(n, power, sort); }
 
 // ───────────── Single-op evaluation ─────────────
 
@@ -174,6 +174,8 @@ export { mapClosureProblem, checkFactSorts, mirrorSafe } from './logic';
 /** A registry / kernel schema's card as this level may use it (mirror included); throws a maths-language error. */
 export function schemaCardOf(id: string, mirror: boolean | undefined, ctx: KernelCtx): Card { return Lg.schemaCard(id, mirror, ctx); }
 export type { ParseExtra } from './print';
+/** Labels key that marks a map as an action (levelLabels sets it): actions print as g(p), not σ(g, p). */
+export { actionMark } from './print';
 
 /** Display labels of a level including its subgroups (and, after withVars, Subgroup Towers). */
 export { levelLabels, instPat, samePat } from './logic';

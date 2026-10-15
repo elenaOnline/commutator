@@ -144,7 +144,7 @@ describe('seeded random play with powers / finite-group soundness', () => {
             accepted++; validate();
             continue;
           }
-          // raw rewrites: match the law at the selection, fill knobs/unbound metas at random; accepted ⇒ true
+          // raw rewrites: match the law at the selection, fill knobs/unbound metas at random; accepted ⟹ true
           if (!sel || !('range' in sel)) continue;
           const redex = K.termAt(f, sel);
           if (!redex) continue;

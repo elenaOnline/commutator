@@ -158,7 +158,7 @@ describe('eigenvariable condition', () => {
 });
 
 describe('assume rooms (implication introduction)', () => {
-  it('Toolsmith: ∀x,y. (xy)⁵ = e ⇒ (yx)⁵ = e with towers, an assume room and ∀', () => {
+  it('Toolsmith: ∀x,y. (xy)⁵ = e ⟹ (yx)⁵ = e with towers, an assume room and ∀', () => {
     const target: Card = { k: 'cond', metas: ['u', 'v'], premises: [{ k: 'eq', l: K.pow(M(U, K.meta('v')), 5), r: e }], concl: { k: 'eq', l: K.pow(M(K.meta('v'), U), 5), r: e } };
     const p = new Player(toolsmith(target));
     p.declareVar('x₁'); p.declareVar('y₁');
@@ -173,7 +173,7 @@ describe('assume rooms (implication introduction)', () => {
     const g = p.generalize(ex);
     const f = p.fact(g) as Card & { k: 'cond' };
     expect(f.metas).toEqual(['x', 'y']);
-    expect(p.text(g)).toBe('∀x, y. (xy)⁵ = e ⇒ (yx)⁵ = e');
+    expect(p.text(g)).toBe('∀x, y. (xy)⁵ = e ⟹ (yx)⁵ = e');
     expect(p.res.solved).toBe(true);
     expect(oracle(p)).toEqual([]);
   });

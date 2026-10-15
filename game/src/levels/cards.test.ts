@@ -9,7 +9,7 @@ import type { AtomDecl, Card, Pallet, Term } from '../kernel/types';
 import { catalogue } from '../groups';
 import { LEVELS, LEVEL_BY_ID, REGISTRY } from './levels';
 import { CARDS, type AtomSpec, type ConceptCard, type Figure, type MathCell } from './cards';
-import { RELS, displayTerm, parseDisplay, parseDisplayFig, type DFactor } from '../hud/figures/parse';
+import { RELS, displayTerm, parseDisplay, parseDisplayFig, parseSubgroup, type DFactor } from '../hud/figures/parse';
 
 const words = (s: string) => s.trim().split(/\s+/).filter(Boolean).length;
 const groupNamed = (name: string) => catalogue().find((g) => g.name === name);
@@ -228,8 +228,9 @@ describe('concept cards', () => {
           switch (f.k) {
             case 'math': {
               const atoms = atomsOf(id, f.atoms);
-              for (const r of f.rows) for (const x of r.seq) {
+              for (const r of f.rows) for (const [xi, x] of r.seq.entries()) {
                 if (typeof x === 'string' && (RELS.includes(x) || x === '⊥')) continue;
+                if (r.seq[xi - 1] === '∈' && parseSubgroup(cellText(x))) continue; // a subgroup, drawn as its Euler set
                 const fs = parseDisplay(cellText(x), atoms);
                 expect(fs, `${where}: ${cellText(x)}`).not.toBeNull();
                 if (typeof x !== 'string') for (const [from, to] of x.br) { expect(from, where).toBeGreaterThanOrEqual(0); expect(to, where).toBeGreaterThan(from); expect(to, `${where}: brace ${from}–${to} over ${x.t}`).toBeLessThanOrEqual(fs!.length); }

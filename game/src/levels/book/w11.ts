@@ -1,13 +1,15 @@
 // THE BOOK · World 11 — Lagrange (Pinter 13). See design/pinter/SYNTHESIS.md §3 and design/pinter/AUTHOR-BRIEF.md.
 //
-// Phase-A levels only: P13.2, P13.3, P13.4 and P13.s1. P13.1 Cosets Are Equal or Disjoint needs Members (three desks, Subgroup Towers)
-// and is left as a placeholder in LEVELS, in campaign order. **Lagrange (the press) is unlocked by P13.1.** These levels are authored as
-// if P13.1 were done: `press: true`, and P13.2 carries its `|G| = 5` given.
+// P13.2, P13.3, P13.4 and P13.s1 are phase A. P13.1 Cosets Are Equal or Disjoint is the Members level of this world (KERNEL-EXT §4):
+// a level subgroup H, a three-desk Assume room, and the lemmas the player saved in P12.1 (reflexive / symmetric / transitive, for every subgroup).
+// **Lagrange (the press) is unlocked by P13.1.** The kernel has no "unlock the press" event: `tools.press` is a static per-level flag
+// (the main campaign's L11 and B04 do the same). So P13.1 has `press: false` and every later level of this world has `press: true`; the
+// Lagrange card on P13.1 explains the counting step, and the next levels use the press. P13.2 carries its `|G| = 5` given.
 //
 // Notation: every relation here is a WORD (b⁵ = bbbbb), including the Lagrange press, which is used in its word shape
 // (`∀x. xxxxx = e` for |G| = 5). The power imports handed out by P10.4 are in the toolset, but no route here needs them.
 // Toolset: lift, merge, suppose, press, the earned cancel / witness / socks.
-import type { LevelManifest, Pallet, Term, Toolset } from '../../kernel/types';
+import type { LevelManifest, Pallet, PatFact, SubRef, Term, Toolset } from '../../kernel/types';
 import type { AtomSpec, ConceptCard } from '../cards';
 
 const A = (id: string): Term => ({ k: 'atom', id });
@@ -20,18 +22,45 @@ const rep = (t: Term, n: number): Term => P(...Array.from({ length: n }, () => t
 const eq = (l: Term, r: Term): Pallet => ({ k: 'eq', l, r });
 const neq = (l: Term, r: Term): Pallet => ({ k: 'neq', l, r });
 const a = A('a'), b = A('b');
+const M = (id: string): Term => ({ k: 'meta', id });
+const I = (t: Term): Term => ({ k: 'inv', arg: t });
+/** P13.1: the level's subgroup H, and a membership `t ∈ H` as a card statement. */
+const H: SubRef = { k: 'sub', id: 'H' };
+const pmem = (t: Term): PatFact => ({ k: 'mem', t, sub: H });
 
 const none: Toolset = { lift: false, merge: false, suppose: false, classical: false, press: false, schemas: [], conjecture: false };
 const tools = (t: Partial<Toolset>): Toolset => ({ ...none, ...t });
 const EARNED = ['cancel', 'witness', 'socks'];
 /** The power imports as the book has handed them out by P10.4 (add, zero; conjugate; multiply, one; identity). */
 const POW = ['power.add', 'power.zero', 'power.conjugate', 'power.multiply', 'power.one', 'power.identity'];
+/** What P13.1 itself has: the earned and imported subgroup results, but not yet the press (it unlocks Lagrange on ∎). */
+const W11_1 = (): Toolset => tools({ lift: true, merge: true, suppose: true, press: false, schemas: [...EARNED, ...POW, 'sub.e', 'sub.pow'] });
 /** Everything handed out by P13.1: the press joins the toolset. */
 const W11 = (): Toolset => tools({ lift: true, merge: true, suppose: true, press: true, schemas: [...EARNED, ...POW] });
 const atomsAB = [{ id: 'a', label: 'a', hue: 0 }, { id: 'b', label: 'b', hue: 1 }];
 
 export const LEVELS: LevelManifest[] = [
-  // P13.1 Cosets Are Equal or Disjoint — needs Members (Subgroup Tower, three desks). Not authored here. It unlocks Lagrange.
+  {
+    // H is a level subgroup; x, a, b, h are Towers. Assume room with three desks: xa⁻¹ ∈ H, xb⁻¹ ∈ H, ha⁻¹ ∈ H (the coset Ha holds x and h; Hb holds x).
+    // Theorem same coset: symmetric (H) on xa⁻¹ ∈ H: ax⁻¹ ∈ H · Theorem same coset: transitive (H) on ha⁻¹ ∈ H and ax⁻¹ ∈ H: hx⁻¹ ∈ H ·
+    // transitive again on hx⁻¹ ∈ H and xb⁻¹ ∈ H: hb⁻¹ ∈ H · gate · ∀. The lemmas are the player's own (P12.1). Unlocks Lagrange (press) for the next levels.
+    id: 'P13.1', index: 53, campaign: 'book', world: 11, chapter: 13, title: 'Cosets Are Equal or Disjoint',
+    method: 'Equivalence relation', source: 'Pinter 13, Theorem 1',
+    insight: 'The relation of P12.1 used twice: x joins a and b, so everything related to a is related to b.',
+    memo: 'x lies in both Ha and Hb. Show everything in Ha lies in Hb.',
+    atoms: [], subgroups: [{ id: 'H', label: 'H' }], givens: [],
+    sockets: [{
+      id: 's', allowedGivens: [],
+      target: {
+        k: 'cond', metas: ['x', 'a', 'b', 'h'],
+        premises: [pmem(P(M('x'), I(M('a')))), pmem(P(M('x'), I(M('b')))), pmem(P(M('h'), I(M('a'))))],
+        concl: pmem(P(M('h'), I(M('b')))),
+      },
+    }],
+    tools: W11_1(), unlocks: [],
+    idea: 'Two cosets that share an element are equal.',
+    par: { parts: 8, axioms: 5 }, uses: ['P12.1'],
+  },
   {
     // Words. Spool a → Lagrange backwards at the end gap (e ⟶ aaaaa, a ⟶ a·aaaaa) → aaa ⟶ bbb twice (h) → Lagrange (bbbbb ⟶ e), pop.
     id: 'P13.2', index: 54, campaign: 'book', world: 11, chapter: 13, title: 'Unique Cube Roots',
@@ -46,7 +75,7 @@ export const LEVELS: LevelManifest[] = [
     sockets: [{ id: 's', target: eq(a, b), allowedGivens: ['s', 'h'] }],
     tools: W11(), unlocks: [],
     idea: 'Lagrange turns a size into a power equal to e.',
-    par: { parts: 5, axioms: 7 }, uses: ['P8.1'],
+    par: { parts: 5, axioms: 7 }, uses: ['P13.1', 'P8.1'],
   },
   {
     // Words. Spool baa → ba ⟶ aab twice (h₂) → aaaa ⟶ e (h₁): baa = b. Then insert e on the right of b and cancel on the left (u = b).
@@ -62,7 +91,7 @@ export const LEVELS: LevelManifest[] = [
     sockets: [{ id: 's', target: eq(P(a, a), e), allowedGivens: ['h1', 'h2'] }],
     tools: W11(), unlocks: [],
     idea: 'Collect one letter on one side.',
-    par: { parts: 6, axioms: 10 }, uses: ['P13.2'],
+    par: { parts: 6, axioms: 10 }, uses: ['P13.1', 'P13.2'],
   },
   {
     // Words. b = b·aa (h₁ backwards) → ba ⟶ abb three times (h₃) → aa ⟶ e: b = bbbb. Then × b on the left and h₂ on the right rail: bb = e.
@@ -80,7 +109,7 @@ export const LEVELS: LevelManifest[] = [
     sockets: [{ id: 's', target: eq(b, e), allowedGivens: ['h1', 'h2', 'h3'] }],
     tools: W11(), unlocks: [],
     idea: 'Reach a normal form, then use b⁵ = e.',
-    par: { parts: 10, axioms: 12 }, uses: ['P13.3'],
+    par: { parts: 10, axioms: 12 }, uses: ['P13.1', 'P13.3'],
   },
   {
     // Side. Words. Suppose ba = bb → left cancellation (u = b): a = b → rewrite a ⟶ b in h₁ twice (routed): bb = e → rewrite bb ⟶ e in h₂ (routed): b = e
@@ -98,7 +127,7 @@ export const LEVELS: LevelManifest[] = [
     sockets: [{ id: 's', target: neq(P(b, a), P(b, b)), allowedGivens: ['h1', 'h2', 'h3'] }],
     tools: W11(), unlocks: [],
     idea: 'Suppose a case, and let the relations clash.',
-    par: { parts: 5, axioms: 11 }, uses: ['P4.12'],
+    par: { parts: 5, axioms: 11 }, uses: ['P13.1', 'P4.12'],
   },
 ];
 
@@ -108,6 +137,18 @@ void AT;
 
 /** Concept cards for this world's levels, keyed by level id. */
 export const CARDS: Record<string, ConceptCard[]> = {
+
+  'P13.1': [
+    {
+      title: 'Cosets',
+      body: 'For a subgroup $H$ of $G$ and an element $a$, the **coset** $Ha$ is the set of all products $ka$ with $k \\in H$. An element $g$ lies in $Ha$ exactly when $ga^{-1} \\in H$. In the dock, the first two memberships say that $x$ lies in $Ha$ and in $Hb$, and the third says that $h$ lies in $Ha$.',
+    },
+    {
+      title: 'Lagrange’s theorem',
+      long: true,
+      body: 'Finishing this order unlocks **Lagrange’s theorem**. It is proved by counting. Two cosets of $H$ with an element in common are equal, so the cosets of $H$ split $G$ into blocks that do not overlap. Multiplying the elements of $H$ on the right by $a$ gives a block with as many elements as $H$, because right cancellation keeps different elements different. So every block has $|H|$ elements, and $|G|$, the size of $G$, is the number of blocks times $|H|$. Hence $|H|$ divides $|G|$. For an element $x$, the powers of $x$ form a subgroup whose size $n$ is the order of $x$. Then $n$ divides $|G|$, so $x^{|G|} = e$. From the next order on, the Rewriter has a Lagrange recipe. It needs a given that states $|G|$.',
+    },
+  ],
 
   'P13.2': [
     {

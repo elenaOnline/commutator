@@ -8,12 +8,16 @@ import type { LevelManifest } from '../kernel/types';
 import { LEVELS, LEVEL_BY_ID } from './levels';
 import { CARDS, type ConceptCard } from './cards';
 import { BOOK_CARDS, BOOK_LEVELS, BOOK_WORLDS } from './book';
+import { letterSlot } from '../ui/letters';
 
 export type Campaign = 'main' | 'book';
 export const CAMPAIGNS: Campaign[] = ['main', 'book'];
 /** Display names for the map's campaign switch. */
 export const CAMPAIGN_NAMES: Record<Campaign, string> = { main: 'Commutator', book: 'The Book' };
 
+// The Book: a letter keeps its bead shape on every floor, lens and card (playtest W1–3 #16): the shape slot comes
+// from the letter itself, not from where the author listed it.
+for (const l of BOOK_LEVELS) for (const a of l.atoms) if (!a.variable) a.hue = letterSlot(a.label);
 for (const l of BOOK_LEVELS) {
   const prev = LEVEL_BY_ID[l.id];
   if (prev && prev !== l) console.warn(`[campaigns] level id ${l.id} is declared twice`);

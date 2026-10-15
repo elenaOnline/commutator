@@ -7,7 +7,7 @@ import { chromium } from 'playwright';
 import { mkdirSync, readFileSync } from 'node:fs';
 
 const BASE = process.env.HUD_URL ?? 'http://localhost:8790/';
-const SHOTS = new URL('../../.shots/book-play/', import.meta.url).pathname;
+const SHOTS = new URL(`../../.shots/${process.env.SHOTDIR ?? 'book-play'}/`, import.meta.url).pathname;
 mkdirSync(SHOTS, { recursive: true });
 const CANVASES = JSON.parse(readFileSync(process.argv[2] ?? '/tmp/cm/canvases.json', 'utf8'));
 const HMR_STUB = `export const createHotContext = () => ({ accept() {}, acceptExports() {}, dispose() {}, prune() {}, invalidate() {}, on() {}, off() {}, send() {}, decline() {}, data: {} });
@@ -72,7 +72,7 @@ try {
   const waitSolved = async () => { for (let i = 0; i < 160; i++) { if (await page.evaluate(() => !!window.__lw.get().ui.ceremony)) return true; await page.waitForTimeout(150); } return false; };
   const fitFloor = () => page.evaluate(() => { const s = window.__lw.get(); window.__lw.setCamera({ ...s.ui.camera, zoom: 0.62 }); });
 
-  for (const id of ['P4.6', 'P4.s4', 'P4.12', 'P4.9']) {
+  for (const id of (process.env.IDS ? process.env.IDS.split(',') : Object.keys(CANVASES))) {
     const log = await build(id);
     check(!log.length, `${id}: rebuilt through the store ${log.length ? JSON.stringify(log) : ''}`);
     check(await waitSolved(), `${id}: every dock delivered (∎)`);
@@ -94,7 +94,7 @@ try {
       const tex = await page.evaluate(async () => { const { adapt } = await import('/src/hud/transcript.ts'); const P = await import('/src/hud/proof.ts'); const U = await import('/src/hud/util.ts'); const s = window.__lw.get(); const { st } = adapt(s); return P.transcriptTeX(P.buildTranscript(st), st, U.dockAnswers(s)); });
       check(!/\?/.test(tex.split('\n').find((l) => l.startsWith('\\noindent')) ?? '?') && !/¤/.test(tex) && !/\{-1\}[a-z^{}0-9-]* \\in G/.test(tex), `${id}: LaTeX states the found answer: ${JSON.stringify((tex.split('\n').find((l) => l.startsWith('\\noindent')) ?? '').slice(0, 160))}`);
     }
-    if (id === 'P4.12' || id === 'P4.9') {
+    if (!['P4.6', 'P4.s4'].includes(id)) {
       await fitFloor();
       await page.waitForTimeout(400);
       await shot(`${id}-2-floor`);
@@ -112,10 +112,10 @@ try {
   }
 
   // the room lens: change P4.9's first Assume room to two assumptions through the desk's editor
-  await page.evaluate(() => { const s = window.__lw.get(); const desk = s.canvas.machines.find((m) => m.kind === 'desk'); window.__lw.select([desk.id]); window.__lw.openLens(desk.id); });
+  const hasDesk = await page.evaluate(() => { const s = window.__lw.get(); const desk = s.canvas.machines.find((m) => m.kind === 'desk'); if (!desk) return false; window.__lw.select([desk.id]); window.__lw.openLens(desk.id); return true; });
   await page.waitForTimeout(500);
   const hasEditor = await page.locator('.h3-lens .h3-roomedit').count();
-  check(hasEditor > 0, 'the desk lens has the assumptions editor');
+  if (hasDesk) check(hasEditor > 0, 'the desk lens has the assumptions editor');
   await crop('.h3-lens', 'P4.9-5-desk-lens');
   check(!errors.length, `no page errors ${errors.slice(0, 3).join(' | ')}`);
   await page.evaluate(() => localStorage.clear());

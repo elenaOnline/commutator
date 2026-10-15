@@ -6,6 +6,9 @@ import type { AtomDecl, Card, Pallet, Term } from '../../src/kernel/types';
 import { catalogue } from '../../src/groups';
 import { REGISTRY } from '../../src/levels/levels';
 import { BOOK_A } from './kit-wA';
+import { MEMBERS_IDS } from './members-ids';
+import { MAPS_IDS } from './maps-ids';
+import { WZ_IDS } from './wZ-ids';
 import { BOOK_CARDS, BOOK_LEVELS } from '../../src/levels/book';
 import { CARDS as C04 } from '../../src/levels/book/w04';
 import { CARDS as C06 } from '../../src/levels/book/w06';
@@ -15,9 +18,10 @@ import { CARDS as C11 } from '../../src/levels/book/w11';
 import { CARDS as C13 } from '../../src/levels/book/w13';
 import { CARDS as C14 } from '../../src/levels/book/w14';
 import { type AtomSpec, type ConceptCard, type Figure, type MathCell } from '../../src/levels/cards';
-import { RELS, displayTerm, parseDisplay, parseDisplayFig, type DFactor } from '../../src/hud/figures/parse';
+import { RELS, displayTerm, parseDisplay, parseDisplayFig, parseSubgroup, type DFactor } from '../../src/hud/figures/parse';
 
-const CARDS: Record<string, ConceptCard[]> = { ...C04, ...C06, ...C07, ...C10, ...C11, ...C13, ...C14 };
+// the Members levels have their own card test (members-cards.test.ts)
+const CARDS: Record<string, ConceptCard[]> = Object.fromEntries(Object.entries({ ...C04, ...C06, ...C07, ...C10, ...C11, ...C13, ...C14 }).filter(([id]) => !MEMBERS_IDS.includes(id) && !MAPS_IDS.includes(id) && !WZ_IDS.includes(id)));
 const LEVEL_BY_ID = Object.fromEntries(BOOK_A.map((l) => [l.id, l]));
 const words = (s: string) => s.trim().split(/\s+/).filter(Boolean).length;
 const groupNamed = (name: string) => catalogue().find((g) => g.name === name);
@@ -174,8 +178,9 @@ describe('Phase-A levels · concept cards', () => {
         switch (f.k) {
           case 'math': {
             const atoms = atomsOf(id, f.atoms);
-            for (const r of f.rows) for (const x of r.seq) {
+            for (const r of f.rows) for (const [xi, x] of r.seq.entries()) {
               if (typeof x === 'string' && (RELS.includes(x) || x === '⊥')) continue;
+              if (r.seq[xi - 1] === '∈' && parseSubgroup(cellText(x))) continue; // a subgroup, drawn as its Euler set
               const fs = parseDisplay(cellText(x), atoms);
               expect(fs, `${where}: ${cellText(x)}`).not.toBeNull();
               if (typeof x !== 'string') for (const [from, to] of x.br) { expect(from, where).toBeGreaterThanOrEqual(0); expect(to, where).toBeGreaterThan(from); expect(to, `${where}: brace ${from}–${to} over ${x.t}`).toBeLessThanOrEqual(fs!.length); }

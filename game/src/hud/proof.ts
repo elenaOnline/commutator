@@ -17,11 +17,18 @@ export function schemaInfo(id: string, mirror = false, ctx: K.KernelCtx | null =
   // Book phase B: the subgroup axioms and cards ("closed under products") are named in words, never by id
   const sub = safe(() => K.subSchema(id), null);
   if (sub) return { name: sub.name, textbook: sub.name, kind: sub.origin === 'import' ? 'import' : 'earned' };
+  // Book phase C: the map kinds' laws are the meaning of "f is a homomorphism" / "σ is an action", said in words
+  const mp = safe(() => K.mapSchema(id), null);
+  if (mp) return { name: mp.name, textbook: MAP_WORDS[id] ?? mp.name, kind: mp.origin === 'import' ? 'import' : 'earned' };
   const sc = ctx?.registry[id];
   if (sc?.origin === 'authored') return { name: `Lemma Book: ${sc.name}`, textbook: `Lemma Book: ${sc.name}`, kind: 'authored' };
   const n = names0(id, mirror);
   return { ...n, kind: sc?.origin === 'import' ? 'import' : 'earned' };
 }
+/** Homework phrasing of the map laws ("f" / "σ" are replaced by the actual map where the step names it). */
+export const MAP_WORDS: Record<string, string> = {
+  'hom.mul': 'f is a homomorphism', 'hom.pow': 'powers through a homomorphism (imported)', 'act.mul': 'acting by a product', 'act.e': 'e acts trivially',
+};
 const schemaNames = (id: string, mirror = false) => schemaInfo(id, mirror);
 /** "Lemma n" only for theorems earned in a level; authored and imported ones are cited by name. */
 /** In The Book, "Lemma n" would point into the other campaign's numbering: there every theorem is cited by name. */
@@ -51,6 +58,12 @@ export interface EqLine {
   tag?: number;
   qed?: boolean;
   refs?: NodeId[];
+  /** This line shows the LEFT side being simplified (lhs → rhs is a computation on the equation's left side). */
+  side?: 'l';
+  /** A concluding line ("X′ = Y, from lines j and k"): the facts it combines (givens and the assumption included). */
+  from?: NodeId[];
+  /** The proof node whose statement this line states (it is cited as this line, not as the computation's). */
+  owns?: NodeId;
   /** hover text (textbook name + instantiation) */
   title?: string;
   /** fuller justification for the LaTeX export */
@@ -101,7 +114,23 @@ export function buildTranscript(s: State): Transcript {
   const byId = new Map(g.nodes.map((n) => [n.id, n] as const));
   const factOf = (id: NodeId): Fact | undefined => facts[id]?.fact;
   const topo = topoIndex(g);
-  const belts = beltsOf(g).sort((a, b) => (topo.get(a.head.id) ?? 0) - (topo.get(b.head.id) ?? 0));
+  // A fact used twice (a Spool feeding two Rewriters) forks: beltsOf follows one branch, so every other branch
+  // becomes a belt of its own that starts from the shared fact. Without this a branch's lines go missing.
+  const belts0 = beltsOf(g);
+  const covered = new Set(belts0.flatMap((b) => b.steps.map((x) => x.id)));
+  for (const n of g.nodes) {
+    if (n.k !== 'step' || covered.has(n.id)) continue;
+    const head = byId.get(n.input);
+    if (!head) continue;
+    const steps: ProofNode[] = [];
+    let cur: ProofNode | undefined = n;
+    while (cur) { steps.push(cur); covered.add(cur.id); const id: NodeId = cur.id; cur = g.nodes.find((m) => m.k === 'step' && m.input === id && !covered.has(m.id)); }
+    belts0.push({ id: `${head.id}~${n.id}`, scope: n.scope, head, steps, end: steps[steps.length - 1]!.id, fork: true } as Belt);
+  }
+  const beltKey = (b: Belt) => topo.get(((b as Belt & { fork?: boolean }).fork ? b.steps[0]!.id : b.head.id)) ?? 0;
+  const belts = belts0.sort((a, b) => beltKey(a) - beltKey(b));
+  // a given worked on inside a room is written inside the room (its machines are there, and so are the facts they use)
+  const beltScope = (b: Belt): ScopeId => (b.head.k === 'given' && b.steps.length ? b.steps[0]!.scope : b.scope);
   const consumed = new Set<NodeId>();
   for (const n of g.nodes) {
     if (n.k === 'step') { if (n.op.k === 'rewrite' && n.op.rule.k === 'node') consumed.add(n.op.rule.id); }
@@ -170,7 +199,10 @@ export function buildTranscript(s: State): Transcript {
     let mode: Mode = 'none';
     let startTerm: Term | null = null;
 
-    switch (head.k) {
+    // a fork starts from a fact stated elsewhere: its first line states the whole new equation
+    if ((b as Belt & { fork?: boolean }).fork) mode = head.k === 'start' ? 'start' : 'none';
+    if ((b as Belt & { fork?: boolean }).fork && head.k === 'start') startTerm = head.term;
+    else if (!(b as Belt & { fork?: boolean }).fork) switch (head.k) {
       case 'start':
         mode = 'start'; startTerm = head.term;
         if (!b.steps.length) out.push({ t: 'eq', lhs: head.term, rel: '=', rhs: head.term, just: 'new spool', nodes: [head.id], family: 'equation', classical: false, ghost: true });
@@ -271,21 +303,35 @@ export function buildTranscript(s: State): Transcript {
           run.push(nx); i++;
         }
         const lefts: Term[] = [before.l, ...run.map((r) => (factOf(r.nodes[r.nodes.length - 1]!.id) as { l: Term }).l)];
-        for (let k = run.length; k >= 1; k--) {
-          const r = run[k - 1]!;
-          out.push({
-            t: 'eq', lhs: k === run.length ? lefts[k]! : null, rel: '=', rhs: lefts[k - 1]!,
-            just: joinJust(r.nodes.map(justify)), nodes: r.nodes.map((n) => n.id), family: fam(r.nodes[0]!), classical: classicalOf(r.nodes[r.nodes.length - 1]!.id),
-            ...refsField(r.nodes.flatMap(inputRefs)), ...extra(r.nodes),
-          });
-        }
         const lastRun = run[run.length - 1]!;
         const lastId = lastRun.nodes[lastRun.nodes.length - 1]!.id;
-        if (!(mode === 'start' && startTerm && same(startTerm, before.r))) {
+        const fromSpool = mode === 'start' && !!startTerm && same(startTerm, before.r);
+        if (fromSpool) {
+          // a Spool's t = t with its left side computed: read as the chain t′ = … = t (each rule the other way)
+          for (let k = run.length; k >= 1; k--) {
+            const r = run[k - 1]!;
+            out.push({
+              t: 'eq', lhs: k === run.length ? lefts[k]! : null, rel: '=', rhs: lefts[k - 1]!,
+              just: joinJust(r.nodes.map(justify)), nodes: r.nodes.map((n) => n.id), family: fam(r.nodes[0]!), classical: classicalOf(r.nodes[r.nodes.length - 1]!.id),
+              ...refsField(r.nodes.flatMap(inputRefs)), ...extra(r.nodes),
+            });
+          }
+        } else {
+          // simplify the left side forwards, as on paper (X = X₁ = … = X′), then conclude X′ = R from the two lines
+          for (let k = 1; k <= run.length; k++) {
+            const r = run[k - 1]!;
+            out.push({
+              t: 'eq', lhs: k === 1 ? lefts[0]! : null, rel: '=', rhs: lefts[k]!, side: 'l',
+              just: joinJust(r.nodes.map(justify)), nodes: r.nodes.map((n) => n.id), family: fam(r.nodes[0]!), classical: classicalOf(r.nodes[r.nodes.length - 1]!.id),
+              ...refsField(r.nodes.flatMap(inputRefs)), ...extra(r.nodes),
+            });
+          }
           const anchor = stations[i - run.length]?.nodes.slice(-1)[0]?.id ?? head.id;
-          const first = i - run.length < 0;
-          const why = first && head.k === 'assume' ? 'assumption' : first && head.k === 'given' ? `given ${givenOf(head.id)?.name ?? ''}` : '';
-          out.push({ t: 'eq', lhs: null, rel: '=', rhs: before.r, just: why, nodes: [], family: first && head.k === 'given' ? 'given' : f, classical: classicalOf(lastId), ...refsField(why ? [] : [ref(anchor)]) });
+          const derived = (id: NodeId) => { const m = byId.get(id); return !!m && m.k !== 'given' && m.k !== 'press' && m.k !== 'assume'; };
+          out.push({
+            t: 'eq', lhs: lefts[run.length]!, rel: after.k === 'eq' ? '=' : '≠', rhs: before.r, just: 'combining', nodes: [], family: f, classical: classicalOf(lastId),
+            from: [anchor, lastId], owns: lastId, ...refsField([anchor].filter(derived).map(ref)),
+          });
         }
         prevFact = factOf(lastId);
         mode = 'chain';
@@ -303,7 +349,7 @@ export function buildTranscript(s: State): Transcript {
   const scopeItems = (scope: ScopeId): Item[] => {
     type Entry = { key: number; render: () => Item[] };
     const entries: Entry[] = [];
-    for (const b of belts) if (b.scope === scope) entries.push({ key: (topo.get(b.head.id) ?? 0) - (b.head.k === 'press' ? 1e6 : 0), render: () => beltItems(b) });
+    for (const b of belts) if (beltScope(b) === scope) entries.push({ key: beltKey(b) - (b.head.k === 'press' ? 1e6 : 0), render: () => beltItems(b) });
     for (const r of g.rooms) if (r.parent === scope) {
       const assume = g.nodes.find((n) => n.k === 'assume' && n.room === r.id);
       entries.push({ key: (assume ? topo.get(assume.id) ?? 0 : 0) - 0.5, render: () => [{ t: 'room', room: r, items: scopeItems(r.id) }] });
@@ -316,12 +362,14 @@ export function buildTranscript(s: State): Transcript {
   // tags for referenced lines, numbered in reading order
   const lineOf = new Map<NodeId, EqLine>();
   const walk = (its: Item[], fn: (l: EqLine) => void) => its.forEach((it) => (it.t === 'room' ? walk(it.items, fn) : it.t === 'eq' ? fn(it) : undefined));
+  walk(items, (l) => { if (l.owns) lineOf.set(l.owns, l); }); // a concluding line is where its fact is stated
   walk(items, (l) => l.nodes.forEach((id) => { if (!lineOf.has(id)) lineOf.set(id, l); }));
   // a ref to a belt-end resolves to the line that ends the chain containing it
   const wanted = new Set(refsWanted);
   let next = 1;
   walk(items, (l) => {
-    if (l.nodes.some((id) => wanted.has(id))) { l.tag = next++; l.nodes.forEach((id) => tags.set(id, l.tag!)); }
+    if (l.owns && wanted.has(l.owns)) { l.tag = next++; tags.set(l.owns, l.tag); return; }
+    if (l.nodes.some((id) => wanted.has(id) && lineOf.get(id) === l)) { l.tag = next++; l.nodes.forEach((id) => { if (lineOf.get(id) === l) tags.set(id, l.tag!); }); }
   });
   void consumed;
 

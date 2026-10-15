@@ -10,7 +10,7 @@ import {
   E, KErr, atomsOf, instantiate, inv, isGround, locate, railOf, locateGap, meta, metasOf, mirrorCard, mul, norm, pow, same,
   spliceRail, withRail, word,
 } from './terms';
-import { factText, labelsOf, termText, type Labels } from './print';
+import { actionMark, factText, labelsOf, termText, type Labels } from './print';
 import { POLY_LIMITS, ResourceLimit, polyNorm, polyRefs, polyRename, resetPolyBudget } from './poly';
 import { literalOf, powerAllowed, powerSchema } from './powers';
 import { dockText, fillOpen, holesProblem, isOpen } from './open';
@@ -290,6 +290,7 @@ export function checkSubst(s: Subst, metas: MetaId[], ctx: KernelCtx, zmetas: Se
 /** Display labels of a level: atoms (and Towers) plus, Book phase B, its subgroups (and Subgroup Towers). */
 export function levelLabels(level: LevelManifest): Labels {
   return {
+    ...Object.fromEntries((level.maps ?? []).filter((m) => m.kind === 'action').map((m) => [actionMark(m.id), '1'])),
     ...Object.fromEntries([...(level.sorts ?? []), ...(level.maps ?? [])].map((x) => [x.id, x.label])),
     ...labelsOf(level.atoms), ...Object.fromEntries(subsIn(level).map((x) => [x.id, x.label])),
   };

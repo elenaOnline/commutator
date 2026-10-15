@@ -67,8 +67,14 @@ function factorStr(f: Term, L: Labels, st: Style): string {
     const bs = isSimple(b) ? st.base(b, L) : st.paren(b.k === 'inv' && isSimple(b.arg) ? factorStr(b, L, st) : termStr(b, L, st));
     return `${bs}${expStr(f.exp, L, st === TEX)}`;
   }
-  // Book phase C: a map frame f(x), σ(g, p)
+  // Book phase C: a map frame f(x). An ACTION applies its group element to the point, as Pinter writes it:
+  // σ(α, p) prints α(p), σ(gh, p) prints (gh)(p) — σ itself is never shown (labels mark actions, see actionMark).
   if (f.k === 'app') {
+    if (L[actionMark(f.fn)] && f.args.length === 2) {
+      const g = f.args[0]!;
+      const gs = isSimple(g) || g.k === 'inv' && isSimple(g.arg) ? factorStr(g, L, st) : st.paren(termStr(g, L, st));
+      return `${gs}(${termStr(f.args[1]!, L, st)})`;
+    }
     const name = st === TEX ? texLabel(L[f.fn] ?? f.fn) : (L[f.fn] ?? f.fn);
     return `${name}(${f.args.map((a) => termStr(a, L, st)).join(', ')})`;
   }
@@ -141,7 +147,13 @@ function bindText(b: StructBinder, tex: boolean): string {
 export function factText(f: Fact, L: Labels): string { return factStr(f, L, false); }
 export function factTex(f: Fact, L: Labels): string { return factStr(f, L, true); }
 
-function factStr(f: Fact, L: Labels, tex: boolean): string {
+/** The label key marking map `fn` as an action (set by levelLabels for level actions, by factStr for action binders). */
+export const actionMark = (fn: string) => `\u0003act:${fn}`;
+
+function factStr(f: Fact, L0: Labels, tex: boolean): string {
+  // a card's action parameters print as actions too: (gh)(p) = g(h(p))
+  const acts = (f.k === 'law' || f.k === 'cond') ? (f.binds ?? []).filter((b) => b.k === 'act') : [];
+  const L = acts.length ? { ...L0, ...Object.fromEntries(acts.map((b) => [actionMark(b.id), '1'])) } : L0;
   const T = tex ? termTex : termText;
   switch (f.k) {
     case 'eq': case 'neq': case 'mem': return patText(f, L, tex);
@@ -151,7 +163,7 @@ function factStr(f: Fact, L: Labels, tex: boolean): string {
     case 'cond': {
       // a premise-free card reads as its conclusion (e.g. ∀H ≤ G. e ∈ H)
       if (!f.premises.length && (f.binds?.length || f.concl.k === 'mem')) return `${bquant(f.binds, tex)}${quant(f.metas, tex)}${patText(f.concl, L, tex)}`;
-      return `${bquant(f.binds, tex)}${quant(f.metas, tex)}${f.premises.map((p) => patText(p, L, tex)).join(', ')} ${tex ? '\\Rightarrow' : '⇒'} ${patText(f.concl, L, tex)}`;
+      return `${bquant(f.binds, tex)}${quant(f.metas, tex)}${f.premises.map((p) => patText(p, L, tex)).join(', ')} ${tex ? '\\Longrightarrow' : '⟹'} ${patText(f.concl, L, tex)}`;
     }
   }
 }

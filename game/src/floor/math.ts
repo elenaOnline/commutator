@@ -3,6 +3,7 @@
 // and the chip always print one statement the same way. HTML (tooltips) uses shell/util fH directly.
 import type { Fact, PatFact, Poly, Term } from '../kernel/types';
 import { fH, tH } from '../shell/util';
+import { eTag, isActionApp } from '../ui/sorts';
 
 export type Labels = Record<string, string>;
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
@@ -55,13 +56,15 @@ export function termSVG(t: Term, L: Labels): string {
     switch (x.k) {
       case 'atom': return sub(L[x.id] ?? x.id, VAR_INK.get(x.id));
       case 'meta': return it(x.id);
-      case 'e': return it('e');
+      // Book phase C: e_K once two groups are in play (NORMS › Sorts)
+      case 'e': { const tg = eTag(x); return tg ? it('e') + `<tspan font-style="italic" font-size="68%" baseline-shift="-24%">${esc(tg)}</tspan>` : it('e'); }
       case 'inv': return simple(x.arg) ? one(x.arg) + sup('−1') : up('(') + termSVG(x.arg, L) + up(')') + sup('−1');
       case 'mul': return word(x.fs);
       case 'pow': return (simple(x.base) ? one(x.base) : up('(') + termSVG(x.base, L) + up(')')) + sup(polyText(x.exp, L));
       case 'int': return up(polyText(x.val, L));
       // Book phase C: a map applied, f(x) (plain until the Maps visuals land)
-      case 'app': return it(L[x.fn] ?? x.fn) + up('(') + x.args.map((a) => termSVG(a, L)).join(up(', ')) + up(')');
+      case 'app': if (isActionApp(x)) { const g = x.args[0]!; return (simple(g) || (g.k === 'inv' && simple(g.arg)) ? one(g) : up('(') + termSVG(g, L) + up(')')) + up('(') + termSVG(x.args[1]!, L) + up(')'); }
+        return it(L[x.fn] ?? x.fn.replace(/^\$\d+:/, '')) + up('(') + x.args.map((a) => termSVG(a, L)).join(up(', ')) + up(')');
     }
   };
   return t.k === 'mul' ? word(t.fs) : one(t);

@@ -352,6 +352,8 @@ export interface LevelManifest {
   method?: string;
   /** The Book: the specific insight, shown only on the Paper view after ∎ (never before: it would spoil). */
   insight?: string;
+  /** The Book: standard names offered when saving this level's lemmas, in dock order (e.g. ['double inverse']). */
+  lemmaNames?: string[];
   /** The Book: design-only source citation, e.g. 'Pinter 4.A3'. Never shown to players as prose. */
   source?: string;
   side?: boolean;        // side order
@@ -365,6 +367,12 @@ export interface LevelManifest {
   sorts?: SortDecl[];
   /** Book phase C: the level's maps (plain maps, homomorphisms, actions). Kind laws are dependency-free. */
   maps?: MapDecl[];
+  /**
+   * Authoring: why this level is exempt from the nontrivial-model threshold (pin 4), when its statement is true in
+   * only a handful of catalogue models BY NATURE (P14.3: the only hom ℤ₅ → ℤ₃ is trivial, and that is the theorem).
+   * An exempt level's truth test must instead show each given is needed (dropping it yields a counterexample).
+   */
+  oracleExempt?: string;
   givens: GivenDecl[];
   sockets: SocketDecl[];
   tools: Toolset;

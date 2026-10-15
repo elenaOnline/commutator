@@ -9,12 +9,14 @@ import type { AtomDecl, Card, Pallet, Term } from '../../src/kernel/types';
 import { catalogue } from '../../src/groups';
 import { REGISTRY } from '../../src/levels/levels';
 import { BOOK_89 as LEVELS, lv89 as lvOf } from './kit-w89';
+import { MEMBERS_IDS } from './members-ids';
 import { CARDS as C8 } from '../../src/levels/book/w08';
 import { CARDS as C9 } from '../../src/levels/book/w09';
 import { type AtomSpec, type ConceptCard, type Figure, type MathCell } from '../../src/levels/cards';
-import { RELS, displayTerm, parseDisplay, parseDisplayFig, type DFactor } from '../../src/hud/figures/parse';
+import { RELS, displayTerm, parseDisplay, parseDisplayFig, parseSubgroup, type DFactor } from '../../src/hud/figures/parse';
 
-const CARDS: Record<string, ConceptCard[]> = { ...C8, ...C9 };
+// the Members level P11.1 has its own card test (members-cards.test.ts)
+const CARDS: Record<string, ConceptCard[]> = Object.fromEntries(Object.entries({ ...C8, ...C9 }).filter(([id]) => !MEMBERS_IDS.includes(id)));
 const LEVEL_BY_ID: Record<string, (typeof LEVELS)[number]> = Object.fromEntries(LEVELS.map((l) => [l.id, l]));
 void lvOf;
 const words = (s: string) => s.trim().split(/\s+/).filter(Boolean).length;
@@ -227,8 +229,9 @@ describe('Book worlds 8–9 · concept cards', () => {
           switch (f.k) {
             case 'math': {
               const atoms = atomsOf(id, f.atoms);
-              for (const r of f.rows) for (const x of r.seq) {
+              for (const r of f.rows) for (const [xi, x] of r.seq.entries()) {
                 if (typeof x === 'string' && (RELS.includes(x) || x === '⊥')) continue;
+                if (r.seq[xi - 1] === '∈' && parseSubgroup(cellText(x))) continue; // a subgroup, drawn as its Euler set
                 const fs = parseDisplay(cellText(x), atoms);
                 expect(fs, `${where}: ${cellText(x)}`).not.toBeNull();
                 if (typeof x !== 'string') for (const [from, to] of x.br) { expect(from, where).toBeGreaterThanOrEqual(0); expect(to, where).toBeGreaterThan(from); expect(to, `${where}: brace ${from}–${to} over ${x.t}`).toBeLessThanOrEqual(fs!.length); }

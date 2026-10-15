@@ -1,7 +1,8 @@
 // THE BOOK · World 14 — The Fundamental Homomorphism Theorem (Pinter 16). See design/pinter/SYNTHESIS.md §3 and design/pinter/AUTHOR-BRIEF.md.
 //
-// Phase-A levels only: the three side orders P16.s1, P16.s2, P16.s3 (equational, no new kernel objects). P16.1 (Fibres Are Cosets) and
-// P16.2 (The Fundamental Theorem) need Maps and are left as placeholders in LEVELS, in campaign order.
+// P16.1 (Fibres Are Cosets, a Hom Tower; saved as the fibre lemma ⟹ / ⟸) and P16.2 (The Fundamental Theorem, the campaign finale,
+// restated per reviews/synthesis-adversary.md M1: two level homs f : G → K and π : G → Q with the same kernel; the fibre lemma is used at
+// both, in opposite directions) are phase C. The three side orders P16.s1–s3 are equational (phase A).
 //
 // Notation (state per level):
 //  · P16.s1 is words and inverses only (no exponents).
@@ -9,7 +10,7 @@
 //  · P16.s3 uses pow nodes with a ℤ Tower n₁: aⁿ is a pow node.
 // Toolset: lift, merge, suppose, press (P13.1), the earned cancel / witness / socks, and the power imports handed out by P10.4.
 // P16.s1 relies on the player's saved double inverse (P4.4).
-import type { LevelManifest, Monomial, Pallet, Poly, Term, Toolset } from '../../kernel/types';
+import type { Card, LevelManifest, Monomial, Pallet, PatFact, Poly, SortRef, StructBinder, Term, Toolset } from '../../kernel/types';
 import type { AtomSpec, ConceptCard } from '../cards';
 
 const A = (id: string): Term => ({ k: 'atom', id });
@@ -36,9 +37,64 @@ const EARNED = ['cancel', 'witness', 'socks'];
 /** The power imports as the book has handed them out by P10.4 (add, zero; conjugate; multiply, one; identity). */
 const POW = ['power.add', 'power.zero', 'power.conjugate', 'power.multiply', 'power.one', 'power.identity'];
 const W14 = (): Toolset => tools({ lift: true, merge: true, suppose: true, press: true, schemas: [...EARNED, ...POW] });
+/** Homomorphism levels also list the import hom.pow (from P14.3 on). */
+const W14H = (): Toolset => tools({ lift: true, merge: true, suppose: true, press: true, schemas: [...EARNED, ...POW, 'hom.pow'] });
+
+const app = (fn: string, ...args: Term[]): Term => ({ k: 'app', fn, args });
+const eS = (s: string): Term => ({ k: 'e', s });
+const peq = (l: Term, r: Term): PatFact => ({ k: 'eq', l, r });
+/** ∀S, T groups. ∀f : S → T (a Hom Tower generalized). */
+const S: SortRef = { k: 'sortmeta', id: 'S' };
+const HOM: StructBinder[] = [{ k: 'grp', id: 'S' }, { k: 'grp', id: 'T' }, { k: 'hom', id: 'f', dom: S, cod: { k: 'sortmeta', id: 'T' } }];
+const fT = (t: Term): Term => app('f', t);
+const homCond = (premises: PatFact[], concl: PatFact): Card => ({ k: 'cond', metas: ['a', 'b'], premises, concl, binds: HOM, metaSorts: { a: S, b: S } });
+/** P16.2: G, and two homomorphisms out of it, f : G → K and π : G → Q. */
+const GKQ = {
+  sorts: [{ id: 'G', kind: 'group' as const, label: 'G' }, { id: 'K', kind: 'group' as const, label: 'K' }, { id: 'Q', kind: 'group' as const, label: 'Q' }],
+  maps: [{ id: 'f', label: 'f', args: ['G'], res: 'K', kind: 'hom' as const }, { id: 'pi', label: 'π', args: ['G'], res: 'Q', kind: 'hom' as const }],
+};
+const condG = (metas: string[], premises: PatFact[], concl: PatFact): Card => ({ k: 'cond', metas, premises, concl, metaSorts: Object.fromEntries(metas.map((m) => [m, 'G'])) });
 
 export const LEVELS: LevelManifest[] = [
-  // P16.1 Fibres Are Cosets, P16.2 The Fundamental Theorem — need Maps (Hom Tower, two homomorphisms). Not authored here.
+  {
+    // Hom Tower f₁ : G₁ → K₁, element Towers a₁, b₁ in G₁. Two Assume rooms.
+    //  ⟹: desk f(a₁) = f(b₁) · Spool f(a₁b₁⁻¹) → hom law → your f(x⁻¹) = f(x)⁻¹ at f₁ → desk (f(a₁) ⟶ f(b₁)) → cancel → gate → ∀.
+    //  ⟸: desk f(a₁b₁⁻¹) = e → hom law → your f(x⁻¹) = f(x)⁻¹ at f₁ → multiply right by f(b₁) → cancel → pop → gate → ∀.
+    // Both ∀ outputs are saved: the fibre lemma ⟹ and ⟸, for every homomorphism.
+    id: 'P16.1', index: 67, campaign: 'book', world: 14, chapter: 16, title: 'Fibres Are Cosets',
+    method: 'Preservation', source: 'Pinter 16 Theorem 1',
+    insight: 'f(a) = f(b) and f(ab⁻¹) = e say the same thing: two elements have the same image exactly when they lie in the same coset of the kernel.',
+    memo: 'Let f be any homomorphism. Show f(a) = f(b) exactly when f(ab⁻¹) = e.',
+    atoms: [], givens: [],
+    sockets: [
+      { id: 'fwd', target: homCond([peq(fT(u), fT(v))], peq(fT(P(u, I(v))), eS('T'))), allowedGivens: [] },
+      { id: 'bwd', target: homCond([peq(fT(P(u, I(v))), eS('T'))], peq(fT(u), fT(v))), allowedGivens: [] },
+    ],
+    tools: W14H(), unlocks: [],
+    idea: 'Same image means same coset of the kernel.',
+    par: { parts: 17, axioms: 14 }, uses: ['P9.4', 'P14.1'],
+  },
+  {
+    // Level homs f : G → K, π : G → Q with the same kernel (givens K1, K2). Element Towers a₁, b₁ in G. Two Assume rooms.
+    //  wd:  desk π(a₁) = π(b₁) → your fibre ⟹ at π → Theorem K2 at a₁b₁⁻¹ → your fibre ⟸ at f → gate → ∀.
+    //  inj: desk f(a₁) = f(b₁) → your fibre ⟹ at f → Theorem K1 at a₁b₁⁻¹ → your fibre ⟸ at π → gate → ∀.
+    id: 'P16.2', index: 68, campaign: 'book', world: 14, chapter: 16, title: 'The Fundamental Theorem',
+    method: 'If–then', source: 'Pinter 16 Theorem 2 (restated without the induced map)',
+    insight: 'Your fibre lemma, used at π and then at f, moves a question about images into the shared kernel and back out. That is the whole content of G/ker f ≅ f(G).',
+    memo: 'f and π have the same kernel. Show they identify exactly the same elements.',
+    atoms: [], ...GKQ,
+    givens: [
+      { id: 'K1', name: 'ker f ⊆ ker π', fact: condG(['x'], [peq(app('f', x), eS('K'))], peq(app('pi', x), eS('Q'))) },
+      { id: 'K2', name: 'ker π ⊆ ker f', fact: condG(['x'], [peq(app('pi', x), eS('Q'))], peq(app('f', x), eS('K'))) },
+    ],
+    sockets: [
+      { id: 'wd', target: condG(['a', 'b'], [peq(app('pi', u), app('pi', v))], peq(app('f', u), app('f', v))), allowedGivens: ['K2'] },
+      { id: 'inj', target: condG(['a', 'b'], [peq(app('f', u), app('f', v))], peq(app('pi', u), app('pi', v))), allowedGivens: ['K1'] },
+    ],
+    tools: W14H(), unlocks: [],
+    idea: 'The Fundamental Homomorphism Theorem, from your own lemmas.',
+    par: { parts: 10, axioms: 10 }, uses: ['P16.1', 'P14.1'],
+  },
   {
     // Notation: words and inverses, Towers a₁, b₁, x₁, y₁. Relies on the player's saved double inverse (P4.4).
     // s1: Spool a(xy)a⁻¹ → insert a⁻¹a between x and y (right rail). s2: Spool a(bxb⁻¹)a⁻¹ → b⁻¹a⁻¹ ⟶ (ab)⁻¹ (inverse of a product, backwards).
@@ -104,6 +160,34 @@ void AT; void y;
 
 /** Concept cards for this world's levels, keyed by level id. */
 export const CARDS: Record<string, ConceptCard[]> = {
+
+  'P16.1': [
+    {
+      title: 'Fibres',
+      body: 'Let $f: G → K$ be a homomorphism. The **fibre** of $f$ over an element $k$ of $K$ is the set of all $x$ in $G$ with $f(x) = k$. Two elements lie in the same fibre when they have the same image. This order compares that with the kernel, for every homomorphism at once.',
+    },
+    {
+      title: 'Save both directions',
+      body: 'Each dock is one direction of an “exactly when”. Save each ∀ result to the Lemma Book. The last order of the book uses both of them.',
+    },
+  ],
+
+  'P16.2': [
+    {
+      title: 'The Fundamental Homomorphism Theorem',
+      long: true,
+      body: 'Let $f: G → K$ be a homomorphism. Its **range**, $\\operatorname{ran} f$, is the set of all images $f(x)$. The **Fundamental Homomorphism Theorem** says that $G/\\ker f \\cong \\operatorname{ran} f$, read “is isomorphic to”: the quotient by the kernel is the range, up to renaming. The isomorphism matches the coset of $x$ with $f(x)$. Here $\\pi: G → Q$ stands for the natural homomorphism onto $G/\\ker f$, so $\\pi$ and $f$ have the same kernel. The dock **wd** says the matching is well defined: equal cosets give equal images. The dock **inj** says it is one-to-one. It respects products because $f$ and $\\pi$ do, and it reaches every image by definition.',
+    },
+    {
+      title: 'Built from your own lemmas',
+      body: 'This proof rests on results you proved and saved. In chapter 4 you showed that the only idempotent is $e$. In chapter 9 that gave $f(e) = e$ for every homomorphism, and then $f(x^{-1}) = f(x)^{-1}$. Those carried the kernel in chapter 14 and the fibre lemma in the last order, saved for every homomorphism.',
+    },
+    {
+      title: 'Where the book goes next',
+      long: true,
+      body: 'Lagrange’s theorem says the order of a subgroup divides the order of the group. Its partial converses come next. **Cauchy’s theorem** says that if a prime $p$ divides the order of a finite group, then the group has an element of order $p$. The **Sylow theorems** say more. If $p^k$ is the largest power of $p$ that divides the order, then the group has a subgroup of order $p^k$, and any two such subgroups are conjugate. After groups, the book turns to rings and fields.',
+    },
+  ],
 
   'P16.s1': [
     {

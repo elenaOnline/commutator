@@ -83,7 +83,7 @@ describe('Members: the fact kind and its steps', () => {
     const { room: r, desks } = p.openDesks([['mem', 'a', 'H']]);
     const iv = p.apply(SCH('sub.inv'), [desks[0]!], { x: a }, { H: 'H' });
     const ex = p.exit(r, iv);
-    expect(p.text(ex)).toBe('a ∈ H ⇒ a⁻¹ ∈ H');
+    expect(p.text(ex)).toBe('a ∈ H ⟹ a⁻¹ ∈ H');
     oracleOk(p);
   });
 });
@@ -140,14 +140,14 @@ describe('P12.1: refl, symm, trans for every subgroup (Subgroup Tower, one and t
     // ∀ inside the room is refused: H₁ (and x₁, y₁) appear in the assumption
     expect(p.tryNode({ scope: r1.room, k: 'generalize', input: db }).error).toMatch(/isn't arbitrary/);
     const g2 = p.generalize(p.exit(r1.room, db));
-    expect(p.text(g2)).toBe('∀H ≤ G. ∀x, y. xy⁻¹ ∈ H ⇒ yx⁻¹ ∈ H');
+    expect(p.text(g2)).toBe('∀H ≤ G. ∀x, y. xy⁻¹ ∈ H ⟹ yx⁻¹ ∈ H');
     // trans: two desks
     const r2 = p.openDesks([['mem', P(X, I(Y)), H1], ['mem', P(Y, I(Z)), H1]]);
     const ml = p.apply(SCH('sub.mul'), r2.desks, { x: P(X, I(Y)), y: P(Y, I(Z)) }, { H: H1 });
     const cn = p.step(ml, { k: 'rewrite', rule: { k: 'axiom', id: 'invL' }, dir: 'fwd', at: span('l', 1, 3), subst: { x: Y } });
     const un = p.step(cn, { k: 'rewrite', rule: { k: 'axiom', id: 'unitL' }, dir: 'fwd', at: span('l', 1, 3), subst: { x: I(Z) } });
     const g3 = p.generalize(p.exit(r2.room, un));
-    expect(p.text(g3)).toBe('∀H ≤ G. ∀x, y, z. xy⁻¹ ∈ H, yz⁻¹ ∈ H ⇒ xz⁻¹ ∈ H');
+    expect(p.text(g3)).toBe('∀H ≤ G. ∀x, y, z. xy⁻¹ ∈ H, yz⁻¹ ∈ H ⟹ xz⁻¹ ∈ H');
     for (const s of ['refl', 'symm', 'trans']) sockOk(p, s);
     for (const g of [g1, g2, g3]) expect(K.lemmaEligibility(p.fact(g), p.res.nodes[g]!.deps, p.graph, p.ctx)).toEqual({ ok: true });
     oracleOk(p);
@@ -188,7 +188,7 @@ describe('P13.1: three desks, cosets equal or disjoint', () => {
     const hb = st(st(p.apply(SCH('sub.mul'), [hx, desks[1]!], { x: P(Hh, I(X)), y: P(X, I(B)) }, { H: H1 }),
       { k: 'axiom', id: 'invL' }, 'fwd', 1, 3, { x: X }), { k: 'axiom', id: 'unitL' }, 'fwd', 1, 3, { x: I(B) });
     const g = p.generalize(p.exit(room, hb));
-    expect(p.text(g)).toBe('∀H ≤ G. ∀x, y, z, h. xy⁻¹ ∈ H, xz⁻¹ ∈ H, hy⁻¹ ∈ H ⇒ hz⁻¹ ∈ H'); // a, b are this order's constants
+    expect(p.text(g)).toBe('∀H ≤ G. ∀x, y, z, h. xy⁻¹ ∈ H, xz⁻¹ ∈ H, hy⁻¹ ∈ H ⟹ hz⁻¹ ∈ H'); // a, b are this order's constants
     sockOk(p);
     oracleOk(p);
   });

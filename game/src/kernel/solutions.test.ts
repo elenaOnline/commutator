@@ -196,7 +196,7 @@ describe('campaign via offers only', () => {
     n = p.play(n, span('l', 0, 1), /Double Flip/);
     expect(p.text(n)).toBe('x₁ = y₁⁻¹');
     const g = p.generalize(p.exit(room, n));
-    expect(p.text(g)).toBe('∀x, y. x⁻¹ = y ⇒ x = y⁻¹');
+    expect(p.text(g)).toBe('∀x, y. x⁻¹ = y ⟹ x = y⁻¹');
     expect(solved(p)).toBeTruthy();
   });
 

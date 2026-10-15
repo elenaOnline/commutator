@@ -73,7 +73,7 @@ describe('P12.s1 Differ by a Power', () => {
     const { comp } = deliver(f);
     const txt = (id: string) => K.factText(comp.sockets[id]!.instance!, K.labelsOf(L.atoms));
     expect(txt('s1')).toBe('∀x. xx⁻¹ = c^0');
-    expect(txt('s2')).toBe('∀x, y, n. xy⁻¹ = c^n ⇒ yx⁻¹ = c^(-n)');
-    expect(txt('s3')).toBe('∀x, y, z, n, m. xy⁻¹ = c^n, yz⁻¹ = c^m ⇒ xz⁻¹ = c^(m+n)');
+    expect(txt('s2')).toBe('∀x, y, n. xy⁻¹ = c^n ⟹ yx⁻¹ = c^(-n)');
+    expect(txt('s3')).toBe('∀x, y, z, n, m. xy⁻¹ = c^n, yz⁻¹ = c^m ⟹ xz⁻¹ = c^(m+n)');
   }, 120_000);
 });

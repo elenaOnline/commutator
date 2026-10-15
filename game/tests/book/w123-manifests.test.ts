@@ -76,6 +76,15 @@ describe('Book worlds 1–3 manifests', () => {
   it('memos keep clear of the old plant / idle / resets voice; no private names', () => {
     for (const l of BOOK_123) expect(l.memo + ' ' + l.title, l.id).not.toMatch(/\b(plant|idle|resets?|rotation|Rotations|Seams|Idle Twice)\b/i);
   });
+  it('lemmaNames: one standard name per saved lemma, in dock order', () => {
+    const names = Object.fromEntries(BOOK_123.filter((l) => l.lemmaNames).map((l) => [l.id, l.lemmaNames]));
+    expect(names).toEqual({
+      'P4.4': ['double inverse'],
+      'P4.7': ['the only idempotent is e'],
+      'P4.9': ['xy = yx ⟹ xyx⁻¹y⁻¹ = e', 'xyx⁻¹y⁻¹ = e ⟹ xy = yx'],
+      'P4.10': ['xy = e ⟹ yx = e'],
+    });
+  });
   it('P3.1 starts with a pre-placed Spool; nothing else does', () => {
     expect(BOOK_123.filter((l) => l.preStarts?.length).map((l) => l.id)).toEqual(['P3.1']);
   });

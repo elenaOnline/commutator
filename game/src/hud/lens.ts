@@ -11,7 +11,7 @@ import { beads as beadsInline, rail } from './beads';
 import { FAMILY, SUBGROUP } from '../ui/tokens';
 import { glyphHTML } from '../ui/glyph';
 import {
-  atomsAll, camp, deskFact, dockAnswers, openView, esc, fH, h, huesAll, itemHTML, labelsAll, machineName, machineRect, nameHTML, richHTML, safe, spec, tH,
+  atomsAll, camp, deskFact, dockAnswers, subgroupsOf, openView, esc, fH, h, huesAll, itemHTML, labelsAll, machineName, machineRect, nameHTML, richHTML, safe, spec, tH,
   towerLabelSet, towerVars, varIdsOf, varSortsOf, type S, type Store,
 } from './util';
 import { GROUP_ORDER, entryFor, libCard, libraryFor, recipeKey, type AnyRecipe, type LibEntry } from './library';
@@ -21,6 +21,8 @@ import { braceEl, markVarBeads, stripEl } from './strip';
 import { isMirrored, withOrientation, withSide } from './merge';
 import { nameSlot, termSlot } from './slot';
 import { roomAssumptionsEditor } from './roomedit';
+import { mapsInScope } from '../factory/catalog';
+import { sortCtx } from '../ui/sorts';
 import { eulerBlobHTML } from '../ui/euler';
 
 const pathKey = (p: number[]) => p.join('.');
@@ -192,11 +194,12 @@ export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () 
     const tcfg0 = cfg.kind === 'tower' ? cfg : null;
     const given0 = cfg.kind === 'given' ? s.level.givens.find((g) => g.id === cfg.givenId) : undefined;
     const tsub = tcfg0 ? (tcfg0 as { sub?: 'sub' | 'normal' }).sub : undefined;
-    const sub = tcfg0 ? (tsub ? (tsub === 'normal' ? 'an arbitrary normal subgroup' : 'an arbitrary subgroup') : tcfg0.sort === 'Z' ? 'an arbitrary integer, for exponents' : 'an arbitrary element')
+    const tstr = tcfg0 as { group?: boolean; hom?: { dom: string; cod: string } } | null;
+    const sub = tcfg0 ? (tstr?.group ? 'an arbitrary group' : tstr?.hom ? 'an arbitrary homomorphism' : tsub ? (tsub === 'normal' ? 'an arbitrary normal subgroup' : 'an arbitrary subgroup') : tcfg0.sort === 'Z' ? 'an arbitrary integer, for exponents' : 'an arbitrary element')
       : isVerb ? (picking ? sp.blurb : '') : sp.blurb;
     const title = tcfg0 ? machineName(m) : given0 ? given0.name : sp.name;
     const varHTML = (l: string) => { const mm = /^(.*?)([₀-₉]*)$/.exec(l)!; return `<i>${esc(mm[1]!)}</i>${mm[2] ? `<sub>${[...mm[2]].map((c) => c.charCodeAt(0) - 0x2080).join('')}</sub>` : ''}`; };
-    const glyph = tcfg0 ? `<span class="h3-tglyph">${tcfg0.label ? varHTML(tcfg0.label) : ''}${tsub ? (tsub === 'normal' ? '⊴<i>G</i>' : '≤<i>G</i>') : tcfg0.sort === 'Z' ? '∈ℤ' : '∈<i>G</i>'}</span>` : glyphHTML(sp.glyph);
+    const glyph = tcfg0 ? `<span class="h3-tglyph">${tcfg0.label ? varHTML(tcfg0.label) : ''}${tstr?.group ? '' : tstr?.hom ? ':' : tsub ? (tsub === 'normal' ? '⊴<i>G</i>' : '≤<i>G</i>') : tcfg0.sort === 'Z' ? '∈ℤ' : '∈<i>G</i>'}</span>` : glyphHTML(sp.glyph);
     const head = h('header', { class: 'h3-lens-head' },
       h('span', { class: `h3-glyph ${tsub ? 'fam-subg' : `fam-${fam}`}${fam === 'lemma' && !tsub ? ' earned' : ''}`, style: `--ink:${tsub ? SUBGROUP.ink : FAMILY[fam].ink}`, html: glyph }),
       h('span', { class: 'h3-lens-title' }, h('b', { html: given0 ? nameHTML(title) : esc(title) }), sub ? h('span', { class: 'h3-lens-sub' }, sub) : null),
@@ -455,23 +458,39 @@ export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () 
       sec.append(h('p', { class: 'h3-note h3-first' }, m.kind === 'theorem' ? 'Theorems made here travel by belt. Route one into the card port.' : 'Equations made here travel by belt. Route one into the rule port.'));
       safe(() => localStorage.setItem('commutator/seen-routed', '1'), undefined);
     } else if (entry?.note) sec.append(h('div', { class: 'h3-recipe-note' }, entry.note));
-    // Book phase B, reuse: which subgroup plays each subgroup parameter of the card (H in "∀H ≤ G …")
+    // Books phases B–C, reuse: which subgroup / homomorphism / action plays each parameter of the card (H in
+    // "∀H ≤ G …", f in "∀f : G → K …"). Subgroups are drawn as their Euler sets, maps by name and signature.
     const plays = s.compiled?.machines?.[m.id]?.structs ?? [];
+    const subIds = new Set(subgroupsOf(s).map((x) => x.id));
+    const maps = safe(() => mapsInScope(s.ctx, s.canvas as never), []);
+    const L = labelsAll(s);
+    const sig = (id: string) => { const mp = maps.find((x) => x.id === id); return mp ? ` : ${mp.args.map((a) => esc(L[a] ?? a)).join(' × ')} → ${esc(L[mp.res] ?? mp.res)}` : ''; };
     for (const st of plays) {
-      // NORMS: plain words, normal case — "H is" this subgroup or that one
-      const row = h('div', { class: 'h3-plays' }, h('span', { class: 'h3-plays-k math', html: `<i class="m-subg">${esc(st.binder)}</i> <span class="h3-plays-w">is</span>` }));
-      if (!st.options.length) row.append(h('span', { class: 'h3-dim' }, st.normal ? 'no normal subgroup here' : 'no subgroup here'));
+      const isSub = st.options.length ? st.options.every((o) => subIds.has(o.id)) : /^\$?\d*:?[HKNL]/.test(st.binder);
+      const bname = esc(st.binder.replace(/^\$\d+:/, ''));
+      // NORMS: plain words, normal case — "H is" this subgroup or that one; "f is" this homomorphism or that one
+      const row = h('div', { class: 'h3-plays' }, h('span', { class: 'h3-plays-k math', html: `<i class="${isSub ? 'm-subg' : ''}">${bname}</i> <span class="h3-plays-w">is</span>` }));
+      if (!st.options.length) row.append(h('span', { class: 'h3-dim' }, isSub ? (st.normal ? 'no normal subgroup here' : 'no subgroup here') : 'no homomorphism here with the right groups'));
       for (const o of st.options) {
         const on = st.chosen === o.id;
-        const b = h('button', { class: `h3-subchip${on ? ' on' : ''}`, 'aria-pressed': String(on), title: `${o.label} plays ${st.binder}`, html: eulerBlobHTML(o.label, 15, { normal: st.normal }) });
+        const b = isSub
+          ? h('button', { class: `h3-subchip${on ? ' on' : ''}`, 'aria-pressed': String(on), title: `${o.label} plays ${bname}`, html: eulerBlobHTML(o.label, 15, { normal: st.normal }) })
+          : h('button', { class: `h3-mapchip math${on ? ' on' : ''}`, 'aria-pressed': String(on), title: `${o.label} plays ${bname}`, html: `<i>${esc(o.label)}</i>${sig(o.id)}` });
         b.addEventListener('click', () => {
           const c = m.config as MachineConfig & { structs?: Record<string, string> };
           if (c.kind === 'theorem') store.configure(m.id, { ...c, structs: { ...(c.structs ?? {}), [st.binder]: o.id } } as MachineConfig);
+          else if (c.kind === 'rewriter' && c.recipe?.k === 'law' && c.recipe.ref.k === 'schema') {
+            const ref = c.recipe.ref;
+            store.configure(m.id, { ...c, recipe: { k: 'law', ref: { ...ref, structs: { ...(ref.structs ?? {}), [st.binder]: o.id } } } } as MachineConfig);
+          }
         });
         row.append(b);
       }
       sec.append(row);
     }
+    // a refusal says why, in words (e.g. "f₁ goes from G₁ to H₁; this card needs a map from a group to itself")
+    const stt = s.compiled?.machines?.[m.id]?.status;
+    if (plays.length && stt && stt.k !== 'ok' && /group|hom|plays|subgroup/i.test(stt.reason)) sec.append(h('p', { class: 'h3-reason jammed', html: richHTML(stt.reason, s.level) }));
     return sec;
   };
 
@@ -524,6 +543,8 @@ export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () 
     sortZ.addEventListener('click', () => setSort('Z'));
     // Book phase B: a Subgroup Tower declares H₁ ≤ G (any subgroup) or N₁ ⊴ G (any normal subgroup)
     const sub = (cfg as { sub?: 'sub' | 'normal' }).sub;
+    // ℤ Towers exist once integer exponents do (the Book: chapter 10 on); NORMS: define a symbol where it first appears (#19)
+    const zOk = isZ || s.level.campaign !== 'book' || s.level.chapter >= 10;
     const subOk = !!sub || (s.level.campaign === 'book' && (s.level.subgroups !== undefined || s.level.chapter >= 12));
     const sortH = h('button', { class: `h3-seg math${sub === 'sub' ? ' on' : ''}`, 'aria-pressed': String(sub === 'sub'), title: 'an arbitrary subgroup of G', html: '≤ <i>G</i>' });
     const sortN = h('button', { class: `h3-seg math${sub === 'normal' ? ' on' : ''}`, 'aria-pressed': String(sub === 'normal'), title: 'an arbitrary normal subgroup of G', html: '⊴ <i>G</i>' });
@@ -533,15 +554,52 @@ export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () 
       setCfg({ sub: k, sort: 'G', label: unique(base, 'G') } as Partial<MachineConfig>);
     };
     sortH.addEventListener('click', () => setSub('sub'));
+    // Book phase C: structures as Towers — a group G₁ ("let G₁ be any group"), a homomorphism f₁ : G₁ → H₁ ("let f₁ be
+    // any homomorphism"), and an element Tower's carrier (x₁ in G, in K, or in a set Ω) in a many-sorted level
+    const tc = cfg as { group?: boolean; hom?: { dom: string; cod: string }; carrier?: string };
+    const grpT = !!tc.group, homT = tc.hom;
+    const L0 = labelsAll(s);
+    const many = !!(s.level.sorts?.length || s.level.maps?.length) || (s.level.campaign === 'book' && s.level.chapter >= 9);
+    const groupsInScope = (): { id: string; label: string }[] => {
+      const env = sortCtx.cur.env;
+      const out = env ? [...env.sorts.values()].filter((x) => x.kind === 'group').map((x) => ({ id: x.id, label: x.label })) : [{ id: 'G', label: 'G' }];
+      for (const mm of s.canvas.machines) { const c = mm.config as { kind: string; group?: boolean; varId?: string; label?: string }; if (c.kind === 'tower' && c.group && c.varId && c.varId !== cfg.varId && !out.some((x) => x.id === c.varId)) out.push({ id: c.varId, label: c.label ?? c.varId }); }
+      return out;
+    };
+    const setStruct = (patch: Record<string, unknown>, base: string) => setCfg({ sub: undefined, group: undefined, hom: undefined, carrier: undefined, sort: 'G', label: unique(base, 'G'), ...patch } as Partial<MachineConfig>);
+    const structRows = (): HTMLElement[] => {
+      if (!many) return [];
+      const rows: HTMLElement[] = [];
+      const kinds = h('div', { class: 'h3-ctl' }, h('span', { class: 'h3-ctl-k' }, 'or let'));
+      const sg = h('span', { class: 'h3-segs' });
+      const kb = (on: boolean, html: string, title: string, act: () => void) => { const b = h('button', { class: `h3-seg math${on ? ' on' : ''}`, 'aria-pressed': String(on), title, html }); b.addEventListener('click', () => { if (!on) act(); }); sg.append(b); };
+      const gs = groupsInScope();
+      kb(grpT, `<i>G</i>₁ a group`, 'any group', () => setStruct({ group: true }, 'G'));
+      kb(!!homT, `<i>f</i> : <i>G</i> → <i>H</i>`, 'any homomorphism', () => setStruct({ hom: { dom: gs[0]?.id ?? 'G', cod: gs[1]?.id ?? gs[0]?.id ?? 'G' } }, 'f'));
+      kinds.append(sg);
+      rows.push(kinds);
+      if (homT) {
+        const pick = (which: 'dom' | 'cod') => seg(which === 'dom' ? 'from' : 'to', gs.map((g) => [g.id, `<i>${esc(g.label)}</i>`] as [string, string]), homT[which], (id) => setCfg({ hom: { ...homT, [which]: id } } as Partial<MachineConfig>));
+        rows.push(pick('dom'), pick('cod'));
+      }
+      // an element Tower lives in a group or a set: which one (only when there is a choice)
+      if (!grpT && !homT && !sub && !isZ) {
+        const env = sortCtx.cur.env;
+        const carriers = env ? [...env.sorts.values()] : [];
+        if (carriers.length > 1) rows.push(seg('in', carriers.map((c) => [c.id, `<i>${esc(c.label)}</i>`] as [string, string]), tc.carrier ?? 'G', (id) => setCfg({ carrier: id === 'G' ? undefined : id } as Partial<MachineConfig>)));
+      }
+      return rows;
+    };
     sortN.addEventListener('click', () => setSub('normal'));
     if (sub) { sortG.classList.remove('on'); sortZ.classList.remove('on'); }
     sortG.addEventListener('click', () => { if (sub) setSub(undefined); });
     const v = cfg.label || (isZ ? 'n' : 'x');
     sec.append(
       h('div', { class: 'h3-label' }, 'Declares'),
-      h('div', { class: 'h3-let' }, h('span', { class: 'math h3-let-k' }, 'Let'), ns.slot, h('span', { class: 'h3-segs h3-sortsegs' }, sortG, sortZ, ...(subOk ? [sortH, sortN] : []))),
+      h('div', { class: 'h3-let' }, h('span', { class: 'math h3-let-k' }, 'Let'), ns.slot, h('span', { class: 'h3-segs h3-sortsegs' }, sortG, ...(zOk ? [sortZ] : []), ...(subOk ? [sortH, sortN] : []))),
       ns.chips,
-      h('p', { class: 'h3-note h3-lead' }, sub ? `${v} can be any ${sub === 'normal' ? 'normal ' : ''}subgroup of G. Prove it for ${v}, and ∀ makes it true for every ${sub === 'normal' ? 'normal ' : ''}subgroup.` : isZ ? `${v} can be any integer. Prove it for ${v}, and ∀ makes it true for all.` : `${v} can be anything. Prove it for ${v}, and ∀ makes it true for all.`));
+      ...structRows(),
+      h('p', { class: 'h3-note h3-lead' }, grpT ? `${v} can be any group. Prove it for ${v}, and ∀ makes it true for every group.` : homT ? `${v} can be any homomorphism from ${esc(L0[homT.dom] ?? homT.dom)} to ${esc(L0[homT.cod] ?? homT.cod)}. Prove it for ${v}, and ∀ makes it true for every homomorphism.` : sub ? `${v} can be any ${sub === 'normal' ? 'normal ' : ''}subgroup of G. Prove it for ${v}, and ∀ makes it true for every ${sub === 'normal' ? 'normal ' : ''}subgroup.` : isZ ? `${v} can be any integer. Prove it for ${v}, and ∀ makes it true for all.` : `${v} can be anything. Prove it for ${v}, and ∀ makes it true for all.`));
     // where it is used: machines whose inputs or output mention the symbol
     const users: { id: string; name: string }[] = [];
     for (const mm of s.canvas.machines) {
@@ -574,7 +632,8 @@ export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () 
       sec.append(h('div', { class: 'h3-label' }, 'Generalize'));
       const inEl = work ? itemShow(s, work, L, H, 'small') : h('span', { class: 'h3-dim' }, 'a fact about Tower variables');
       const outEl = out ? itemShow(s, out, L, H, 'small') : h('span', { class: 'h3-dim math h3-etc' }, '∀ …');
-      sec.append(h('div', { class: 'h3-genline' }, h('span', { class: 'h3-gin' }, inEl), h('span', { class: 'h3-implies math' }, '⟹'), h('span', { class: 'h3-gout' }, outEl)));
+      // the machine's own step is NOT an implication: input above, a plain divider that says "becomes", output below (#21)
+      sec.append(h('div', { class: 'h3-genline h3-genstack' }, h('span', { class: 'h3-gin' }, inEl), h('span', { class: 'h3-becomes' }, 'becomes'), h('span', { class: 'h3-gout' }, outEl)));
     } else {
       const room = s.canvas.rooms.find((r) => r.id === (m.config as { room?: string }).room);
       if (room) {
@@ -962,7 +1021,16 @@ export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () 
             sec.append(h('div', { class: 'h3-ctl' }, h('span', { class: 'h3-ctl-k math', html: '<i>r</i> =' }), inp, h('span', { class: 'h3-dim' }, 'copies')));
           }
         }
-        if (r.k === 'cancel' || r.k === 'law' || r.k === 'routed') sec.append(toggle('tidy', c.tidy, 'drop the e it leaves', (tidy) => setCfg({ tidy })));
+        // "tidy" only where a rewrite can leave an e: cancelling always does; a law only if the side it writes has an e (#22)
+        const writesE = (() => {
+          if (r.k === 'cancel') return true;
+          if (r.k !== 'law' && r.k !== 'routed') return false;
+          const rule = r.k === 'law' ? libCard(s, r.ref) : (() => { const v = res?.inputs['rule']; return v?.k === 'card' ? v.card : v?.k === 'fact' ? v.fact : null; })();
+          if (!rule || !('l' in rule)) return r.k === 'routed';
+          const dst = c.dir === 'rev' ? rule.l : rule.r;
+          return JSON.stringify(dst).includes('"k":"e"');
+        })();
+        if (writesE) sec.append(toggle('tidy', c.tidy, 'drop the e it leaves', (tidy) => setCfg({ tidy })));
         break;
       }
       case 'operator': {
@@ -971,6 +1039,23 @@ export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () 
           const t = '<i class="math">t</i>';
           sec.append(seg('side', [['left', `${t}·LHS = ${t}·RHS`], ['right', `LHS·${t} = RHS·${t}`]], r.side, (side) => setCfg({ recipe: { ...r, side } })));
           knob('t', r.t, (tt) => setCfg({ recipe: { ...r, t: tt } }));
+        }
+        // Book phase C: apply f to both sides — for a two-argument map (σ(g, p)) which argument the equation fills,
+        // and the other argument(s) as term knobs (or ports)
+        if (r?.k === 'apply') {
+          const mp = safe(() => mapsInScope(s.ctx, s.canvas as never), []).find((x) => x.id === r.fn);
+          const nm = `<i>${esc(mp?.label ?? r.fn)}</i>`;
+          if (mp && mp.args.length > 1) {
+            const slot = r.slot ?? 0;
+            const sl = (x: string) => esc(L[x] ?? x);
+            sec.append(seg('the equation fills', mp.args.map((a, i) => [String(i), `${nm}(${mp.args.map((_, j) => (j === i ? '<i>u</i>' : '·')).join(', ')}) <span class="h3-dim">in ${sl(a)}</span>`] as [string, string]), String(slot), (v) => setCfg({ recipe: { ...r, slot: Number(v), others: [] } })));
+            let j = 0;
+            mp.args.forEach((a, i) => {
+              if (i === slot) return;
+              const jj = j++;
+              knob(`argument ${i + 1}`, r.others?.[jj] ?? { k: 'knob', term: null }, (p) => { const o = [...(r.others ?? [])]; o[jj] = p; setCfg({ recipe: { ...r, others: o } }); }, { quick: false });
+            });
+          }
         }
         break;
       }
@@ -1154,6 +1239,7 @@ export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () 
    * the side away from its output; the order chip and run cluster stay readable. If nothing fits, the lens
    * goes where it overlaps least and lets the pointer through over the ports it still covers.
    */
+  const stick: { id: string | null; side: 'above' | 'below' | 'left' | 'right' | null; top: number; cx: number; cy: number } = { id: null, side: null, top: 0, cx: 0, cy: 0 };
   const position = () => {
     if (el.hidden || !curId) return;
     const s = store.get();
@@ -1198,7 +1284,17 @@ export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () 
     };
     let best = cands[0]!, bestScore = Infinity;
     for (const c of cands) { const sc = score(c); if (sc < bestScore - 1) { best = c; bestScore = sc; } if (sc === 0) break; }
+    // NORMS, still panels: once open on a machine the lens keeps its side (and its top, beside the machine) while its
+    // content changes height — a chip click must never flip it and swallow the next click. It moves only when the
+    // kept side would cover the machine or leave the screen, or the camera moves the machine.
+    if (stick.id === curId && stick.side && Math.abs(stick.cx - cx) < 2 && Math.abs(stick.cy - cy) < 2) {
+      const keep = cands.find((c) => c.side === stick.side)!;
+      const kept: Cand = keep.side === 'left' || keep.side === 'right' ? { ...keep, top: clamp(stick.top, top0, bottom0 - hh) } : keep;
+      const off = Math.max(0, left0 - kept.left) + Math.max(0, kept.left + w - right0) + Math.max(0, top0 - kept.top) + Math.max(0, kept.top + hh - bottom0);
+      if (!off && !overlap(kept.left, kept.top, zone)) best = kept;
+    }
     const left = clamp(best.left, left0, right0 - w), top = clamp(best.top, top0, bottom0 - hh);
+    stick.id = curId; stick.side = best.side; stick.top = top; stick.cx = cx; stick.cy = cy;
     // still covering a port? let the pointer through there
     guard = ports.map((p) => new DOMRect(p.r.left - pad, p.r.top - pad, p.r.width + 2 * pad, p.r.height + 2 * pad))
       .filter((q) => overlap(left, top, q) > 0);
