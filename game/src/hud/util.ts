@@ -6,7 +6,7 @@ import type { DeskAssumption, Fact, Family, LevelManifest, Pallet, PatFact, Stru
 import * as K from '../kernel';
 import { campSave, progressOf, type CampaignSave, type FactoryStore, type FState } from '../state/factoryStore';
 import { campaignOf } from '../levels/campaigns';
-import { cardAliases, eAliases, eTag, isActionApp } from '../ui/sorts';
+import { cardAliases, eAliases, eTag, isActionApp, metaCarriers } from '../ui/sorts';
 import { LEVELS, REGISTRY, MIRROR_NAMES, SIDE_PAIRS } from '../levels/levels';
 import { LEVEL_BY_ID } from '../levels/campaigns';
 import type { ItemValue, Machine, MachineKind, MachineSpec } from '../factory/types';
@@ -150,7 +150,7 @@ export function subH(ref: SubRef, L: Record<string, string>): string {
   return `<i class="m-subg">${nameHTML(L[ref.id] ?? posName(ref.id))}</i>`;
 }
 /** The ∀ prefix of a card: structure binders first (∀H ≤ G, ∀N ⊴ G), then the element metas. */
-export function quantH(metas: string[], binds: StructBinder[] | undefined, L: Record<string, string>): string {
+export function quantH(metas: string[], binds: StructBinder[] | undefined, L: Record<string, string>, metaSorts?: Parameters<typeof metaCarriers>[1]): string {
   const nm = (id: string) => `<i>${nameHTML(L[id] ?? posName(id))}</i>`;
   const sr = (r: string | { k: 'sortmeta'; id: string } | undefined) => (r === undefined ? '<i>G</i>' : nm(typeof r === 'string' ? r : r.id));
   // Book phases B–C: ∀H ≤ G, ∀N ⊴ G, ∀G₁ (a group), ∀f : G₁ → H, ∀σ : G × Ω → Ω
@@ -158,11 +158,12 @@ export function quantH(metas: string[], binds: StructBinder[] | undefined, L: Re
     switch (b.k) {
       case 'sub': return `${subH({ k: 'submeta', id: b.id }, L)} <span class="m-rel">${b.normal ? '⊴' : '≤'}</span> ${sr(b.sort)}`;
       case 'hom': return `${nm(b.id)} : ${sr(b.dom)} <span class="m-rel">→</span> ${sr(b.cod)}`;
-      case 'act': return `${nm(b.id)} : ${sr(b.grp)} × ${sr(b.on)} <span class="m-rel">→</span> ${sr(b.on)}`;
+      case 'act': return ''; // NORMS › Sorts: the action's own symbol σ is never shown; its laws read (gh)(p) = g(h(p))
       default: return nm(b.id);
     }
-  });
-  const ms = metas.map((m) => `<i>${m}</i>`);
+  }).filter(Boolean);
+  // carriers when a variable lives outside the first group: ∀u, v ∈ K (W5–7 #6)
+  const ms = metaCarriers(metas, metaSorts, L).map((r) => `${r.metas.map((m) => `<i>${m}</i>`).join(', ')}${r.sort ? ` <span class="m-rel">∈</span> <i>${nameHTML(r.sort)}</i>` : ''}`);
   return [...bs, ...(ms.length ? [ms.join(', ')] : [])].length ? `∀${[...bs, ...(ms.length ? [ms.join(', ')] : [])].join(', ')}.&ensp;` : '';
 }
 /**
@@ -177,9 +178,9 @@ export function fH(f: AnyFact, L: Record<string, string>, mode: 'stmt' | 'proof'
       // a card's group parameters read G, K (the Book's names), never S / T or a positional $1:K (#3, #6)
       const L2 = { ...L, ...groupAliases(f.binds, L, f.metas) };
       return withEAliases(L2, () => f.k === 'law'
-        ? quantH(f.metas, f.binds, L2) + tH(f.l, L2, mode) + rel('=') + tH(f.r, L2, mode)
+        ? quantH(f.metas, f.binds, L2, f.metaSorts) + tH(f.l, L2, mode) + rel('=') + tH(f.r, L2, mode)
         // no premises: the conclusion alone, never a stray ⟹ (#9)
-        : quantH(f.metas, f.binds, L2) + (f.premises.length ? f.premises.map((p) => fH(p, L2, mode)).join(', ') + rel('⟹') : '') + fH(f.concl, L2, mode));
+        : quantH(f.metas, f.binds, L2, f.metaSorts) + (f.premises.length ? f.premises.map((p) => fH(p, L2, mode)).join(', ') + rel('⟹') : '') + fH(f.concl, L2, mode));
     }
     case 'eq': return tH(f.l, L, mode) + rel('=') + tH(f.r, L, mode);
     case 'neq': return tH(f.l, L, mode) + rel('≠') + tH(f.r, L, mode);
@@ -291,10 +292,10 @@ const FALLBACK: Partial<Record<MachineKind, MachineSpec>> = {
   spool: { kind: 'spool', name: 'Spool', family: 'equation', glyph: 't=t', blurb: 'Makes t = t from any term.', hotkey: '1', placeable: true },
   rewriter: { kind: 'rewriter', name: 'Rewriter', family: 'equation', glyph: '⥲', blurb: 'Changes one spot of an equation, by a recipe.', hotkey: '2', placeable: true },
   operator: { kind: 'operator', name: 'Operator', family: 'structure', glyph: '✣', blurb: 'Changes the whole equation.', hotkey: '3', placeable: true },
-  joiner: { kind: 'joiner', name: 'Joiner', family: 'equation', glyph: '⋈', blurb: 'Combines two facts.', hotkey: '4', placeable: true },
+  joiner: { kind: 'joiner', name: 'Joiner', family: 'equation', glyph: '=', blurb: 'Combines two facts.', hotkey: '4', placeable: true },
   theorem: { kind: 'theorem', name: 'Theorem', family: 'lemma', glyph: '⟹', blurb: 'Uses a theorem: premises in, conclusion out.', hotkey: '5', placeable: true },
   tower: { kind: 'tower', name: 'Tower', family: 'scope', glyph: '∈G', blurb: 'x can be anything. Prove it for x, and ∀ makes it true for all.', hotkey: '6', placeable: true },
-  forall: { kind: 'forall', name: 'Generalizer', family: 'lemma', glyph: '∀', blurb: 'Makes a fact about x true for all x.', hotkey: '7', placeable: true },
+  forall: { kind: 'forall', name: 'Generalizer', family: 'lemma', glyph: '∀', blurb: 'Makes a fact about Tower variables true for all values of them.', hotkey: '7', placeable: true },
   carddock: { kind: 'carddock', name: 'Card Dock', family: 'lemma', glyph: '∀=', blurb: 'Puts a theorem on a belt.', placeable: true },
   hopper: { kind: 'hopper', name: 'Hopper', family: 'structure', glyph: 't', blurb: 'Emits a term. No claim.', placeable: true },
   given: { kind: 'given', name: 'Given Inlet', family: 'given', glyph: '∵', blurb: 'A hypothesis of this order.', placeable: false },

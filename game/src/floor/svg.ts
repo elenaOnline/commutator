@@ -21,8 +21,23 @@ export const ON: Record<Family, string> = {
 export const railOpacity = (f: Family) => (f === 'lemma' ? 0.34 : f === 'identity' ? 0.62 : 0.52);
 
 /** Machine glyphs typeset as maths: letters italic, ⁻¹/ⁿ as superscripts, operators upright. */
+/**
+ * Uppercase the words of a label and nothing else: "fibre lemma ⟹ at π" → "FIBRE LEMMA ⟹ AT π". A Greek letter or a
+ * single variable is maths, and capitalising π would print the product sign Π.
+ */
+export const upperWords = (s: string): string => s.replace(/[A-Za-z]{2,}/g, (w) => w.toUpperCase()).replace(/\ba(?= [A-Za-z]{2,})/g, 'A');
+/** A heading that CSS capitalises: its maths stays as written (the words are uppercased by the stylesheet). */
+export const capsHTML = (s: string): string => s.split(/([A-Za-z]{2,})/).map((t, i) => (i % 2 || !/\S/.test(t) ? t.replace(/&/g, '&amp;').replace(/</g, '&lt;') : `<span class="fl-nocaps">${t.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</span>`)).join('');
+/** Unicode subscript letters → the letter ('Hₐ' is H with a subscript a). */
+const SUB_LETTER: Record<string, string> = { 'ₐ': 'a', 'ₑ': 'e', 'ₕ': 'h', 'ᵢ': 'i', 'ⱼ': 'j', 'ₖ': 'k', 'ₗ': 'l', 'ₘ': 'm', 'ₙ': 'n', 'ₒ': 'o', 'ₚ': 'p', 'ᵣ': 'r', 'ₛ': 's', 'ₜ': 't', 'ᵤ': 'u', 'ᵥ': 'v', 'ₓ': 'x' };
 export function glyphSVG(g: string): string {
   const sup = (x: string) => `<tspan font-size="64%" baseline-shift="42%">${esc(x)}</tspan>`;
+  // a name with a letter subscript (K_c, K_{ab}, Hₐ): a real subscript, never a raw underscore
+  const ls = /^([a-zA-Z])(?:_\{?([a-zA-Z0-9]+)\}?|([ₐₑₕᵢⱼₖₗₘₙₒₚᵣₛₜᵤᵥₓ]+))$/.exec(g);
+  if (ls) {
+    const sub = ls[2] ?? [...ls[3]!].map((c) => SUB_LETTER[c] ?? c).join('');
+    return `<tspan font-style="italic">${esc(ls[1]!)}</tspan><tspan font-size="62%" baseline-shift="-22%"${/^\d+$/.test(sub) ? '' : ' font-style="italic"'}>${esc(sub)}</tspan>`;
+  }
   const sub = /^([a-zA-Z])([₀-₉0-9′']+)$/.exec(g);
   if (sub) {
     const digits = sub[2]!.replace(/[₀-₉]/g, (c) => String(c.charCodeAt(0) - 0x2080));

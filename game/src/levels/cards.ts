@@ -161,7 +161,7 @@ export const CARDS: Record<string, ConceptCard[]> = {
     },
     {
       title: 'A proof becomes a theorem',
-      body: 'Deliver this goal and it is saved as a theorem, **unique right inverse**: $uv = e \\implies v = u^{-1}$. The arrow $\\implies$ reads “implies”. A Theorem machine applies it in one move, so you never prove it again.',
+      body: 'Deliver this goal and it is saved as a theorem, **unique inverse**: $uv = e \\implies v = u^{-1}$. The arrow $\\implies$ reads “implies”. A Theorem machine applies it in one move, so you never prove it again.',
       figures: [{ k: 'scene', atoms: AT('cd', 2), spec: {
         machines: [{ x: 2, y: 0, config: { kind: 'theorem', recipe: { k: 'library', ref: witness } } }],
         belts: [[[0, 0.5], [2, 0.5]], [[4, 0.5], [5.8, 0.5]]],
@@ -252,7 +252,7 @@ export const CARDS: Record<string, ConceptCard[]> = {
     },
     {
       title: 'A theorem to keep',
-      body: 'Deliver this and you earn **left cancellation**: $uv = uw \\implies v = w$.',
+      body: 'Deliver this and you earn **cancellation**: $uv = uw \\implies v = w$.',
     },
   ],
 

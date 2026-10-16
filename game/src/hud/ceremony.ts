@@ -3,11 +3,14 @@
 // card flies into the hotbar. Then: Next work order. Click or Esc skips to the end state.
 import { reducedMotion } from '../ui/tokens';
 import { fullStatementHTML, paperOf } from './paper';
-import { unlocksPress } from './proof';
+import { schemaInfo, unlocksPress } from './proof';
 import * as F from '../factory';
 import type { Card, LevelManifest } from '../kernel/types';
 import { sameStatement } from './presets';
-import { dockAnswers, openView, CAMPAIGN_LEVELS, CAMPAIGN_NAMES, LEVEL_BY_ID, REGISTRY, camp, campaignOf, displayNo, fH, h, isSolved, labels, nextLevel, progressOf, safe, schemaNames, statementOf, tH, towerVars, type S, type Store } from './util';
+import { familyName } from './merge';
+import { isFinale, mountLineage, openLineage, standardTheoremName } from './lineage';
+import type { Term } from '../kernel/types';
+import { dockAnswers, openView, CAMPAIGN_LEVELS, CAMPAIGN_NAMES, LEVEL_BY_ID, REGISTRY, camp, campaignOf, displayNo, fH, h, isSolved, labels, nextLevel, progressOf, safe, statementOf, tH, towerVars, type S, type Store } from './util';
 
 const HOLD_MS = 650;
 /** Names the content expects the player to save under (T01 cites "the lemma you saved"). */
@@ -51,8 +54,35 @@ export function lemmaNameFor(s: S, card: Card, dock: number, only = false): stri
   if (authored) return authored;
   if (only && SUGGESTED[lv.id]) return SUGGESTED[lv.id]!;
   const known = Object.values(REGISTRY).find((sc) => sc && sameStatement(sc.card, card));
-  if (known) return known.name;
+  if (known) return familyName(known.id, known.name);
   return statementText(card) || 'lemma';
+}
+
+/** The finale's line. The count is the map's (the main orders); side orders are said apart, never added in. */
+export function endingText(book: string | null, mainOrders: number, sideSolved: number): string {
+  return `${book ? `${book} complete` : 'Campaign complete'}: ${mainOrders} theorems, all checked.${sideSolved ? ` (${sideSolved} side order${sideSolved === 1 ? '' : 's'} besides.)` : ''}`;
+}
+
+/** A term with every identity e dropped (ex → x, xe → x, e⁻¹ → e): what the identity axioms alone can reach. */
+function withoutIdentity(t: Term): Term {
+  switch (t.k) {
+    case 'e': return { k: 'e' };
+    case 'inv': { const a = withoutIdentity(t.arg); return a.k === 'e' ? a : { k: 'inv', arg: a }; }
+    case 'pow': { const b = withoutIdentity(t.base); return b.k === 'e' ? b : { ...t, base: b }; }
+    case 'mul': {
+      const fs = t.fs.flatMap((f) => { const x = withoutIdentity(f); return x.k === 'e' ? [] : x.k === 'mul' ? x.fs : [x]; });
+      return fs.length === 0 ? { k: 'e' } : fs.length === 1 ? fs[0]! : { k: 'mul', fs };
+    }
+    default: return t;
+  }
+}
+/**
+ * A hypothesis-free law that the identity axiom alone proves (∀x. ex = xe: both sides are x). It is not a theorem
+ * worth a Lemma Book recipe, so the ceremony does not offer to save it. Laws that need an inverse (double inverse,
+ * the inverse of a product) are not trivial in this sense.
+ */
+export function holdsByIdentityAlone(card: Card): boolean {
+  return card.k === 'law' && JSON.stringify(withoutIdentity(card.l)) === JSON.stringify(withoutIdentity(card.r));
 }
 
 /** Every closed ∀ card (∀ machine or Assume gate) on the floor the Lemma Book could take: one per statement, in dock order. */
@@ -66,6 +96,7 @@ export function savablesOf(s: S, skip: Card[] = []): Savable[] {
     const r = safe(() => F.lemmaFrom(s.compiled, s.canvas, m.id, s.ctx), null);
     if (!r?.ok) continue;
     if (skip.some((c) => sameStatement(c, r.card)) || out.some((x) => sameStatement(x.card, r.card))) continue;
+    if (holdsByIdentityAlone(r.card)) continue; // ∀x. ex = xe: the identity axiom alone, not a theorem to keep
     let dock = byDock.get(m.id) ?? -1;
     if (dock < 0) dock = docks.findIndex((d) => (d.target.k === 'law' || d.target.k === 'cond') && sameStatement(d.target as Card, r.card));
     out.push({ machine: m.id, card: r.card, dock });
@@ -77,6 +108,7 @@ export function savablesOf(s: S, skip: Card[] = []): Savable[] {
 export function mountCeremony(layer: HTMLElement, store: Store, hooks: { dest: () => DOMRect | null }) {
   const el = h('div', { class: 'lw-ceremony h3-ceremony', hidden: true });
   layer.append(el);
+  const lineage = mountLineage(layer, store); // the finale's closing panel, also opened from the Lemma Book
   let playingFor: string | null = null;
   let timers: number[] = [];
   let finishNow: (() => void) | null = null;
@@ -124,7 +156,9 @@ export function mountCeremony(layer: HTMLElement, store: Store, hooks: { dest: (
     const cond = ov.chips(conditionalHTML(lv));
     const specific = h('div', { class: 'qed-specific', html: cardGoal ? `<span class="math">${st.plainHTML}</span>` : cond });
     // every dock is stated: a level with a law dock and a dock about its own elements says both
-    const lemma = h('div', { class: 'qed-lemma' }, h('span', { class: 'qed-lemma-no' }, `Lemma ${no}.`), ' ', h('span', { class: 'qed-lemma-st', html: ov.chips(fullStatementHTML(lv, { any: true })) })); // the exact theorem: every hypothesis, every dock
+    // a named theorem of the book (the finale) is called by its name, never "Lemma 56"
+    const title = standardTheoremName(lv0.id) ?? `Lemma ${no}`;
+    const lemma = h('div', { class: 'qed-lemma' }, h('span', { class: 'qed-lemma-no' }, `${title}.`), ' ', h('span', { class: 'qed-lemma-st', html: ov.chips(fullStatementHTML(lv, { any: true })) })); // the exact theorem: every hypothesis, every dock
     // "arbitrary" is said only of Tower variables; level constants a, b are particular elements
     const s0 = store.get();
     const tv = towerVars(s0).map((v) => tH({ k: 'atom', id: v.id }, Object.fromEntries(towerVars(s0).map((w) => [w.id, w.label]))));
@@ -137,7 +171,7 @@ export function mountCeremony(layer: HTMLElement, store: Store, hooks: { dest: (
       : 'Proven for these elements. Towers and ∀ make laws.' });
     // the Lemma Book, right here: every savable card on the floor is offered, each with its standard name.
     // A statement this order already earns as a machine is not offered again (it is on the hotbar already).
-    const earnedCards = unlocked.map((u) => REGISTRY[u]?.card).filter((c): c is Card => !!c);
+    const earnedCards = unlocked.map((u) => F.schemaOf(s0.ctx, u)?.card ?? REGISTRY[u]?.card).filter((c): c is Card => !!c);
     const svs = savablesOf(s0, earnedCards);
     let saveRow: HTMLElement | null = null;
     if (svs.length) {
@@ -149,6 +183,7 @@ export function mountCeremony(layer: HTMLElement, store: Store, hooks: { dest: (
         const plate = h('div', { class: 'qed-plate' }, h('span', { class: 'machine-band' }), h('span', { class: 'qed-m-kicker' }, already ? 'In your Lemma Book' : 'Your own theorem'), h('span', { class: 'machine-stmt math', html: fH(sv.card, {}) }));
         if (already) { rowsEl.push(h('div', { class: 'qed-save' }, plate)); continue; }
         offered++;
+        let row: HTMLElement;
         const name = h('input', { class: 'h3-term qed-name', value: sv.name, 'aria-label': 'name for the Lemma Book', autocomplete: 'off', spellcheck: 'false' });
         const btn = h('button', { class: 'lw-key primary' }, 'Save to Lemma Book');
         const doSave = () => {
@@ -158,26 +193,30 @@ export function mountCeremony(layer: HTMLElement, store: Store, hooks: { dest: (
           btn.textContent = 'Saved ✓'; btn.disabled = true; name.disabled = true;
           plate.querySelector('.qed-m-kicker')!.textContent = 'In your Lemma Book'; // its name is in the field below (an uppercase kicker would mangle maths names)
           saved++;
-          note.textContent = saved === offered ? `Saved. ${offered > 1 ? 'They are recipes' : 'It is a recipe'} in every later order.` : 'Saved. It is a recipe in every later order.';
           flyPlate(plate);
+          row.classList.add('saved'); // the plate is out of the list: three saves never push the last one under the buttons
+          note.textContent = saved === offered ? `Saved. ${offered > 1 ? 'They are recipes' : 'It is a recipe'} in every later order.` : 'Saved. It is a recipe in every later order.';
         };
         btn.addEventListener('click', doSave);
         name.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); doSave(); } });
-        rowsEl.push(h('div', { class: 'qed-save' }, plate, h('div', { class: 'qed-save-form' }, name, btn)));
+        row = h('div', { class: 'qed-save' }, plate, h('div', { class: 'qed-save-form' }, name, btn));
+        rowsEl.push(row);
       }
       if (offered > 1) note.textContent = 'Save them, and they become recipes in every later order.';
       saveRow = h('div', { class: 'qed-saves' }, ...rowsEl, offered ? note : null);
     }
     const machines = h('div', { class: 'qed-machines' });
     for (const id of unlocked) {
-      const sc = REGISTRY[id];
+      // earned machines of every kind: group theorems, subgroup theorems ("a subgroup contains e"), map laws
+      const sc = F.schemaOf(s0.ctx, id) ?? REGISTRY[id];
       if (!sc) continue;
-      const nm = schemaNames(id);
+      // one name per theorem: its own name ("unique inverse"), never a side's ("unique right inverse") or a second phrasing
+      const nm = familyName(id, schemaInfo(id, false, s0.ctx).name);
       machines.append(h('div', { class: 'qed-machine', 'data-schema': id },
         h('span', { class: 'machine-band' }),
         h('span', { class: 'qed-m-kicker' }, 'New machine'),
-        h('span', { class: 'machine-name' }, nm.name),
-        h('span', { class: 'machine-tb' }, `Lemma ${no} · ${nm.textbook}`),
+        h('span', { class: 'machine-name' }, nm),
+        h('span', { class: 'machine-tb' }, `Lemma ${no}`),
         h('span', { class: 'machine-stmt math', html: fH(sc.card, {}).replace(/^∀[^.]*\.&ensp;/, '') }),
         h('span', { class: 'qed-m-mirror' }, sc.mirrorable ? 'both sides · on your hotbar from the next work order' : 'on your hotbar from the next work order')));
     }
@@ -194,16 +233,25 @@ export function mountCeremony(layer: HTMLElement, store: Store, hooks: { dest: (
     const save = store.get().save;
     const campLevels = CAMPAIGN_LEVELS[campaignOf(lv)];
     const mainLeft = campLevels.filter((l) => !l.side && !isSolved(save, l.id)).length;
+    // the count is the map's: the main orders (every one is solved here). Side orders are said apart, never added in.
+    const sideSolved = campLevels.filter((l) => l.side && isSolved(save, l.id)).length;
     const ending = !lv.side && mainLeft === 0
-      ? h('div', { class: 'qed-ending' }, `${campaignOf(lv) === 'book' ? `${CAMPAIGN_NAMES.book} complete` : 'Campaign complete'}: ${campLevels.filter((l) => isSolved(save, l.id)).length} theorems, all checked.`)
+      ? h('div', { class: 'qed-ending' }, endingText(campaignOf(lv) === 'book' ? CAMPAIGN_NAMES.book : null, campLevels.filter((l) => !l.side).length, sideSolved))
       : null;
     // the factory as it stood when the dock sealed (not the best ever, not after later edits)
     const m = safe(() => store.metrics(), null) ?? progressOf(store.get().save, levelId)?.best ?? null;
     const receipt = m ? h('div', { class: 'h3-receipt' }, `${m.machines} machine${m.machines === 1 ? '' : 's'} · area ${m.area} · ${m.cycles ?? '—'} cycles`) : null;
     const actions = h('div', { class: 'qed-actions' });
     const nx = nextLevel(save, levelId);
-    const nextBtn = h('button', { class: 'lw-key primary wide' }, nx ? 'Next work order →' : 'See your theorem map →');
-    nextBtn.addEventListener('click', () => { close(); if (nx) store.openLevel(nx.id); else store.openMap(); });
+    // the Book's last order closes on the lineage of its theorem (the panel then leads on to the next order or the map)
+    const finale = isFinale(levelId) && lv.sockets.every((d) => store.get().run.delivered[d.id] !== undefined);
+    const nextBtn = h('button', { class: 'lw-key primary wide' }, finale ? 'See its lineage →' : nx ? 'Next work order →' : 'See your theorem map →');
+    nextBtn.addEventListener('click', () => {
+      const canvas = store.get().canvas;
+      close();
+      if (finale) openLineage({ k: 'floor', levelId, canvas }, { from: 'finale' });
+      else if (nx) store.openLevel(nx.id); else store.openMap();
+    });
     const proof = h('button', { class: 'lw-key' }, 'See the proof');
     proof.addEventListener('click', () => { close(); store.setUI({ transcriptOpen: true }); });
     const stay = h('button', { class: 'lw-key' }, 'Keep refining');
@@ -214,7 +262,7 @@ export function mountCeremony(layer: HTMLElement, store: Store, hooks: { dest: (
     follow.addEventListener('click', () => { close(); store.setUI({ follow: lv.sockets[0]?.id ?? null, transcriptOpen: false }); });
     actions.append(nextBtn, follow, proof, stay);
     const skip = h('div', { class: 'qed-skip' }, 'Esc skips');
-    const card = h('div', { class: 'qed-card', role: 'dialog', 'aria-modal': 'true', tabindex: -1, 'aria-label': `Proven: Lemma ${no}` }, seal, specific, lemma, onPaper ?? note, receipt, machines, saveRow, ending, actions);
+    const card = h('div', { class: 'qed-card', role: 'dialog', 'aria-modal': 'true', tabindex: -1, 'aria-label': `Proven: ${title}` }, seal, specific, lemma, onPaper ?? note, receipt, machines, saveRow, ending, actions);
 
     let flown = false;
     const fly = (instant: boolean) => {
@@ -291,12 +339,14 @@ export function mountCeremony(layer: HTMLElement, store: Store, hooks: { dest: (
     if (!ok) { e.preventDefault(); e.stopImmediatePropagation(); }
   };
   for (const type of ['pointerdown', 'pointerup', 'click', 'dblclick', 'contextmenu', 'mousedown', 'mouseup']) window.addEventListener(type, swallow, true);
-  window.addEventListener('wheel', (e) => { if (capturing && !el.hidden) { e.preventDefault(); e.stopImmediatePropagation(); } }, { capture: true, passive: false });
+  // the floor never scrolls behind the ceremony, but the card does: three saves and the Paper are taller than a window
+  window.addEventListener('wheel', (e) => { if (capturing && !el.hidden && !(el.classList.contains('done') && (e.target as HTMLElement | null)?.closest?.('.qed-card'))) { e.preventDefault(); e.stopImmediatePropagation(); } }, { capture: true, passive: false });
   // a ceremony belongs to its level: navigating away ends it
   store.on((e) => { if (e.type === 'level-opened' && !el.hidden) close(); });
 
   let deferred = false;
   const render = (s: S) => {
+    lineage.render(s);
     let c = s.ui.ceremony;
     if (!capturing && !el.hidden) close(); // watchdog: a visible layer without a live ceremony never lingers
     // ui.ceremony is the single source of truth: cleared by ANY path → the layer and its capture go at once

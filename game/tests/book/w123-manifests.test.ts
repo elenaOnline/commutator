@@ -81,8 +81,8 @@ describe('Book worlds 1–3 manifests', () => {
     expect(names).toEqual({
       'P4.4': ['double inverse'],
       'P4.7': ['the only idempotent is e'],
-      'P4.9': ['xy = yx ⟹ xyx⁻¹y⁻¹ = e', 'xyx⁻¹y⁻¹ = e ⟹ xy = yx'],
-      'P4.10': ['xy = e ⟹ yx = e'],
+      'P4.9': ['commute ⟹ commutator is e', 'commutator is e ⟹ commute'],
+      'P4.10': ['one-sided inverses are two-sided'],
     });
   });
   it('P3.1 starts with a pre-placed Spool; nothing else does', () => {

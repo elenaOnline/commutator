@@ -311,7 +311,7 @@ export interface Schema {
   id: string;
   /** Workshop name on the floor, e.g. 'Witness Stamp'. */
   name: string;
-  /** Textbook name in the transcript, e.g. 'uniqueness of inverses'. */
+  /** The theorem's own name in the transcript, one for both sides of a mirror pair, e.g. 'unique inverse'. */
   textbook: string;
   card: Card;
   /** v4 'authored': a player lemma from the Lemma Book (re-verified from its saved proof on load). */

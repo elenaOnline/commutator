@@ -173,7 +173,7 @@ type Build = (fl: StoreFloor) => Saves | void;
 
 // The standard names the ceremony saves under (the manifests' lemmaNames, dock order). The chain looks lemmas up by these.
 export const N = {
-  dbl: 'double inverse', idem: 'the only idempotent is e', commF: 'xy = yx ⟹ xyx⁻¹y⁻¹ = e', commB: 'xyx⁻¹y⁻¹ = e ⟹ xy = yx',
+  dbl: 'double inverse', idem: 'the only idempotent is e', commF: 'commute ⟹ commutator is e', commB: 'commutator is e ⟹ commute',
   fe: 'f(e) = e', finv: 'f(x⁻¹) = f(x)⁻¹', neg: 'negative powers',
   refl: 'coset relation is reflexive', symm: 'coset relation is symmetric', trans: 'coset relation is transitive',
   fibF: 'fibre lemma ⟹', fibB: 'fibre lemma ⟸',

@@ -793,13 +793,17 @@ describe('final polish', () => {
     invariants(c);
   });
 
-  it('splices only when dropped on the belt in line with it', () => {
+  it('splices when dropped on the belt: in line directly, across it with routed halves (final playtest W8–14 N7)', () => {
     let c = initialCanvas(ctx.level, ctx);
     c = must(lconnect(c, { m: 'pre:0', port: 'out' }, { m: 'socket:s', port: 'q' }, ctx));
     const g = (at: Tile, rot: Rot): Machine => ({ id: 'g', kind: 'rewriter', at, rot, config: RW({ k: 'pop' }) });
-    for (const x of [g({ x: 4, y: 0 }, 1), g({ x: 4, y: 1 }, 0), g({ x: 4, y: 0 }, 2)]) expect(spliceCandidates(c, x, ctx)).toEqual([]);
-    const d = must(lplace(c, 'popper', { x: 4, y: 0 }, 1, ctx));       // across the belt: re-routes, no splice
-    expect(d.belts.map((b) => [b.from.m, b.to!.m])).toEqual([['pre:0', 'socket:s']]);
+    expect(spliceCandidates(c, g({ x: 4, y: 1 }, 0), ctx)).toEqual([]); // beside the belt, not on it: no splice
+    for (const x of [g({ x: 4, y: 0 }, 1), g({ x: 4, y: 0 }, 2)]) expect(spliceCandidates(c, x, ctx).map((s) => s.belt)).toHaveLength(1);
+    // N7 (was: across the belt re-routes it, no splice): dropped across the belt, the machine splices in and both
+    // halves are routed like any belt
+    const d = must(lplace(c, 'popper', { x: 4, y: 0 }, 1, ctx));
+    expect(d.belts.map((b) => [b.from.m, b.to!.m])).toEqual([['pre:0', 'popper1'], ['popper1', 'socket:s']]);
+    expect(d.belts.every((b) => !b.broken)).toBe(true);
     invariants(d);
     const s2 = must(lplace(c, 'popper', { x: 4, y: 0 }, 0, ctx));      // in line: splices
     expect(s2.belts.map((b) => [b.from.m, b.to!.m])).toEqual([['pre:0', 'popper1'], ['popper1', 'socket:s']]);

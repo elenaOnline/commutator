@@ -92,10 +92,16 @@ describe('lowering: Rewriter recipes', () => {
     expect(res.candidates!.some((c) => 'gap' in c.addr)).toBe(true);
     expect(res.candidates![res.chosen!]!.addr).toEqual({ side: 'r', path: [], range: [0, 1] });
     expect(comp.check.ok).toBe(true);
-    // a caret still inserts (the old behaviour), and the default is the first caret
+    // final W1–7 #9: the default (first match) now takes the e already there, never a fresh e at the first caret
     const re2 = f.add(lawRw({ k: 'given', givenId: 'h' }, { dir: 'rev' }));
     f.wire(ie, re2);
-    expect(txt(f.compile(), re2, f.level)).toBe('b = abeb');
+    const c2 = f.compile();
+    expect(txt(c2, re2, f.level)).toBe('b = abb');
+    expect(c2.machines[re2]!.candidates![c2.machines[re2]!.chosen!]!.addr).toEqual({ side: 'r', path: [], range: [0, 1] });
+    // a caret, chosen, still inserts (the old behaviour)
+    const re4 = f.add(lawRw({ k: 'given', givenId: 'h' }, { dir: 'rev', gap: F.pinFromGap(eq(b, P(E, b)), { side: 'r', path: [], gap: 0 })! }));
+    f.wire(ie, re4);
+    expect(txt(f.compile(), re4, f.level)).toBe('b = abeb');
     // a bracket that is not on an e is refused with a reason
     const onB = F.pinFromAddr(eq(b, P(E, b)), { side: 'r', path: [], range: [1, 2] })!;
     const re3 = f.add(lawRw({ k: 'given', givenId: 'h' }, { dir: 'rev', gap: onB }));

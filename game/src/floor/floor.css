@@ -95,6 +95,7 @@
   font: 12px/1.35 var(--font-ui, 'Space Grotesk', sans-serif); color: #1B2340; }
 .fl-tip.is-on { opacity: 1; }
 .fl-tip-h { font-weight: 600; font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; display: flex; gap: 8px; align-items: baseline; }
+.fl-nocaps { text-transform: none; }
 .fl-tip-st { font-weight: 600; letter-spacing: .06em; font-size: 10px; padding: 1px 6px; border-radius: 6px; background: #EEF0F5; color: #545B73; }
 .fl-tip-st.is-working { background: #E3F7F3; color: #11806C; }
 .fl-tip-st.is-jammed { background: #FBE9E7; color: #B3261E; }
@@ -141,10 +142,7 @@
 .fl-m-mark, .fl-m-shadow { pointer-events: none; }
 .fl-root.is-alt .fl-queue { display: none; }
 
-/* room heading: outside the NW wall, or inside under the top corner when it would clip */
-.fl-room .fl-rhead-in { display: none; }
-.fl-room.is-flip .fl-rhead-in { display: inline; }
-.fl-room.is-flip .fl-rhead-out { display: none; }
+/* room heading: inside the room under its top edge, placed clear of machines and belts by the floor */
 .fl-root .fl-m[data-kind="gate"], .fl-root .fl-m[data-kind="desk"] { cursor: grab; }
 
 /* ── v4: towers, symbol tracing, recipe changes ── */
@@ -179,3 +177,6 @@
 /* a selected room's edge resizes along its whole length (iso: x edges move down-right, y edges down-left) */
 [data-over="redge-x"] { cursor: nwse-resize; }
 [data-over="redge-y"] { cursor: nesw-resize; }
+
+/* a room heading inside its room keeps a soft halo over the belts it may sit near */
+.fl-room-head text { paint-order: stroke; stroke: #fff; stroke-width: 3.5px; stroke-linejoin: round; stroke-opacity: .85; }

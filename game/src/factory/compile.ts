@@ -16,7 +16,7 @@ import type {
 import { ROOT } from '../kernel/types';
 import { mapClosureProblem, applyCore, assumptionsOf, axiomCard, check as kcheck, checkGround, checkInt, checkStatement, depRoom, flipConclusion, levelLabels, nodeUses, roomDep, samePat, schemaInfo, stackWordHint, withVars, pressCard, resolveCond, resolveLaw, sameCardUpToPermutation, schemaCard } from '../kernel/logic';
 import { factSubs, factTerms, mapPat, sameSub, subsIn } from '../kernel/members';
-import { retagE, sortEnv, sortOf } from '../kernel/sorts';
+import { DEFAULT_GROUP, retagE, sortEnv, sortOf } from '../kernel/sorts';
 import { fillOpen, isOpen, openDisplay } from '../kernel/open';
 import { E, KErr, instantiate, instantiatePartial, match, matchOpen, metasOf, norm, same, substKey, word } from '../kernel/terms';
 import { polyRefs } from '../kernel/poly';
@@ -27,6 +27,7 @@ import type {
 import { itemKindOf } from './types';
 import { DOCK_PORTS, FACE_DELTA, footprint, portsOf, frontOf, inRect, tileKey } from './geometry';
 import { SPECS, varLabel } from './catalog';
+import { freshLetter } from '../ui/letters';
 import { LEVEL_BY_ID, MIRROR_NAMES, SIDE_PAIRS } from '../levels/levels';
 import type { SavedLemma } from '../state/factoryStore';
 import {
@@ -133,12 +134,12 @@ export const JAMS = {
   socketNeedsCard: (want: string, got: string) => `Needs ${want}. Run ${got} through ∀ first.`,
   socketLibrary: 'Needs a proof made here, not a library card.',
   // Book phase B: subgroups
-  chooseSub: (binder: string) => `Choose which subgroup plays ${binder}.`,
+  chooseSub: (binder: string) => `Choose which subgroup plays ${binder.replace(/^\$\d+:/, '')}.`,
   // Book phase C: maps
-  chooseMap: (binder: string, k: 'hom' | 'act') => `Choose which ${k === 'hom' ? 'homomorphism' : 'action'} plays ${binder}.`,
-  noMap: (binder: string, k: 'hom' | 'act') => `No ${k === 'hom' ? 'homomorphism' : 'action'} here can play ${binder}.`,
+  chooseMap: (binder: string, k: 'hom' | 'act') => `Choose which ${k === 'hom' ? 'homomorphism' : 'action'} plays ${binder.replace(/^\$\d+:/, '')}.`,
+  noMap: (binder: string, k: 'hom' | 'act') => `No ${k === 'hom' ? 'homomorphism' : 'action'} here can play ${binder.replace(/^\$\d+:/, '')}.`,
   applyNeq: (f: string) => `${f} is an inequation. A map can be applied only to an equation.`,
-  noSub: (binder: string, normal: boolean) => (normal ? `No normal subgroup here can play ${binder}.` : `No subgroup here can play ${binder}.`),
+  noSub: (binder: string, normal: boolean) => (normal ? `No normal subgroup here can play ${binder.replace(/^\$\d+:/, '')}.` : `No subgroup here can play ${binder.replace(/^\$\d+:/, '')}.`),
   lemmaSubgroup: (h: string) => `Mentions the subgroup ${h} of this order. Use a Subgroup Tower instead.`,
   memGate: (f: string) => `${f} is not an equation or a membership. This gate takes =, ≠ or ∈.`,
   /** Open docks (Book phase A): name the broken rule, never a value. */
@@ -292,6 +293,32 @@ export function bindingsOn(fact: Pallet, prem: PatFact, s: Subst): { meta: MetaI
   walk('l', norm(prem.l), norm(fact.l), []);
   walk('r', norm(prem.r), norm(fact.r), []);
   return out;
+}
+
+/** How many map frames f( … ) / α( … ) enclose the word at `path` of `rail` (the paths of targeting.visitWords). */
+function frameDepth(rail: Term | null | undefined, path: readonly number[]): number {
+  let t = rail, d = 0, k = 0;
+  while (t && k < path.length) {
+    if (t.k === 'mul') { t = t.fs[path[k++]!]; if (k >= path.length) break; }
+    const j = path[k++]!;
+    if (t?.k === 'app') { d++; t = t.args[j]; } else if (t?.k === 'inv') t = t.arg; else if (t?.k === 'pow') t = t.base; else break;
+  }
+  return d;
+}
+/**
+ * The default ("first match") among span candidates in §6 order: the first side that has one (RHS, then LHS), and on
+ * that side the innermost frame, so α(β(p)) is read inside before outside and f(s(u)) at s(u) (final W1–7 #9).
+ */
+function firstMatchIndex(q: Pallet, locs: readonly SpanLoc[]): number {
+  if (!locs.length) return 0;
+  const side = locs[0]!.side;
+  let best = 0, bestD = -1;
+  locs.forEach((l, i) => {
+    if (l.side !== side) return;
+    const d = frameDepth(q.k === 'eq' || q.k === 'neq' ? q[l.side as 'l' | 'r'] : q.k === 'mem' ? q.t : null, l.wordPath);
+    if (d > bestD) { best = i; bestD = d; }
+  });
+  return best;
 }
 
 /** The unit rewrite absorbing a lone e at position pos of word w (unitL with the right neighbour, else unitR). */
@@ -935,8 +962,8 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
       r.candidates = cands.map((cd) => ({ addr: spanAddr(cd.loc), label: `${T(cd.loc.redex)} (${sideWord(cd.loc.side)})` }));
       if (target.k === 'first') {
         if (!cands.length) return jam(noneMsg());
-        r.chosen = 0;
-        return cands[0]!;
+        r.chosen = firstMatchIndex(q, cands.map((cd) => cd.loc));
+        return cands[r.chosen]!;
       }
       const t = target as Extract<typeof target, { k: 'pin' }> & { selected: Term };
       const res = resolveSpanPin(q, t as never);
@@ -1020,6 +1047,15 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
         // the premises may already say which subgroup plays it
         const seenIds = new Set<string>();
         premRaw.forEach((p, i) => { const f = facts[i]; if (p.k === 'mem' && p.sub.k === 'submeta' && p.sub.id === b && f?.k === 'mem' && f.sub.k === 'sub') seenIds.add(f.sub.id); });
+        // …or which homomorphism / action: f(a) = f(b) met by π(a₁) = π(b₁) says f is π (W8–14 N21)
+        const walk = (pt: Term | undefined, ft: Term | undefined): void => {
+          if (!pt || !ft) return;
+          if (pt.k === 'app' && ft.k === 'app' && pt.args.length === ft.args.length) { if (pt.fn === b) seenIds.add(ft.fn); pt.args.forEach((a, j) => walk(a, ft.args[j])); }
+          else if (pt.k === 'mul' && ft.k === 'mul' && pt.fs.length === ft.fs.length) pt.fs.forEach((a, j) => walk(a, ft.fs[j]));
+          else if (pt.k === 'inv' && ft.k === 'inv') walk(pt.arg, ft.arg);
+          else if (pt.k === 'pow' && ft.k === 'pow') walk(pt.base, ft.base);
+        };
+        premRaw.forEach((p, i) => { const f = facts[i]; if ((p.k === 'eq' || p.k === 'neq') && f && (f.k === 'eq' || f.k === 'neq')) { walk(p.l, f.l); walk(p.r, f.r); } });
         return seenIds.size === 1 ? [...seenIds][0] : undefined;
       });
       let card;
@@ -1124,6 +1160,17 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
           withGapCands(gaps, eSpans);
           r.chosen = gaps.length + at;
           emit({ k: 'step', input: qv.node, op: { k: 'rewrite', rule: rule.ref, dir: cfg.dir, at: spanAddr(pick.loc), subst: s!, ...sx } } as never, `by ${rule.text}`, 'rewrite');
+          return;
+        }
+        // first match: an e already in the word is the place, before inserting one at a gap (final W1–7 #9)
+        const eSort = (t: Term) => (t.k === 'e' ? t.s ?? DEFAULT_GROUP : null);
+        const fits = eSpans.filter((l) => law.poly || eSort(norm(l.redex)) === eSort(norm(src)));
+        if (gt.k === 'first' && fits.length) {
+          const gaps = gapCandidates(q);
+          withGapCands(gaps, eSpans);
+          const at = eSpans.indexOf(fits[firstMatchIndex(q, fits)]!);
+          r.chosen = gaps.length + at;
+          emit({ k: 'step', input: qv.node, op: { k: 'rewrite', rule: rule.ref, dir: cfg.dir, at: spanAddr(eSpans[at]!), subst: s!, ...sx } } as never, `by ${rule.text}`, 'rewrite');
           return;
         }
         const g = pickGap(q, cfg.gap);
@@ -1278,7 +1325,7 @@ export function compile(c: Canvas, ctx0: KernelCtx): CompiledX {
               break;
             }
             case 'insertPair': {
-              const X = param(rc.x, 'x', 'x');
+              const X = param(rc.x, 'x', freshLetter(Object.values(L))); // the lens's letter: never a Tower's x (#19)
               const g = pickGap(q, cfg.gap);
               const ax: AxiomId = rc.inv ? 'invL' : 'invR';
               emit({ k: 'step', input: qv.node, op: { k: 'insertE', at: gapAddr(g) } } as never, 'insert pair', 'insert');

@@ -38,7 +38,7 @@ export const LEVELS: LevelManifest[] = [
     method: 'Computation', insight: 'An e can be written as xx for a chosen x', source: 'Pinter 3.C2 / 3.D / 3.F5 (shared property)',
     memo: 'Every element times itself is e. Show a⁻¹ and a are equal.',
     atoms: atomsAB,
-    givens: [{ id: 'H', name: 'H', fact: { k: 'law', metas: ['x'], l: P(x, x), r: e } }],
+    givens: [{ id: 'H', name: 'h', fact: { k: 'law', metas: ['x'], l: P(x, x), r: e } }],
     sockets: [{ id: 's', target: eq(I(a), a), allowedGivens: ['H'] }],
     tools: none, unlocks: [],
     idea: 'A given law is a recipe, and a recipe can run backwards.',
@@ -50,7 +50,7 @@ export const LEVELS: LevelManifest[] = [
     method: 'Computation', insight: 'A law holds at a product too', source: 'Pinter ch. 3 (abelian groups)',
     memo: 'Every element squared is e. Show any two elements commute.',
     atoms: atomsAB,
-    givens: [{ id: 'H', name: 'H', fact: { k: 'law', metas: ['x'], l: P(x, x), r: e } }],
+    givens: [{ id: 'H', name: 'h', fact: { k: 'law', metas: ['x'], l: P(x, x), r: e } }],
     sockets: [{ id: 's', target: eq(P(a, b), P(b, a)), allowedGivens: ['H'] }],
     tools: none, unlocks: [],
     idea: 'A law holds at a product too: x can be ab.',
@@ -89,15 +89,15 @@ export const CARDS: Record<string, ConceptCard[]> = {
   'P3.2': [
     {
       title: 'Givens are recipes',
-      body: 'A given is a fact you may use as often as you like. This order gives $H$: $\\forall x. xx = e$, read “for every $x$, $xx = e$”. Because $H$ holds for every $x$, you may use it at any element you choose. In a Rewriter, a given is picked as a recipe. It does not travel by belt.',
+      body: 'A given is a fact you may use as often as you like. This order gives $h$: $\\forall x. xx = e$, read “for every $x$, $xx = e$”. Because $h$ holds for every $x$, you may use it at any element you choose. In a Rewriter, a given is picked as a recipe. It does not travel by belt.',
       figures: [{ k: 'scene', atoms: AT('c'), spec: {
         machines: [{ x: 0, y: 0, config: { kind: 'spool' } }, { x: 3, y: 0, config: { kind: 'rewriter', recipe: { k: 'law', ref: { k: 'given', givenId: 'H' } }, dir: 'fwd' } }],
         belts: [[[1, 0.5], [3, 0.5]], [[5, 0.5], [6.8, 0.5]]],
         items: [{ at: [2, 0.5], t: 'cc = cc' }, { at: [6, 0.5], t: 'cc = e' }],
         notes: [
           { at: [0.5, 0.5, 0.9], text: 'The Spool’s equation travels by belt.' },
-          { at: [4, 0.5, 1], text: 'The recipe is the given $H$, picked in the Rewriter’s lens.' },
-          { at: [6.8, 0.5, 0], text: '$H$ at $x = c$ turns $cc$ into $e$.' },
+          { at: [4, 0.5, 1], text: 'The recipe is the given $h$, picked in the Rewriter’s lens.' },
+          { at: [6.8, 0.5, 0], text: '$h$ at $x = c$ turns $cc$ into $e$.' },
         ] } }],
     },
     {

@@ -125,7 +125,8 @@ export const CARDS: Record<string, ConceptCard[]> = {
   'P7.1': [
     {
       title: 'Symmetries of a square',
-      body: 'A square can be turned by a quarter turn $r$ and flipped by a reflection $f$. Four quarter turns return the square to the start, so $r^4 = e$. Two flips return it too, so $ff = e$. A third relation says how a flip and a turn trade places. Together they describe all eight symmetries, the **dihedral group** $D_4$.',
+      body: 'A square can be turned by a quarter turn $r$ and flipped by a reflection $f$. Number its corners $0, 1, 2, 3$ as on the clock below. A quarter turn moves each corner one place on, and four bring it home: $r^4 = e$. Two flips return the square too: $ff = e$. A third says how a flip and a turn trade places. Together they give all eight symmetries, the **dihedral group** $D_4$.',
+      figures: [{ k: 'clock', n: 4 }],
     },
     {
       title: 'Four copies of a letter',
@@ -145,6 +146,10 @@ export const CARDS: Record<string, ConceptCard[]> = {
       title: 'The stabilizer',
       body: 'The **stabilizer** of a point $p$ is the set of all $g$ in $G$ with $g(p) = p$, the elements that leave $p$ where it is. A given $g(p) = p$ says that $g$ is one of them. The docks ask whether a product of two such elements, and the inverse of one, stay in the stabilizer.',
     },
+    {
+      title: 'Writing an action in the Spool',
+      body: 'The Spool’s chips build action terms. For elements $g$, $h$ and a point $q$: the chip $g(\\,)$ writes $g$ and opens a bracket, and the next chip goes inside it. So $g(\\,)$, then $h(\\,)$, then $q$ build $g(h(q))$. The $)$ chip closes the innermost open bracket. To let a product act, build it first: after $gh$, the $(□)(\\,)$ chip makes $(gh)(\\,)$, ready for a point. Open brackets close when you press Enter or click away.',
+    },
   ],
 
   'P8.1': [
@@ -157,7 +162,7 @@ export const CARDS: Record<string, ConceptCard[]> = {
   'P8.2': [
     {
       title: 'Conjugates',
-      body: 'For $π$ and $α$ in $G$, the **conjugate** of $α$ by $π$ is $παπ^{-1}$. A product acts from the right: on a point, $τρτ^{-1}$ acts with $τ^{-1}$ first, then $ρ$, then $τ$. In this order the letters $p, q, r, s$ are points of $Ω$, and $π$ and $α$ are elements of $G$.',
+      body: 'For $π$ and $α$ in $G$, the **conjugate** of $α$ by $π$ is $παπ^{-1}$. When a product acts on a point, its right-hand factor acts first: $τρτ^{-1}$ acts with $τ^{-1}$ first, then $ρ$, then $τ$. In this order the letters $p, q, r, s$ are points of $Ω$, and $π$ and $α$ are elements of $G$.',
     },
   ],
 };

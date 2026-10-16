@@ -57,7 +57,7 @@ export const LEVELS: LevelManifest[] = [
     // backwards inside (d⁻¹c⁻¹ ⟶ (cd)⁻¹) → gate → ∀.
     id: 'P15.1', index: 63, campaign: 'book', world: 13, chapter: 15, title: 'Coset Multiplication',
     method: 'Subgroup test', source: 'Pinter 15 Theorem 2',
-    insight: 'Conjugating the second hypothesis by c makes the two memberships fit together: (ac⁻¹)(c·bd⁻¹·c⁻¹) is (ab)(cd)⁻¹. Normality is exactly what allows the conjugation.',
+    insight: 'Conjugate one hypothesis so that the two memberships fit together: (ac⁻¹)(c·bd⁻¹·c⁻¹) and (a·bd⁻¹·a⁻¹)(ac⁻¹) are both ab(cd)⁻¹. Normality is exactly what allows the conjugation.',
     memo: 'N is normal. Show that multiplying cosets does not depend on the representatives.',
     lemmaNames: ['coset multiplication is well defined'],
     atoms: [],
@@ -110,8 +110,8 @@ export const LEVELS: LevelManifest[] = [
     memo: 'c and d commute with everything. Show c·aᵐ and d·aⁿ commute for all m and n.',
     atoms: [{ id: 'a', label: 'a', hue: 0 }, { id: 'c', label: 'c', hue: 1 }, { id: 'd', label: 'd', hue: 2 }],
     givens: [
-      { id: 'Zc', name: 'Z_c', fact: { k: 'law', metas: ['z'], l: P(c, z), r: P(z, c) } },
-      { id: 'Zd', name: 'Z_d', fact: { k: 'law', metas: ['z'], l: P(d, z), r: P(z, d) } },
+      { id: 'Zc', name: 'h₁', fact: { k: 'law', metas: ['z'], l: P(c, z), r: P(z, c) } },
+      { id: 'Zd', name: 'h₂', fact: { k: 'law', metas: ['z'], l: P(d, z), r: P(z, d) } },
     ],
     sockets: [{
       id: 's', allowedGivens: ['Zc', 'Zd'],

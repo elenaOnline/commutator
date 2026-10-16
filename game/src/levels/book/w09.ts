@@ -65,9 +65,9 @@ export const LEVELS: LevelManifest[] = [
     // Spool (xⁱxʲ)ᵐ → power.add (inside the base) → power.multiply → power.add backwards (im, jm) → power.multiply backwards (i, m) and (j, m) → dock.
     id: 'P11.2', index: 46, campaign: 'book', world: 9, chapter: 11, title: 'Powers of One Element Commute',
     method: 'Exponent arithmetic',
-    insight: 'Powers of one element combine by adding exponents, and addition does not care about order. So (xⁱxʲ)ᵐ splits as (xⁱ)ᵐ(xʲ)ᵐ.',
+    insight: 'Powers of one element combine by adding exponents, and addition does not care about order. So (x^ix^j)^m splits as (x^i)^m(x^j)^m.',
     source: 'Pinter 11.B2 / 11.C3',
-    memo: 'Two powers of one part, run in a row, then repeated m times. Show the repeats split into m of each.',
+    memo: 'Multiply two powers of one element, then raise the product to the power m. Show that it splits into the m-th powers of each.',
     lemmaNames: ['powers of a product of powers'],
     atoms: [], givens: [],
     sockets: [{
@@ -86,9 +86,9 @@ export const LEVELS: LevelManifest[] = [
     // The hom dock (squaring respects products) is dropped: it is P11.2 applied twice (SYNTHESIS §3, adversary M5).
     id: 'P11.3', index: 47, campaign: 'book', world: 9, chapter: 11, title: 'Squaring in a Five-Element Cyclic Group',
     method: 'Exponent arithmetic',
-    insight: 'In a group where a⁵ = e, a⁶ = a. That lets aⁱ be written as a⁶ⁱ, which is (a³ⁱ)² (onto) and also ((aⁱ)²)³ (one-to-one).',
+    insight: 'In a group where a⁵ = e, a⁶ = a. That lets a^i be written as a^(6i), which is (a^(3i))² (onto) and also ((a^i)²)³ (one-to-one).',
     source: 'Pinter 11.B6',
-    memo: 'Squaring should lose no part and miss no part. Part a resets every five turns.',
+    memo: 'Here a⁵ = e. Show that squaring the powers of a is one-to-one and onto.',
     atoms: [{ id: 'a', label: 'a', hue: 0 }],
     givens: [{ id: 'h', name: 'a⁵ = e', fact: eq(PW(a, Z(5)), e) }],
     sockets: [
@@ -134,7 +134,6 @@ export const CARDS: Record<string, ConceptCard[]> = {
     {
       title: 'One-to-one and onto',
       body: 'A map from a group to itself is **one-to-one** if two different elements never go to the same place, and **onto** if every element is reached. In ℤ₇, the integers modulo 7 under addition, tripling sends $0, 1, \\ldots, 6$ to $0, 3, 6, 2, 5, 1, 4$. All seven are different, so tripling is both.',
-      figures: [{ k: 'clock', n: 7 }],
     },
     {
       title: 'The missing dock',

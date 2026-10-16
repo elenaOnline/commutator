@@ -262,7 +262,7 @@ describe('The Book · concept cards, whole campaign', () => {
 
   it('a card names a given exactly as the floor does', () => {
     const norm = (t: string) => t.replace(/\$/g, '').replace(/\\(ker|cap|pi|in)\b/g, (_m, w: string) => ({ ker: 'ker', cap: '∩', pi: 'π', in: '∈' } as Record<string, string>)[w]!)
-      .replace(/\\[{}]/g, '').replace(/[{}_\s]/g, '').replace(/ₐ/g, 'a');
+      .replace(/\\[{}]/g, '').replace(/[{}_\s]/g, '').replace(/ₐ/g, 'a').replace(/[₀-₉]/g, (d) => String(d.charCodeAt(0) - 0x2080));
     for (const { lv, c } of ORDERED) {
       const names = LEVEL[lv]!.givens.map((g) => norm(g.name));
       const t = copyOf(c).prose.join('\n');
@@ -338,5 +338,53 @@ describe('The Book · concept cards, whole campaign', () => {
       'P16.s2': [/sum of exponents|x\^\(6\)x\^\(-5\)/],
     };
     for (const [id, res] of Object.entries(LEAK)) for (const [i, c] of (BOOK_CARDS[id] ?? []).entries()) for (const re of res) expect(allText(c), `${id}#${i + 1} ${c.title}`).not.toMatch(re);
+  });
+
+  // ───────── final playtests (design/pinter/reviews/final-w1-7.md #17, #21; final-w8-14.md N13, N15, N17) ─────────
+  it('law givens wear standard labels: never H, K or Z (reserved for subgroups and groups), no raw underscores', () => {
+    for (const l of BOOK_LEVELS) for (const g of l.givens) {
+      expect(g.name, `${l.id} given ${g.id}`).not.toMatch(/^[HKZ](?:$|[_ₐ-ₜ₀-₉]|_)/);
+      expect(g.name, `${l.id} given ${g.id}`).not.toMatch(/_|[a-z][0-9]$/);
+    }
+  });
+
+  it('save names are names, not statements: no lemma is named by an implication between equations', () => {
+    for (const l of BOOK_LEVELS) for (const n of l.lemmaNames ?? []) expect(n, l.id).not.toMatch(/=.*⟹|⟹.*=/);
+  });
+
+  it('subscripts are subscripts: no x1, u1 or y0 in card prose or maths', () => {
+    for (const { lv, c } of ORDERED) for (const sp of copyOf(c).prose) {
+      expect(sp.replace(/\$[^$]*\$/g, 'M'), `${lv} · ${c.title}`).not.toMatch(/\b[a-zA-Z][0-9]\b/);
+      for (const m of texSpans(sp)) expect(m, `${lv} · ${c.title}: $${m}$`).not.toMatch(/(?<![_\\^{])\b[a-zA-Z][0-9]\b/);
+    }
+  });
+
+  it('insights write exponents the renderer typesets (x^(2m+2)), never modifier letters it cannot (x²ᵐ⁺²)', () => {
+    for (const l of BOOK_LEVELS) for (const t of [l.insight ?? '', l.idea]) expect(t, l.id).not.toMatch(/[ᵃ-ᶿⁱⁿ⁺⁼⁽⁾]/);
+  });
+
+  it('P5.5 teaches a relation read right to left as well as left to right', () => {
+    const rows = (BOOK_CARDS['P5.5'] ?? []).flatMap((c) => figuresOf(c)).flatMap((f) => (f.k === 'math' ? f.rows : []));
+    expect(rows.map((r) => r.label)).toEqual(expect.arrayContaining(['left to right', 'right to left']));
+  });
+
+  it('P7.1’s square card has a figure; P11.3’s tripling card has no “+1 each step” clock', () => {
+    expect(figuresOf(BOOK_CARDS['P7.1']![0]!).length).toBeGreaterThan(0);
+    for (const c of BOOK_CARDS['P11.3']!) expect(figuresOf(c).some((f) => f.k === 'clock'), c.title).toBe(false);
+  });
+
+  it('P6.2’s counterexample is laid out as maths, not only prose', () => {
+    const c = BOOK_CARDS['P6.2']!.find((x) => /Undoing from one side/.test(x.title))!;
+    expect(figuresOf(c).some((f) => f.k === 'math' && f.rows.length >= 2)).toBe(true);
+  });
+
+  it('P8.2 says which factor acts first; P7.2 teaches the chips that build an action term', () => {
+    const p82 = BOOK_CARDS['P8.2']!.map(allText).join('\n');
+    expect(p82).not.toMatch(/acts from the right/);
+    expect(p82).toMatch(/right-hand factor acts first/);
+    const p72 = BOOK_CARDS['P7.2']!.map(allText).join('\n');
+    expect(p72).toMatch(/chip/);
+    expect(p72).toMatch(/\(□\)/);
+    expect(p72).toMatch(/\$\)\$ chip/);
   });
 });

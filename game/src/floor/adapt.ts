@@ -31,7 +31,7 @@ const FALLBACK: Record<MachineKind, FB> = {
   tower: { name: 'Tower', family: 'scope', glyph: 'x∈G', placeable: true },
   rewriter: { name: 'Rewriter', family: 'equation', glyph: '⥲', placeable: true },
   operator: { name: 'Operator', family: 'structure', glyph: '✣', placeable: true },
-  joiner: { name: 'Joiner', family: 'equation', glyph: '⋈', placeable: true },
+  joiner: { name: 'Joiner', family: 'equation', glyph: '=', placeable: true },
   theorem: { name: 'Theorem', family: 'lemma', glyph: '⟹', placeable: true },
   forall: { name: '∀ Generalizer', family: 'scope', glyph: '∀', placeable: true },
   carddock: { name: 'Card Dock', family: 'lemma', glyph: '∀=', placeable: true },
@@ -155,7 +155,7 @@ export function fallbackConfig(kind: MachineKind): MachineConfig {
     case 'gate': return { kind, room: '' };
   }
 }
-export function defaultConfig(kind: MachineKind, ctx: KernelCtx, opts: { schema?: string; mirror?: boolean } = {}): MachineConfig {
+export function defaultConfig(kind: MachineKind, ctx: KernelCtx, opts: { schema?: string; mirror?: boolean; canvas?: F.DefaultOpts['canvas'] } = {}): MachineConfig {
   return soft('defaultConfig', () => F.defaultConfig(kind, ctx, opts), () => fallbackConfig(kind));
 }
 

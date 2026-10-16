@@ -3,7 +3,7 @@
 // and the chip always print one statement the same way. HTML (tooltips) uses shell/util fH directly.
 import type { Fact, PatFact, Poly, Term } from '../kernel/types';
 import { fH, tH } from '../shell/util';
-import { cardAliases, eAliases, eTag, isActionApp } from '../ui/sorts';
+import { cardAliases, eAliases, eTag, isActionApp, metaCarriers } from '../ui/sorts';
 
 export type Labels = Record<string, string>;
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
@@ -97,12 +97,14 @@ export function factSVG(f: Fact | PatFact, L0: Labels): string {
     switch (b.k) {
       case 'sub': return `<tspan fill="${SUBG_INK}">${nm(b.id)}</tspan>` + rel(b.normal ? '⊴' : '≤') + sr(b.sort);
       case 'hom': return nm(b.id) + up(' : ') + sr(b.dom) + rel('→') + sr(b.cod);
-      case 'act': return nm(b.id) + up(' : ') + sr(b.grp) + up(' × ') + sr(b.on) + rel('→') + sr(b.on);
+      case 'act': return ''; // NORMS › Sorts: the action's symbol σ is never shown
       default: return nm(b.id);
     }
   };
+  // carriers when a variable lives outside the first group: ∀u, v ∈ K (W5–7 #6)
+  const ms0 = (ms: string[]) => metaCarriers(ms, f.k === 'law' || f.k === 'cond' ? f.metaSorts : undefined, L).map((r) => r.metas.map(it).join(up(', ')) + (r.sort ? rel('∈') + sub(r.sort) : '')).join(up(', '));
   const q = (ms: string[]) => {
-    const parts = [...binds.map(one), ...(ms.length ? [ms.map(it).join(up(', '))] : [])];
+    const parts = [...binds.map(one).filter(Boolean), ...(ms.length ? [ms0(ms)] : [])];
     return parts.length ? up('∀') + parts.join(up(', ')) + up('. ') : '';
   };
   const prev = eAliases.cur;

@@ -134,7 +134,12 @@ export const CARDS: Record<string, ConceptCard[]> = {
     },
     {
       title: 'Undoing from one side',
-      body: 'A section undoes $h$ after $r$, which is not the same as undoing $r$ after $h$. Take $X$ with two elements $1$ and $2$, and $Y$ with one element $y_0$. Then $h(1) = h(2) = y_0$, and $r(y_0) = 1$ is a section of $h$. Yet $r(h(2)) = 1$, not $2$. Injectivity is what rules this out.',
+      body: 'A section undoes $h$ after $r$, which is not the same as undoing $r$ after $h$. Below, $X$ has two elements $p$ and $q$, $Y$ has one element $w$, and $h$ sends both to $w$. Taking $r(w) = p$ makes $r$ a section of $h$, yet $r$ does not undo $h$ at $q$. Injectivity is what rules this out.',
+      figures: [{ k: 'math', atoms: AT('pqw'), rows: [
+        { label: 'h sends p and q to w', seq: ['h(p)', '=', 'w', ',', 'h(q)', '=', 'w'] },
+        { label: 'r is a section of h', seq: ['h(r(w))', '=', 'h(p)', '=', 'w'] },
+        { label: 'r does not undo h', seq: ['r(h(q))', '=', 'r(w)', '=', 'p'], why: 'and $p \\neq q$.' },
+      ] }],
     },
   ],
 

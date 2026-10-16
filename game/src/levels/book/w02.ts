@@ -31,9 +31,9 @@ export const LEVELS: LevelManifest[] = [
     memo: 'A rival identity e′ and a rival inverse. Settle both.',
     atoms: [...atomsABC, { id: 'e1', label: 'e′', hue: 3 }],
     givens: [
-      { id: 'H', name: 'H', fact: { k: 'law', metas: ['x'], l: P(e1, x), r: x } },
-      { id: 'h1', name: 'h₁', fact: eq(P(c, a), e) },
-      { id: 'h2', name: 'h₂', fact: eq(P(a, b), e) },
+      { id: 'H', name: 'h₁', fact: { k: 'law', metas: ['x'], l: P(e1, x), r: x } },
+      { id: 'h1', name: 'h₂', fact: eq(P(c, a), e) },
+      { id: 'h2', name: 'h₃', fact: eq(P(a, b), e) },
     ],
     sockets: [
       { id: 's', target: eq(e1, e), allowedGivens: ['H'] },
@@ -119,7 +119,7 @@ export const CARDS: Record<string, ConceptCard[]> = {
     },
     {
       title: 'Two docks, a second identity',
-      body: 'This order has two docks, one for each statement, and each is proved on its own. The element $e′$ (read “e prime”) is a second candidate for the identity. The given $H$ says $e′x = x$ for every $x$, so $e′$ acts as an identity from the left.',
+      body: 'This order has two docks, one for each statement, and each is proved on its own. The element $e′$ (read “e prime”) is a second candidate for the identity. The given $h_1$ says $e′x = x$ for every $x$, so $e′$ acts as an identity from the left.',
     },
   ],
 

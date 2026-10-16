@@ -69,13 +69,17 @@ export function familyOfMachine(m: Machine, s: MachineSpec, ctx?: KernelCtx): Fa
 }
 
 export function buildGeo(c: Canvas, comp: Compiled | null, ctx: KernelCtx): Geo {
+  // the floor's Towers by label (H₁, f₁): a recipe's "at f₁" and glyph read them, never a Tower's id (x3)
+  const towerLabels: Record<string, string> = {};
+  for (const m of c.machines) if (m.config.kind === 'tower') towerLabels[m.config.varId] = m.config.label;
+  const lookCtx = { ...ctx, labels: towerLabels } as KernelCtx;
   const ms = new Map<string, MGeo>();
   const occ = new Map<string, string>();
   for (const m of c.machines) {
     const s = spec(m.kind);
     const tiles = footprint(m, ctx);
     const xs = tiles.map((t) => t.x), ys = tiles.map((t) => t.y);
-    let look = lookOf(m, ctx);
+    let look = lookOf(m, lookCtx);
     // Book phase A: a multi-desk Assume room numbers its desks ⊢₁ ⊢₂ ⊢₃ (desk i emits assumption Pᵢ)
     if (m.config.kind === 'desk') {
       const room = c.rooms.find((r) => r.id === (m.config as { room: string }).room);

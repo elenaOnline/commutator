@@ -121,7 +121,7 @@ export function mountApp(root: HTMLElement, store: FactoryStore, opts: AppOpts =
   const book = mountLemmaBook(layer, store, { top: () => below(run.el, 140) });
   const concepts = mountConcepts(layer, store);
   const paper = mountPaper(layer, store);
-  const lens = mountLens(layer, store, { dockTop: () => below(run.el, 120), keepClear: () => [order.el, run.el] });
+  const lens = mountLens(layer, store, { dockTop: () => below(run.el, 120), keepClear: () => [order.el, run.el, ...(Array.from(document.querySelectorAll('#floor .fl-l-machines [data-m]')) as unknown as HTMLElement[])] }); // floor task: the lens avoids the floor's machines too (final W1–7 #18)
   lensRef = lens.el;
   const hints = mountHints(layer, store, { slotRect: (k: MachineKind) => hotbar.slotRect(k), avoid: () => [lens.el, transcript.el, labEl] });
   const renderCeremony = mountCeremony(layer, store, { dest: () => hotbar.slotRect('earned') });

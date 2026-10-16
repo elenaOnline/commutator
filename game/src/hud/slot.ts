@@ -10,8 +10,12 @@ import * as K from '../kernel';
 import type { AtomDecl, Term } from '../kernel/types';
 import { beads } from './beads';
 import { markVarBeads } from './strip';
-import { BAD_TERM, readSlot, readVarName, slotAppend, slotBackspace, withLetter, withSubscript, type SlotRead } from './slotparse';
+import { BAD_TERM, elementChips, openBrackets, readSlot, readVarName, slotAppend, slotBackspace, slotSource, withLetter, withSubscript, type SlotRead } from './slotparse';
 import { esc, h, liveSubscripts, safe } from './util';
+import { freshLetter } from '../ui/letters';
+
+/** Insert pair's own variable: x, unless a Tower or level letter already is x (final W1–7 #19). */
+export const pairLetter = (L: Record<string, string>): string => freshLetter(Object.values(L));
 
 type Labels = Record<string, string>;
 type Hues = Record<string, number>;
@@ -45,8 +49,24 @@ export interface TermSlotOpts {
   key: string;
 }
 
-// source text (K.termSource), never display text: `a^6` displays a literal power but reads back as the word aaaaaa
-const textOf = (t: Term | null, L: Labels) => (t ? safe(() => K.termSource(t, L), '') : '');
+// source text (K.termSource), never display text: `a^6` displays a literal power but reads back as the word aaaaaa;
+// an action applied is written α(p), (αβ)(p), as typed (slotSource), never with the action's own symbol
+const textOf = (t: Term | null, L: Labels) => (t ? safe(() => slotSource(t, L), '') : '');
+
+/**
+ * Clicking into a field that already holds a value selects all of it, so typing replaces it as in any text field
+ * ("3i" typed twice must not read 9i², final W8–14 N24). Focus that comes from code (a chip, a lens rebuild) keeps
+ * the caret at the end. `on` reports the select-all state (term slots draw it, since their input is hidden).
+ */
+export function selectAllOnClick(input: HTMLInputElement, on?: (all: boolean) => void): void {
+  let armed = false;
+  input.addEventListener('pointerdown', () => { armed = document.activeElement !== input && !!input.value; });
+  input.addEventListener('click', () => { if (!armed) return; armed = false; input.select(); on?.(true); });
+  const off = () => on?.(false);
+  input.addEventListener('input', off);
+  input.addEventListener('blur', off);
+  input.addEventListener('keydown', (e) => { if (e.key.startsWith('Arrow') || e.key === 'Home' || e.key === 'End') off(); });
+}
 
 /** A term knob drawn as slots. Returns the knob element (class h3-knob). */
 export function termSlot(o: TermSlotOpts): HTMLElement {
@@ -79,44 +99,43 @@ export function termSlot(o: TermSlotOpts): HTMLElement {
     msg.title = read.k === 'bad' ? read.error : '';
     row.classList.toggle('unset', read.k !== 'ok');
     row.classList.toggle('bad', read.k === 'bad');
+    for (const g of gates) g();
   };
   const same = (t: Term | null) => JSON.stringify(t) === JSON.stringify(o.value);
-  const commit = () => {
+  // a chip commits only text whose frames are closed (the next chip still goes inside an open one); blur and Enter
+  // commit open frames closed (final W1–7 #1)
+  const commit = (final = false) => {
     draw();
-    if (read.k === 'ok' && !same(read.term)) o.commit(read.term);
+    if (read.k === 'ok' && (final || !read.open) && !same(read.term)) o.commit(read.term);
     else if (read.k === 'empty' && o.value) o.commit(null);
   };
   liveSubscripts(input, o.towerLabels);
   input.addEventListener('input', draw);
+  selectAllOnClick(input, (all) => row.classList.toggle('selall', all));
   input.addEventListener('keydown', (e) => {
     e.stopPropagation();
-    if (e.key === 'Enter') { e.preventDefault(); if (input.value.trim() === textOf(o.value, o.L)) commit(); input.blur(); } // blur commits
+    if (e.key === 'Enter') { e.preventDefault(); if (input.value.trim() === textOf(o.value, o.L)) commit(true); input.blur(); } // blur commits
     if (e.key === 'Escape') { e.preventDefault(); input.value = textOf(o.value, o.L); draw(); input.blur(); }
   });
   input.addEventListener('focus', () => { row.classList.add('focus'); const n = input.value.length; input.setSelectionRange(n, n); });
-  input.addEventListener('blur', () => { row.classList.remove('focus'); if (input.value.trim() !== textOf(o.value, o.L)) commit(); });
+  input.addEventListener('blur', () => { row.classList.remove('focus'); if (input.value.trim() !== textOf(o.value, o.L) || read.k === 'ok' && read.open) commit(true); });
 
   const chips = h('div', { class: 'h3-chips' });
-  const chip = (title: string, kid: Node | string, cls: string, act: () => void) => {
+  const gates: (() => void)[] = [];
+  const chip = (title: string, kid: Node | string, cls: string, act: () => void, live?: (text: string) => boolean) => {
     const b = h('button', { class: `bn-chip h3-chip ${cls}`, title, type: 'button' }, kid);
     b.addEventListener('pointerdown', (e) => e.preventDefault()); // keep the caret in the slot
-    b.addEventListener('click', () => { act(); draw(); commit(); });
+    // the caret moves into the slot, so a click elsewhere later commits what the chips built (open frames closed)
+    b.addEventListener('click', () => { row.classList.remove('selall'); act(); draw(); commit(); if (document.activeElement !== input) input.focus({ preventScroll: true }); });
+    if (live) gates.push(() => { b.disabled = !live(input.value); });
     chips.append(b);
   };
-  for (const t of o.chips) {
+  const terms = elementChips(o.chips, o.atoms, sortCtx.cur.env);
+  for (const t of terms) {
     const isVar = (t.k === 'atom' && o.vars.has(t.id)) || (t.k === 'inv' && t.arg.k === 'atom' && o.vars.has(t.arg.id));
     chip(`append ${textOf(t, o.L)}`, markVarBeads(beads(t, o.L, o.H), o.vars), isVar ? 'h3-var' : '', () => { input.value = slotAppend(input.value, textOf(t, o.L)); });
   }
-  // Book phase C: a map's chip opens its frame f( … ); identities of the other groups (e_K)
-  const maps = (parseExtra.cur?.maps ?? []).filter((m) => m.kind !== 'action');
-  for (const m of maps) chip(`apply ${m.label}: type its argument inside`, h('span', { class: 'math h3-fnchip', html: `<i>${esc(m.label)}</i>(&thinsp;)` }), 'txt', () => { input.value = `${input.value}${m.label}(`; });
-  for (const g of actionChips(o.chips, o.L)) chip(`apply ${g} to a point: type the point inside`, h('span', { class: 'math h3-fnchip', html: `<i>${esc(g)}</i>(&thinsp;)` }), 'txt', () => { input.value = `${input.value}${g}(`; });
-  // a power is its own chip: ^( ) raises the term before it to an integer power (x^(2) is x², x^2 would read xx) (W4–9)
-  if (o.ints ?? slotFlags.ints) chip('raise to a power: type the integer inside', h('span', { class: 'math h3-fnchip', html: '□<sup>( )</sup>' }), 'txt', () => { input.value = `${input.value}^(`; });
-  if (maps.length) chip('close the bracket', h('span', { class: 'math' }, ')'), 'txt', () => { input.value = `${input.value})`; });
-  // the plain e chip already gives the base group's identity (and settles to the term's group): no duplicate (#13)
-  const groups = (parseExtra.cur?.sorts ?? []).filter((x) => x.kind === 'group' && x.id !== sortCtx.cur.base);
-  if (groups.length) for (const g of groups) chip(`append e of ${g.label}`, h('span', { class: 'math', html: `<i>e</i><sub>${esc(g.label)}</sub>` }), 'txt', () => { input.value = slotAppend(input.value, `e_${g.label}`); });
+  for (const f of frameChips(terms, o.L, o.ints ?? slotFlags.ints)) chip(f.title, f.kid(), 'txt', () => { input.value = f.apply(input.value); }, f.live);
   chip('delete last', '⌫', 'txt', () => { input.value = slotBackspace(input.value); });
   for (const q of o.quick ?? []) chip(`copy the incoming ${q.label} (syntax only)`, `= ${q.label}`, 'txt', () => { input.value = textOf(q.term, o.L); });
   if (o.onPort) {
@@ -162,6 +181,47 @@ export function bareSlot(o: {
   return { el: wrap, input, read: () => read, set: (text) => { input.value = text; draw(); } };
 }
 
+/** The atoms behind chip terms, for the sort reading (the room popover passes terms only; sorts come from sortCtx). */
+const atomsOf = (terms: Term[], vars: Map<string, 'G' | 'Z'>): AtomDecl[] => terms.flatMap((t) => (t.k === 'atom' ? [{ id: t.id, label: t.id, hue: 0, ...(vars.get(t.id) === 'Z' ? { sort: 'Z' } : {}) } as AtomDecl] : []));
+
+/** The text after the last bracket still open (or all of it): the product a (□)( ) chip lets act. */
+export function trailingProduct(text: string): string {
+  const open: number[] = [];
+  [...text].forEach((ch, i) => { if (ch === '(') open.push(i); else if (ch === ')') open.pop(); });
+  return text.slice(open.length ? open[open.length - 1]! + 1 : 0);
+}
+
+/**
+ * Frame chips, shared by every term slot (lens knobs, Spool, room popover): a map's frame f( ), an action's α( ), the
+ * product-acts frame (□)( ) that wraps the product typed so far, the power ^( ), a closing ")" wherever frames
+ * exist, and the identities of the other groups (e_K). Frames left open close themselves on commit (final W1–7 #1).
+ */
+export function frameChips(terms: Term[], L: Labels, ints: boolean): { title: string; kid: () => Node; apply: (text: string) => string; live?: (text: string) => boolean }[] {
+  const out: ReturnType<typeof frameChips> = [];
+  const fn = (name: string) => () => h('span', { class: 'math h3-fnchip', html: `<i>${esc(name)}</i>(&thinsp;)` });
+  const maps = (parseExtra.cur?.maps ?? []).filter((m) => m.kind !== 'action');
+  for (const m of maps) out.push({ title: `apply ${m.label}: type its argument inside`, kid: fn(m.label), apply: (t) => `${t}${m.label}(` });
+  // an action is entered as Pinter writes it: α( ), then the point (W4–9); a product acts as (αβ)( )
+  const acting = actionChips(terms, L);
+  for (const g of acting) out.push({ title: `apply ${g} to a point: type the point inside`, kid: fn(g), apply: (t) => `${t}${g}(` });
+  if (acting.length) {
+    const prod = (t: string) => trailingProduct(t).trim();
+    out.push({
+      title: 'let the product typed so far act on a point: type the point inside',
+      kid: () => h('span', { class: 'math h3-fnchip', html: '(□)(&thinsp;)' }),
+      apply: (t) => { const p = prod(t); return p && !p.includes(',') ? `${t.slice(0, t.length - trailingProduct(t).length)}(${p})(` : t; },
+      live: (t) => !!prod(t) && !prod(t).includes(','),
+    });
+  }
+  // a power is its own chip: ^( ) raises the term before it to an integer power (x^(2) is x², x^2 would read xx) (W4–9)
+  if (ints) out.push({ title: 'raise to a power: type the integer inside', kid: () => h('span', { class: 'math h3-fnchip', html: '□<sup>( )</sup>' }), apply: (t) => `${t}^(` });
+  if (maps.length || acting.length) out.push({ title: 'close the bracket', kid: () => h('span', { class: 'math' }, ')'), apply: (t) => `${t})`, live: (t) => openBrackets(t) > 0 });
+  // the plain e chip already gives the base group's identity (and settles to the term's group): no duplicate (#13)
+  const groups = (parseExtra.cur?.sorts ?? []).filter((x) => x.kind === 'group' && x.id !== sortCtx.cur.base);
+  for (const g of groups) out.push({ title: `append e of ${g.label}`, kid: () => h('span', { class: 'math', html: `<i>e</i><sub>${esc(g.label)}</sub>` }), apply: (t) => slotAppend(t, `e_${g.label}`) });
+  return out;
+}
+
 /** The group elements an action can be applied with (α, β … of the acting group), when the floor has an action. */
 function actionChips(terms: Term[], L: Labels): string[] {
   const acts = (parseExtra.cur?.maps ?? []).filter((m) => m.kind === 'action');
@@ -179,17 +239,10 @@ export function slotChips(target: () => BareSlot, terms: Term[], L: Labels, H: H
     b.addEventListener('click', () => { const sl = target(); act(sl); sl.input.focus({ preventScroll: true }); });
     chips.append(b);
   };
-  for (const t of terms) chip(`append ${textOf(t, L)}`, markVarBeads(beads(t, L, H), vars), '', (sl) => sl.set(slotAppend(sl.input.value, textOf(t, L))));
-  // Book phase C: a map's chip opens its frame, f( … ) — type the argument, then ")" (or the ) chip) closes it
-  const maps = (parseExtra.cur?.maps ?? []).filter((m) => m.kind !== 'action');
-  for (const m of maps) chip(`apply ${m.label}: type its argument inside`, h('span', { class: 'math h3-fnchip', html: `<i>${esc(m.label)}</i>(&thinsp;)` }), 'txt', (sl) => sl.set(`${sl.input.value}${m.label}(`));
-  // an action is entered as Pinter writes it: α( ), then the point (W4–9)
-  for (const g of actionChips(terms, L)) chip(`apply ${g} to a point: type the point inside`, h('span', { class: 'math h3-fnchip', html: `<i>${esc(g)}</i>(&thinsp;)` }), 'txt', (sl) => sl.set(`${sl.input.value}${g}(`));
-  if (maps.length) chip('close the bracket', h('span', { class: 'math' }, ')'), 'txt', (sl) => sl.set(`${sl.input.value})`));
-  // identities of the other groups (e_K)
-  // the plain e chip already gives the base group's identity (and settles to the term's group): no duplicate (#13)
-  const groups = (parseExtra.cur?.sorts ?? []).filter((x) => x.kind === 'group' && x.id !== sortCtx.cur.base);
-  if (groups.length) for (const g of groups) chip(`append e of ${g.label}`, h('span', { class: 'math', html: `<i>e</i><sub>${esc(g.label)}</sub>` }), 'txt', (sl) => sl.set(slotAppend(sl.input.value, `e_${g.label}`)));
+  const els = elementChips(terms, atomsOf(terms, vars), sortCtx.cur.env);
+  for (const t of els) chip(`append ${textOf(t, L)}`, markVarBeads(beads(t, L, H), vars), '', (sl) => sl.set(slotAppend(sl.input.value, textOf(t, L))));
+  // Book phase C: frames (f( ), α( ), (□)( ), the closing bracket) and the other groups' identities (e_K)
+  for (const f of frameChips(els, L, false)) chip(f.title, f.kid(), 'txt', (sl) => sl.set(f.apply(sl.input.value)));
   chip('delete last', '⌫', 'txt', (sl) => sl.set(slotBackspace(sl.input.value)));
   return chips;
 }
@@ -210,7 +263,7 @@ export interface NameSlotOpts {
 
 /** The Tower's name: a slot drawn as the variable itself (violet ∈G, teal ∈ℤ), with letter and subscript chips. */
 export function nameSlot(o: NameSlotOpts): { slot: HTMLElement; chips: HTMLElement } {
-  const letters = o.letters ?? (o.sub ? (o.sub === 'normal' ? ['N', 'M'] : ['H', 'K', 'L']) : o.sort === 'Z' ? ['n', 'm', 'k'] : ['x', 'y', 'z', 'u']);
+  const letters = o.letters ?? (o.sub ? (o.sub === 'normal' ? ['N', 'M'] : ['H', 'L', 'J']) : o.sort === 'Z' ? ['n', 'm', 'k'] : ['x', 'y', 'z', 'u']);
   const input = h('input', { class: 'h3-slot-in', value: o.label, 'aria-label': 'variable name', autocomplete: 'off', spellcheck: 'false', autocapitalize: 'off' });
   const boxes = h('span', { class: 'h3-slotboxes' });
   const slots = h('span', { class: 'h3-slots', 'data-slot': o.key }, boxes, input);

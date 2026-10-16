@@ -287,7 +287,7 @@ try {
       if (id === 'P4.4') check(rows.length === 1 && rows[0].name === 'double inverse', `P4.4 offers its save as "double inverse" (${rows.map((r) => r.name)})`);
       if (id === 'P4.5') check(rows.every((r) => r.name === null) , `P4.5: no save row for the theorem the order already earns (${rows.length} rows)`);
       if (id === 'P4.7') check(rows.length === 1 && rows[0].name === 'the only idempotent is e', `P4.7 save named by the author (${rows.map((r) => r.name)})`);
-      if (id === 'P4.9') check(rows.length === 2 && rows[0].name === 'xy = yx ⟹ xyx⁻¹y⁻¹ = e' && rows[1].name === 'xyx⁻¹y⁻¹ = e ⟹ xy = yx', `P4.9 offers both saves, in dock order (${rows.map((r) => r.name).join(' | ')})`);
+      if (id === 'P4.9') check(rows.length === 2 && rows[0].name === 'commute ⟹ commutator is e' && rows[1].name === 'commutator is e ⟹ commute', `P4.9 offers both saves, in dock order (${rows.map((r) => r.name).join(' | ')})`);
       check(!/^Saved/.test(note ?? ''), `${id}: no "Saved" text before saving (${note})`);
       const tombs = await page.evaluate(() => [...document.querySelectorAll('.qed-card .tomb')].map((t) => t.closest('.pp-why') ? 'line' : 'stray'));
       check(!tombs.includes('stray'), `${id}: ∎ closes the last paper line, no stray mark (${tombs.join(',')})`);

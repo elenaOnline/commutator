@@ -8,7 +8,9 @@ import type { Family, LevelManifest, Schema, Term } from '../kernel/types';
 import type { LibRef, Machine } from '../factory/types';
 import { FAMILY, INK, SUBGROUP, VAR } from '../ui/tokens';
 import { sortCtx } from '../ui/sorts';
+import { freshLetter } from '../ui/letters';
 import { shade } from '../board/geom';
+import { upperWords } from './svg';
 import { schemaMachineName, schemaOf } from '../factory/catalog';
 import { MIRROR_NAMES, SIDE_PAIRS } from '../levels/levels';
 import type { KernelCtx } from '../kernel';
@@ -43,8 +45,9 @@ const fam = (f: Family, glyph: string, label: string): Look => ({
   fam: f, ink: FAMILY[f].ink, hull: shade(FAMILY[f].ink, f === 'identity' ? 0.2 : 0.26),
   on: f === 'inverse' || f === 'structure' || f === 'scope' || f === 'lemma' ? '#FFFFFF' : INK.navy, glyph, label,
 });
-const plate = (title: string, label: string, kind: 'gold' | 'hatch' = 'gold', tag?: string): Look => ({
-  fam: 'lemma', ink: INK.navy, hull: INK.navy, on: '#FFFFFF', glyph: '', label, plate: kind, title, tag,
+/** A theorem plate: the face carries maths (⟹ for a theorem, the rewrite arrow for a law), the name is the caption. */
+const plate = (title: string, label: string, kind: 'gold' | 'hatch' = 'gold', tag?: string, glyph = '⟹'): Look => ({
+  fam: 'lemma', ink: INK.navy, hull: INK.navy, on: '#FFFFFF', glyph, label, plate: kind, title, tag,
 });
 const neutral = (label: string, glyph = '?'): Look => ({ fam: 'lemma', ...NEUTRAL, glyph, label, neutral: true });
 
@@ -67,7 +70,7 @@ function imported(lc: LookCtx, id: string): boolean {
   try { const s = schemaOf(lc as KernelCtx, id); if (s) return s.origin === 'import'; } catch { /* not ready */ }
   return id.startsWith('power.') || lc.registry[id]?.origin === 'import';
 }
-const short = (s: string) => s.replace(/\s*ᵒᵖ\s*/, ' OP').toUpperCase();
+const short = (s: string) => upperWords(s.replace(/\s*ᵒᵖ\s*/, ' OP'));
 
 function libLook(lc: LookCtx, ref: LibRef, asTheorem: boolean): Look {
   switch (ref.k) {
@@ -76,7 +79,7 @@ function libLook(lc: LookCtx, ref: LibRef, asTheorem: boolean): Look {
       if (ref.id === 'invR') return fam('inverse', 'xx⁻¹', 'xx⁻¹ = e');
       if (ref.id === 'unitL') return fam('identity', 'ex', 'ex = x');
       return fam('identity', 'xe', 'xe = x');
-    case 'given': { const n = givenName(lc, ref.givenId); return { ...fam('given', asTheorem ? `${n}⟹` : n, 'LAW'), name: n }; }
+    case 'given': { const n = givenName(lc, ref.givenId); return { ...fam('given', asTheorem ? `${n}⟹` : n, 'GIVEN'), name: n }; }
     case 'schema': {
       // Book phase B: the subgroup axioms are machines of their kind, like the group laws — a box in the subgroup
       // ink with the closure as its glyph. (Earned "contains e" keeps the gold plate; imported powers the hatch.)
@@ -85,7 +88,7 @@ function libLook(lc: LookCtx, ref: LibRef, asTheorem: boolean): Look {
       const MAP_GLYPH: Record<string, string> = { 'hom.mul': 'f(xy)', 'hom.pow': 'f(xⁿ)', 'act.mul': '(gh)(p)', 'act.e': 'e(p)' };
       if (MAP_GLYPH[ref.id]) {
         const fnId = ref.structs ? Object.values(ref.structs)[0] : undefined;
-        const fl = fnId ? lc.level.maps?.find((x) => x.id === fnId)?.label ?? fnId : 'f';
+        const fl = (fnId ? lc.level.maps?.find((x) => x.id === fnId)?.label ?? lc.labels?.[fnId] : undefined) ?? 'f'; // a Hom Tower's id is never a name
         const glyph = ref.id.startsWith('hom.') ? MAP_GLYPH[ref.id]!.replace('f', fl) : MAP_GLYPH[ref.id]!;
         return fam('structure', glyph, ref.id.startsWith('hom.') ? 'HOMOMORPHISM LAW' : 'ACTION LAW');
       }
@@ -98,9 +101,10 @@ function libLook(lc: LookCtx, ref: LibRef, asTheorem: boolean): Look {
         return { fam: 'lemma', ink: SUBGROUP.ink, hull: shade(SUBGROUP.ink, 0.26), on: '#FFFFFF', glyph: SUB_GLYPH[ref.id]!, label: short(n), subBlob: blob };
       }
       const n = schemaName(lc, ref.id, ref.mirror);
-      return imported(lc, ref.id) ? plate(n, short(n), 'hatch', 'IMPORTED') : plate(n, short(n));
+      const g = asTheorem ? '⟹' : '⥲';
+      return imported(lc, ref.id) ? plate(n, short(n), 'hatch', 'IMPORTED', g) : plate(n, short(n), 'gold', undefined, g);
     }
-    case 'lagrange': return plate('Lagrange', 'LAGRANGE', 'hatch', 'IMPORTED');
+    case 'lagrange': return plate('Lagrange', 'LAGRANGE', 'hatch', 'IMPORTED', asTheorem ? '⟹' : '⥲');
   }
 }
 
@@ -131,9 +135,15 @@ export function lookOf(m: Machine, lc: LookCtx): Look {
         case 'cancel': return fam('inverse', '†', 'CANCEL');
         case 'pop': return { ...fam('identity', 'e·', 'POP'), name: 'e' };
         case 'insertE': return { ...fam('identity', '+e', 'INSERT'), name: 'e' };
-        case 'insertPair': return fam('inverse', r.inv ? '+x⁻¹x' : '+xx⁻¹', 'INSERT PAIR');
+        case 'insertPair': {
+          // the recipe's own letter, the one its lens shows (hud/slot pairLetter): fresh against the floor's letters
+          const lv = lc.level;
+          const x = freshLetter([...lv.atoms.map((a) => a.label), ...(lv.subgroups ?? []).map((g) => g.label), ...(lv.sorts ?? []).map((g) => g.label),
+            ...(lv.maps ?? []).map((g) => g.label), ...Object.values(lc.labels ?? {})]);
+          return fam('inverse', r.inv ? `+${x}⁻¹${x}` : `+${x}${x}⁻¹`, 'INSERT PAIR');
+        }
         case 'law': return { ...libLook(lc, r.ref, false), dir: c.dir };
-        case 'routed': return { ...fam('equation', '⥲', 'ROUTED RULE'), dir: c.dir };
+        case 'routed': return { ...fam('equation', '⥲', 'RULE INPUT'), dir: c.dir };
       }
       return neutral('REWRITER');
     }
@@ -147,7 +157,7 @@ export function lookOf(m: Machine, lc: LookCtx): Look {
         const mp = lc.level.maps?.find((x) => x.id === r.fn); const n = mp?.label ?? r.fn;
         // an action is never named by its symbol: it acts — g( ) on both sides (W4–9)
         if (mp?.kind === 'action') return fam('structure', 'g( )', 'ACT ON BOTH SIDES');
-        return fam('structure', `${n}( )`, `APPLY ${n.toUpperCase()}`);
+        return { ...fam('structure', `${n}( )`, 'APPLY'), name: n }; // the map's name is maths: printed as written, never capitalised
       }
       return fam('equation', '=', 'SWAP');
     }
@@ -161,11 +171,11 @@ export function lookOf(m: Machine, lc: LookCtx): Look {
     case 'theorem': {
       const r = c.recipe;
       if (!r) return neutral('THEOREM');
-      if (r.k === 'routed') return fam('equation', '⟹', 'ROUTED CARD');
+      if (r.k === 'routed') return fam('equation', '⟹', 'CARD INPUT');
       // the face names the instance it is used at ("fibre lemma ⟹ at π", "… at N"), once chosen (#5, #10)
       const structs = { ...(r.ref.k === 'schema' ? r.ref.structs ?? {} : {}), ...(c.structs ?? {}) };
       const lk = libLook(lc, Object.keys(structs).length && r.ref.k === 'schema' ? { ...r.ref, structs } : r.ref, true);
-      const at = Object.values(structs).map((id) => lc.level.maps?.find((x) => x.id === id)?.label ?? lc.level.subgroups?.find((x) => x.id === id)?.label ?? lc.labels?.[id] ?? id);
+      const at = Object.values(structs).flatMap((id) => { const l = lc.level.maps?.find((x) => x.id === id)?.label ?? lc.level.subgroups?.find((x) => x.id === id)?.label ?? lc.labels?.[id]; return l ? [l] : []; });
       return at.length && lk.plate && lk.title ? { ...lk, title: `${lk.title} at ${at.join(', ')}` } : lk;
     }
   }

@@ -34,7 +34,7 @@ const schemaNames = (id: string, mirror = false) => schemaInfo(id, mirror);
 /** "Lemma n" only for theorems earned in a level; authored and imported ones are cited by name. */
 /** In The Book, "Lemma n" would point into the other campaign's numbering: there every theorem is cited by name. */
 const schemaLemmaNo = (id: string): number | null => (id.startsWith('power.') || CTX?.registry[id]?.origin === 'authored' || CTX?.level.campaign === 'book' ? null : lemmaNo0(id));
-import { deskFact, displayNo, givenPrefixHTML, fH, factTeX, openView, tH, safe, statementOf } from './util';
+import { deskFact, displayNo, givenPrefixHTML, fH, factTeX, labels as levelLabelsH, openView, tH, safe, statementOf } from './util';
 
 /** What the transcript reads: the compiled graph and its check, the level, the kernel context. */
 export interface State { graph: ProofGraph; check: CheckResult; level: LevelManifest; ctx: K.KernelCtx }
@@ -47,7 +47,8 @@ const labelsOf = (s: State): Record<string, string> => graphLabels(s.level, s.gr
  */
 export function graphLabels(level: LevelManifest, graph: Pick<ProofGraph, 'vars' | 'structs'>): Record<string, string> {
   return {
-    ...labels0(level),
+    // the HUD's labels, not the atoms alone: the level's maps (π, never "pi"), sorts and subgroups name themselves too
+    ...levelLabelsH(level),
     ...Object.fromEntries((graph.vars ?? []).map((v) => [v.id, v.label])),
     ...Object.fromEntries((graph.structs ?? []).map((x) => [x.id, x.label])),
   };
@@ -431,7 +432,7 @@ function fallbackJust(n: ProofNode, s: State): string {
       if (op.k === 'insertE') return 'unit';
       if (op.k === 'lift') return `multiply on the ${op.side} by ${tt(op.term)}`;
       if (op.k === 'invert') return 'invert both sides';
-      if (op.k === 'applyMap') return `apply ${op.fn} to both sides`;
+      if (op.k === 'applyMap') return `apply ${labelsOf(s)[op.fn] ?? op.fn} to both sides`;
       if (op.rule.k === 'axiom') return op.rule.id.startsWith('unit') ? 'unit' : 'inverse';
       if (op.rule.k === 'node') { const id = op.rule.id; return s.level.givens.find((g) => `g:${g.id}` === id)?.name ?? 'above'; }
       return 'lemma';

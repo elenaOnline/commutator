@@ -45,8 +45,8 @@ describe('P9.1 on the floor: f(e) = e for every homomorphism', () => {
     expect(F.lemmaFrom(comp, f.c, all, f.ctx)).toMatchObject({ ok: true });
     expect(f.run().s.delivered.s).toBeDefined();
     oracleOk(f, comp);
-    // the picker offers the hom law once per hom in scope, Hom Towers included
-    expect(libraryRefs(f.ctx, 'rule', f.c).filter((r) => r.k === 'schema' && r.id === 'hom.mul').map((r) => F.libName(f.ctx, r))).toEqual(['homomorphism law (f₁)']);
+    // the picker offers the hom law once per hom in scope, Hom Towers included, named by the Tower's label (never its id)
+    expect(libraryRefs(f.ctx, 'rule', f.c).filter((r) => r.k === 'schema' && r.id === 'hom.mul').map((r) => F.libName(f.ctx, r, f.c))).toEqual(['homomorphism law (f₁)']);
   });
 });
 

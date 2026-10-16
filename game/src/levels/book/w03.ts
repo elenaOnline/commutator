@@ -75,7 +75,7 @@ export const LEVELS: LevelManifest[] = [
     id: 'P4.9', index: 12, campaign: 'book', world: 3, chapter: 4, title: 'The Commutator',
     method: 'If–then', insight: 'An if and only if is two if–thens', source: 'Pinter 4.C7',
     memo: 'The commutator xyx⁻¹y⁻¹ equals e exactly when x and y commute. Certify both directions.',
-    lemmaNames: ['xy = yx ⟹ xyx⁻¹y⁻¹ = e', 'xyx⁻¹y⁻¹ = e ⟹ xy = yx'],
+    lemmaNames: ['commute ⟹ commutator is e', 'commutator is e ⟹ commute'],
     atoms: [], givens: [],
     sockets: [
       { id: 's', target: { k: 'cond', metas: ['x', 'y'], premises: [peq(P(x, y), P(y, x))], concl: peq(P(x, y, I(x), I(y)), e) }, allowedGivens: [] },
@@ -89,7 +89,7 @@ export const LEVELS: LevelManifest[] = [
     id: 'P4.10', index: 13, campaign: 'book', world: 3, chapter: 4, title: 'One-Sided Inverses',
     method: 'If–then', insight: 'Make the given equal e, then swap the factors', source: 'Pinter 4.D1 + 4.D4',
     memo: 'A product equal to e stays e when its two factors trade places. Certify that.',
-    lemmaNames: ['xy = e ⟹ yx = e'],
+    lemmaNames: ['one-sided inverses are two-sided'],
     atoms: [...atomsAB, { id: 'c', label: 'c', hue: 2 }],
     givens: [{ id: 'h', name: 'h', fact: eq(P(b, a, c), I(a)) }],
     sockets: [
@@ -125,10 +125,10 @@ export const LEVELS: LevelManifest[] = [
     memo: 'Every element squares to e, and a, b, e are distinct. Rule out three products.',
     atoms: atomsAB,
     givens: [
-      { id: 'H', name: 'H', fact: { k: 'law', metas: ['x'], l: P(x, x), r: e } },
-      { id: 'na', name: 'h₁', fact: neq(a, e) },
-      { id: 'nb', name: 'h₂', fact: neq(b, e) },
-      { id: 'nab', name: 'h₃', fact: neq(a, b) },
+      { id: 'H', name: 'h₁', fact: { k: 'law', metas: ['x'], l: P(x, x), r: e } },
+      { id: 'na', name: 'h₂', fact: neq(a, e) },
+      { id: 'nb', name: 'h₃', fact: neq(b, e) },
+      { id: 'nab', name: 'h₄', fact: neq(a, b) },
     ],
     sockets: [
       { id: 's1', target: neq(P(a, b), a), allowedGivens: ['H', 'na', 'nb', 'nab'] },

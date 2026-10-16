@@ -59,8 +59,8 @@ export const LEVELS: LevelManifest[] = [
     memo: 'a and b commute with everything. Check that e, ab and a⁻¹ do too.',
     atoms: atomsAB,
     givens: [
-      { id: 'Ha', name: 'Hₐ', fact: { k: 'law', metas: ['x'], l: P(a, x), r: P(x, a) } },
-      { id: 'Hb', name: 'H_b', fact: { k: 'law', metas: ['x'], l: P(b, x), r: P(x, b) } },
+      { id: 'Ha', name: 'h₁', fact: { k: 'law', metas: ['x'], l: P(a, x), r: P(x, a) } },
+      { id: 'Hb', name: 'h₂', fact: { k: 'law', metas: ['x'], l: P(b, x), r: P(x, b) } },
     ],
     sockets: [
       { id: 's1', target: { k: 'law', metas: ['x'], l: P(e, x), r: P(x, e) }, allowedGivens: [] },
@@ -78,7 +78,7 @@ export const LEVELS: LevelManifest[] = [
     insight: 'Choose the instance of the law that makes the inverses cancel.',
     memo: 'a satisfies a law for every x. Show a⁻¹ satisfies it too.',
     atoms: atomsA,
-    givens: [{ id: 'H', name: 'H', fact: { k: 'law', metas: ['x'], l: P(a, x, a, x), r: P(x, a, x, a) } }],
+    givens: [{ id: 'H', name: 'h', fact: { k: 'law', metas: ['x'], l: P(a, x, a, x), r: P(x, a, x, a) } }],
     sockets: [{
       id: 's', allowedGivens: ['H'],
       target: { k: 'law', metas: ['x'], l: P(I(a), x, I(a), x), r: P(x, I(a), x, I(a)) },
@@ -96,8 +96,8 @@ export const LEVELS: LevelManifest[] = [
     memo: 'c and d each conjugate H into itself. Show cd does too.',
     atoms: [{ id: 'c', label: 'c', hue: 0 }, { id: 'd', label: 'd', hue: 1 }], subgroups: SUBGROUP_H,
     givens: [
-      { id: 'Kc', name: 'K_c', fact: { k: 'cond', metas: ['u'], premises: [pmem(u)], concl: pmem(P(c, u, I(c))) } },
-      { id: 'Kd', name: 'K_d', fact: { k: 'cond', metas: ['u'], premises: [pmem(u)], concl: pmem(P(d, u, I(d))) } },
+      { id: 'Kc', name: 'h₁', fact: { k: 'cond', metas: ['u'], premises: [pmem(u)], concl: pmem(P(c, u, I(c))) } },
+      { id: 'Kd', name: 'h₂', fact: { k: 'cond', metas: ['u'], premises: [pmem(u)], concl: pmem(P(d, u, I(d))) } },
     ],
     sockets: [{
       id: 's', allowedGivens: ['Kc', 'Kd'],
@@ -150,8 +150,8 @@ export const LEVELS: LevelManifest[] = [
     lemmaNames: ['a commutes with every square'],
     atoms: atomsAB,
     givens: [
-      { id: 'Ha', name: 'Hₐ', fact: { k: 'law', metas: ['x'], l: P(a, x, a, x), r: P(x, a, x, a) } },
-      { id: 'Hb', name: 'H_b', fact: { k: 'law', metas: ['x'], l: P(b, x, b, x), r: P(x, b, x, b) } },
+      { id: 'Ha', name: 'h₁', fact: { k: 'law', metas: ['x'], l: P(a, x, a, x), r: P(x, a, x, a) } },
+      { id: 'Hb', name: 'h₂', fact: { k: 'law', metas: ['x'], l: P(b, x, b, x), r: P(x, b, x, b) } },
     ],
     sockets: [
       { id: 's1', target: { k: 'law', metas: ['y'], l: P(a, y, y), r: P(y, y, a) }, allowedGivens: ['Ha'] },
@@ -231,9 +231,10 @@ export const CARDS: Record<string, ConceptCard[]> = {
   'P5.5': [
     {
       title: 'Groups given by relations',
-      body: 'A group can be described by letters and **relations**, equations that the letters must satisfy. Every consequence of the relations holds in the group. Each relation is a rewrite rule: wherever its left side appears in a word, you may replace it by its right side. Computing a product in the group means rewriting. With the relation $zz = e$:',
-      figures: [{ k: 'math', atoms: AT('zw'), rows: [
-        { seq: [{ t: 'zzzw', br: [[0, 2, '$zz = e$', 'over']] }, '=', 'zw'] },
+      body: 'A group can be given by letters and **relations**, equations the letters satisfy. Every consequence of the relations holds in the group. Computing a product means rewriting, and a relation works in both directions. Read left to right, it replaces its left side by its right side. Read right to left, it puts the left side back where the right side stands. The Rewriter’s direction control chooses which. With the relation $zw = v$:',
+      figures: [{ k: 'math', atoms: AT('uzwv'), rows: [
+        { label: 'left to right', seq: [{ t: 'uzw', br: [[1, 3, '$zw = v$', 'over']] }, '=', 'uv'] },
+        { label: 'right to left', seq: [{ t: 'vu', br: [[0, 1, '$zw = v$', 'over']] }, '=', 'zwu'] },
       ] }],
     },
   ],
@@ -248,7 +249,7 @@ export const CARDS: Record<string, ConceptCard[]> = {
   'P5.s2': [
     {
       title: 'Commuting with squares',
-      body: 'A **square** is a product $yy$. The given $H_a$ says $(ax)(ax) = (xa)(xa)$ for every $x$. The first dock asks for a related property of $a$: it commutes with every square, $ayy = yya$ for every $y$. The second dock shows that the product $ab$ has the property of $H_a$ and $H_b$.',
+      body: 'A **square** is a product $yy$. The given $h_1$ says $(ax)(ax) = (xa)(xa)$ for every $x$. The first dock asks for a related property of $a$: it commutes with every square, $ayy = yya$ for every $y$. The given $h_2$ says the same of $b$, and the second dock shows that the product $ab$ has the property too.',
     },
   ],
 };

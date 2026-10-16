@@ -8,7 +8,7 @@ import type { Floor } from '../../src/factory/compiler.testkit';
 import { buildPaper, paperHTML } from '../../src/hud/paper';
 import { adapt } from '../../src/hud/transcript';
 import { buildTranscript } from '../../src/hud/proof';
-import type { S } from '../../src/hud/util';
+import { fH, groupAliases, labels, withEAliases, type S } from '../../src/hud/util';
 
 /** Visible text of an HTML fragment (subscripts back to ₀…₉, superscripts as ^n). */
 export const paperText = (html: string) => html.replace(/<sub class="m-sub">(\d+)<\/sub>/g, (_m, d: string) => [...d].map((x) => '₀₁₂₃₄₅₆₇₈₉'[+x]).join(''))
@@ -34,9 +34,36 @@ export function checkPaper(f: Floor, comp: F.Compiled) {
     writeFileSync(`/tmp/paper/${id}.txt`, paperText(html.replace(/<\/div>|<\/p>/g, '\n')).replace(/\n\s+/g, '\n'));
   }
   expect(p.solved, `${id}: the paper is complete`).toBe(true);
+  const { st } = paperOfFloor(f, comp);
+  const page = paperText(html);
+  // maps print by their names (final playtest N3: "pi(x)" for π(x))
+  for (const m of f.level.maps ?? []) if (m.label !== m.id) expect(page, `${id}: the map ${m.label} prints as ${m.id}`).not.toMatch(new RegExp(`(^|[^A-Za-z])${m.id}\\(`));
+  // a hypothesis with a name is cited by it ("ker π ⊆ ker f with x = …"), never by its whole formula (finale playtest)
+  for (const g of f.level.givens) if (!/[=≠∈]|^\|/.test(g.name) && (g.fact.k === 'law' || g.fact.k === 'cond')) expect(page, `${id}: ${g.name} cited by its formula`).not.toMatch(/the hypothesis ∀/);
+  // a ∀-introduction that reaches a dock states the dock as the heading does: same sides, same binders (final playtests #10, N22)
+  const byId = new Map(st.graph.nodes.map((n) => [n.id, n] as const));
+  for (const l of p.lines) {
+    const n = byId.get(l.nodes[0] ?? '');
+    if (l.kind !== 'prose' || n?.k !== 'generalize') continue;
+    const line = paperText(l.html!);
+    expect(line, `${id} line ${l.no}`).toMatch(/^(Since .* (was|were) arbitrary, |Hence )/);
+    const sock = comp.check.sockets.find((k) => k.ok && (k.filledBy === n.id || (byId.get(k.filledBy ?? '') as { input?: string } | undefined)?.input === n.id));
+    const t = f.level.sockets.find((k) => k.id === sock?.id)?.target;
+    if (!t || (t.k !== 'law' && t.k !== 'cond')) continue;
+    const L = { ...labels(f.level), ...groupAliases(t.binds, labels(f.level), t.metas), ...Object.fromEntries(t.metas.map((m) => [m, m])) };
+    if (sock!.holes) continue;
+    const parts = (t.k === 'cond' ? [...t.premises, t.concl] : [{ k: 'eq', l: t.l, r: t.r }]).map((q) => paperText(withEAliases(L, () => fH(q as never, L))));
+    for (const q of parts) expect(line, `${id} line ${l.no} states the dock as the heading does`).toContain(q);
+    // the element binders, in the dock's own order ("for all x, y ∈ G", never "∀y, x")
+    const binders = line.slice(line.indexOf('for all'), line.indexOf(parts[0]!));
+    const seen = [...binders.matchAll(/(?<![A-Za-z])([a-z])(?![A-Za-z₀-₉(])/g)].map((m) => m[1]!).filter((x, i, xs) => t.metas.includes(x) && xs.indexOf(x) === i);
+    expect(seen, `${id} line ${l.no}: ${line}`).toEqual(t.metas);
+  }
   for (const l of p.lines) {
     const why = paperText(l.reason);
     if (l.kind === 'eq') expect(why, `${id} line ${l.no} has a reason`).not.toBe('');
+    // an instantiation that renames nothing ("with x = x", "n = n") is not printed (final playtests #10, N22)
+    expect(why, `${id} line ${l.no}: ${why}`).not.toMatch(/(?:with|,) ([A-Za-zα-ω]) = \1(?![₀-₉\w′^])/);
     // reasons are words, never a schema id ("act.mul", "hom.mul", "sub.e")
     expect(why, `${id} line ${l.no}: a raw id as a reason`).not.toMatch(/(^|[\s(,;])[a-z]+\.[a-z]+/);
     // citations point backwards only: "line k", "lines j and k", "lines j–k"

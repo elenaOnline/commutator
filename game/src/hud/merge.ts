@@ -35,10 +35,11 @@ export function withOrientation<R extends { k: 'insertPair'; inv: boolean }>(r: 
 
 /**
  * The picker row a configured recipe belongs to. Recipe keys (presets, pins) still tell the sides apart;
- * picker rows do not: 'schema:witness:op' → 'schema:witness', 'pairInv' → 'pair'.
+ * picker rows do not: 'schema:witness:op' → 'schema:witness', 'pairInv' → 'pair', 'mulR' → 'mul'.
  */
 export function entryKeyOf(recipeKey: string): string {
   if (recipeKey === 'pairInv') return 'pair';
+  if (recipeKey === 'mulL' || recipeKey === 'mulR') return 'mul'; // multiply is one row; its side is a toggle
   return recipeKey.endsWith(':op') ? recipeKey.slice(0, -3) : recipeKey;
 }
 

@@ -46,12 +46,12 @@ const cond = (metas: string[], premises: PatFact[], concl: PatFact): Card => ({ 
 
 export const REGISTRY: Record<string, Schema> = {
   witness: {
-    id: 'witness', name: 'unique right inverse', textbook: 'uniqueness of inverses',
+    id: 'witness', name: 'unique right inverse', textbook: 'unique inverse',
     card: cond(['u', 'v'], [peq(P(u, v), e)], peq(v, I(u))),
     origin: 'earned', fromLevel: 'L03', mirrorable: true,
   },
   cancel: {
-    id: 'cancel', name: 'left cancellation', textbook: 'left cancellation',
+    id: 'cancel', name: 'left cancellation', textbook: 'cancellation',
     card: cond(['u', 'v', 'w'], [peq(P(u, v), P(u, w))], peq(v, w)),
     origin: 'earned', fromLevel: 'L05', mirrorable: true,
   },
@@ -61,24 +61,27 @@ export const REGISTRY: Record<string, Schema> = {
     origin: 'earned', fromLevel: 'L06', mirrorable: false,
   },
   nofix: {
-    id: 'nofix', name: 'no fixed points (left)', textbook: 'nontrivial translations have no fixed points',
+    id: 'nofix', name: 'no fixed points (left)', textbook: 'no fixed points',
     card: cond(['u', 'v'], [pneq(u, e)], pneq(P(u, v), v)),
     origin: 'earned', fromLevel: 'L09', mirrorable: true,
   },
   // Legacy (v3 / early v4 saves): S01 no longer unlocks it and no level lists it. Since v4 r2 the player
   // proves, saves and reuses their OWN Double Flip from the Lemma Book. Kept so old saves still resolve.
   dbl: {
-    id: 'dbl', name: 'double inverse', textbook: 'inverse of an inverse',
+    id: 'dbl', name: 'double inverse', textbook: 'double inverse',
     card: { k: 'law', metas: ['u'], l: I(I(u)), r: u },
     origin: 'earned', fromLevel: 'S01', mirrorable: false,
   },
 };
 
-/** Mirror labels for the floor. */
+/**
+ * Mirror labels for the floor. One name per theorem: `textbook` is the theorem's own name (the same for both sides:
+ * 'unique inverse', 'cancellation'); `name` names the side, as the lens header and the offer labels do.
+ */
 export const MIRROR_NAMES: Record<string, { name: string; textbook: string }> = {
-  witness: { name: 'unique left inverse', textbook: 'uniqueness of inverses (left)' },
-  cancel: { name: 'right cancellation', textbook: 'right cancellation' },
-  nofix: { name: 'no fixed points (right)', textbook: 'nontrivial translations have no fixed points (right)' },
+  witness: { name: 'unique left inverse', textbook: 'unique inverse' },
+  cancel: { name: 'right cancellation', textbook: 'cancellation' },
+  nofix: { name: 'no fixed points (right)', textbook: 'no fixed points' },
 };
 
 /**

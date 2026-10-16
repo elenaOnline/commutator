@@ -81,7 +81,7 @@ export const LEVELS: LevelManifest[] = [
     //  inj: desk f(a₁) = f(b₁) → your fibre ⟹ at f → Theorem K1 at a₁b₁⁻¹ → your fibre ⟸ at π → gate → ∀.
     id: 'P16.2', index: 68, campaign: 'book', world: 14, chapter: 16, title: 'The Fundamental Theorem',
     method: 'If–then', source: 'Pinter 16 Theorem 2 (restated without the induced map)',
-    insight: 'Your fibre lemma, used at π and then at f, moves a question about images into the shared kernel and back out. That is the whole content of G/ker f ≅ f(G).',
+    insight: 'Your fibre lemma, used at π and then at f, moves a question about images into the shared kernel and back out. That is the whole content of G/ker f ≅ f(G). From here the book turns to the partial converses of Lagrange’s theorem (Cauchy’s theorem and the Sylow theorems), and then to rings and fields.',
     memo: 'f and π have the same kernel. Show they identify exactly the same elements.',
     atoms: [], ...GKQ,
     givens: [
@@ -181,11 +181,6 @@ export const CARDS: Record<string, ConceptCard[]> = {
     {
       title: 'Built from your own lemmas',
       body: 'This proof rests on results you proved and saved. In chapter 4 you showed that the only idempotent is $e$. In chapter 9 that gave $f(e) = e$ for every homomorphism, and then $f(x^{-1}) = f(x)^{-1}$. Those carried the kernel in chapter 14 and the fibre lemma in the last order, saved for every homomorphism.',
-    },
-    {
-      title: 'Where the book goes next',
-      long: true,
-      body: 'Lagrange’s theorem says the order of a subgroup divides the order of the group. Its partial converses come next. **Cauchy’s theorem** says that if a prime $p$ divides the order of a finite group, then the group has an element of order $p$. The **Sylow theorems** say more. If $p^k$ is the largest power of $p$ that divides the order, then the group has a subgroup of order $p^k$, and any two such subgroups are conjugate. After groups, the book turns to rings and fields.',
     },
   ],
 

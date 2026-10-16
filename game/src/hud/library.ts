@@ -4,12 +4,14 @@
 // side / orientation lives in the lens's recipe section (merge.ts).
 import { hasDistinctMirror, libCard as libCardF, libraryRefs, libName as libNameF, mapsInScope, structChoices, subgroupsInScope } from '../factory/catalog';
 import { eulerBlobHTML } from '../ui/euler';
+import { freshLetter } from '../ui/letters';
+import { metaNames, renameMetas, zMetas } from './metas';
 import * as K from '../kernel';
 import type { Card, Fact, Family, Term } from '../kernel/types';
 import { FAMILY } from '../ui/tokens';
 import type { JoinerRecipe, LibRef, MachineKind, OperatorRecipe, RewriteRecipe, TheoremRecipe } from '../factory/types';
 import { REGISTRY, esc, fH, labelsAll, nameHTML, posName, safe, withEAliases, type S } from './util';
-import { cardAliases } from '../ui/sorts';
+import { cardAliases, setsOnlyLevel } from '../ui/sorts';
 import { stripEl, transformEl, type Rails } from './strip';
 import { h } from './util';
 import { entryKeyOf, familyName, sideName } from './merge';
@@ -87,6 +89,9 @@ const memDemo = (card: Card, Lx: Record<string, string> = {}) => (): HTMLElement
   el.append(one(card.concl, true));
   return el;
 };
+/** A membership card drawn as terms, x ∈ (H), y ∈ (H) ⟹ xy ∈ (H), its subgroups named by `Lx` (the lens's instance, N14). */
+export const memFigure = (card: Card, Lx: Record<string, string> = {}): HTMLElement => memDemo(card, Lx)();
+export const isMemCard = (card: Card | Fact | null | undefined): card is Card & { k: 'cond' } => !!card && card.k === 'cond' && [...card.premises, card.concl].some((p) => p.k === 'mem');
 const I = (t: Term): Term => ({ k: 'inv', arg: t });
 const e: Term = { k: 'e' };
 const stmt = (f: Fact, L: Record<string, string>) => fH(f, L);
@@ -124,8 +129,11 @@ const usableSchemas = (s: S) => s.ctx.level.tools.schemas.filter((id) => !id.sta
 
 /** The fact a card's side toggle names: its premises, or the conclusion when the premises read the same. */
 function sideLabel(card: Card, mirrored: Card): [string, string] {
-  const prem = (c: Card) => (c.k === 'cond' ? c.premises.map((p) => fH(p, {})).join(', ') : '');
-  const concl = (c: Card) => (c.k === 'cond' ? fH(c.concl, {}) : c.k === 'law' ? fH({ k: 'eq', l: c.l, r: c.r }, {}) : '');
+  // the card's group parameters read G, K and its identities e_G, e_K, never S, T
+  const al = cardAliases(card.binds, card.metas);
+  const fa = (f: Parameters<typeof fH>[0]) => withEAliases(al, () => fH(f, al));
+  const prem = (c: Card) => (c.k === 'cond' ? c.premises.map((p) => fa(p)).join(', ') : '');
+  const concl = (c: Card) => (c.k === 'cond' ? fa(c.concl) : c.k === 'law' ? fa({ k: 'eq', l: c.l, r: c.r }) : '');
   const a = prem(card), b = prem(mirrored);
   if (a && a !== b) return [a, b];
   return [concl(card), concl(mirrored)];
@@ -158,12 +166,15 @@ export function libraryFor(s: S, kind: MachineKind): LibEntry[] {
   /** One row per schema; a distinct mirror makes it a merged row (named by its SIDE_PAIRS family). */
   // every picker merges: a law with a distinct mirror (power of a conjugate, cancellation) is one row whose side is
   // toggled in the lens, in Rewriters and Card Docks as in Theorems (reachability gap P16.s3)
-  const schemaEntry = (sc: { id: string; name: string; textbook: string; card: Card; origin: string; mirrorable: boolean }, recipe: AnyRecipe, merge: boolean, o: { group?: Group; words?: string } = {}): LibEntry => {
+  const schemaEntry = (sc0: { id: string; name: string; textbook: string; card: Card; origin: string; mirrorable: boolean }, recipe: AnyRecipe, merge: boolean, o: { group?: Group; words?: string } = {}): LibEntry => {
+    // a card's integer letters that are also floor letters (a ℤ Tower m) show fresh, as the lens's knobs do (N5)
+    const sc = { ...sc0, card: renameMetas(sc0.card, metaNames(sc0.card, Object.values(L), [...zMetas(sc0.card)])) };
     const group: Group = o.group ?? (sc.origin === 'authored' ? 'Saved' : 'Theorems');
     const mirrored = merge && sc.mirrorable && safe(() => hasDistinctMirror(sc.card), true) ? safe(() => K.mirrorCard(sc.card), null) : null;
     const base: LibEntry = { key: `schema:${sc.id}`, group, name: `${sc.name} ${sc.textbook}${o.words ? ` ${o.words}` : ''}`, nameHTML: esc(sc.name), stmt: stmt(sc.card, {}), recipe, ref: { k: 'schema', id: sc.id }, demo: demoOf(sc.card, 'lemma', {}) };
     if (!mirrored) return base;
     const [pl, ol] = sideLabel(sc.card, mirrored);
+    if (pl === ol) return base; // the same statement on both sides: no toggle (N9)
     const plain = sideName(sc.id, false, sc.name), op = sideName(sc.id, true, `${sc.name} (mirror)`);
     const fam = familyName(sc.id, sc.name);
     return { ...base, name: `${fam} ${plain} ${op} ${sc.textbook}${o.words ? ` ${o.words}` : ''}`, nameHTML: esc(fam),
@@ -227,7 +238,7 @@ export function libraryFor(s: S, kind: MachineKind): LibEntry[] {
     return out2;
   };
   if (kind === 'rewriter') {
-    const pairDemo = (inv: boolean) => tf({ l: W(da, db) }, { l: inv ? W(da, I(dx), dx, db) : W(da, dx, I(dx), db) }, 'inverse', { made: [1, 3] })();
+    const pairDemo = (inv: boolean) => transformEl({ l: W(da, db) }, { l: inv ? W(da, I(dx), dx, db) : W(da, dx, I(dx), db) }, { ...DL, x: freshLetter(Object.values(labelsAll(s))) }, DH, { family: 'inverse', vars: DV, made: [1, 3] }); // its own letter, never a Tower's (#19)
     out.push(
       { key: 'cancel', group: 'Group laws', name: 'cancel inverse pair', nameHTML: 'cancel', stmt: '', recipe: { k: 'cancel' },
         demo: tf({ l: W(da, db, I(db), dc) }, { l: W(da, dc) }, 'inverse', { hit: [1, 3] }) },
@@ -245,18 +256,23 @@ export function libraryFor(s: S, kind: MachineKind): LibEntry[] {
       if (ref.k !== 'schema' || !/^(hom|act)\./.test(ref.id)) continue;
       const sc = K.mapSchema(ref.id);
       if (!sc) continue;
-      const nm = safe(() => libNameF(s.ctx, ref), sc.name);
-      out.push({ key: recipeKey({ k: 'law', ref }), group: 'Maps', name: `${nm} ${sc.textbook}`, nameHTML: esc(nm), stmt: stmt(sc.card, {}), recipe: { k: 'law', ref }, ref });
+      // an action law reads as Pinter writes it, (gh)(p) = g(h(p)) and e(p) = p: no "(σ)" after its name and no
+      // "∀G, Ω, σ : G × Ω → Ω" before it — the action's own symbol is never shown (NORMS › Sorts; W6 #5)
+      const act = ref.id.startsWith('act.');
+      const nm = act ? sc.name : safe(() => libNameF(s.ctx, ref, s.canvas as never), sc.name);
+      const card = sc.card, al = card.k === 'law' ? cardAliases(card.binds, card.metas) : {};
+      const body = act && card.k === 'law' ? withEAliases(al, () => fH({ k: 'eq', l: card.l, r: card.r }, al)) : stmt(card, {});
+      out.push({ key: recipeKey({ k: 'law', ref }), group: 'Maps', name: `${nm} ${sc.textbook}`, nameHTML: nameHTML(nm), stmt: body, recipe: { k: 'law', ref }, ref });
     }
     out.push(...lagranges((ref) => ({ k: 'law', ref })));
     out.push(...powerEntries((ref) => ({ k: 'law', ref })));
     out.push({ key: 'routed', group: 'Made here', name: 'the rule port routed made here', nameHTML: 'the rule port', stmt: '', note: 'route an equation into the rule port', recipe: { k: 'routed' } });
   } else if (kind === 'operator') {
     out.push(
-      { key: 'mulL', group: 'Operations', name: 'multiply left', nameHTML: 'multiply left', stmt: '', recipe: { k: 'multiply', side: 'left', t: { k: 'knob', term: null } },
-        demo: opDemo(W(dt, da, db), W(dt, dc), 'structure', [0, 1], [0, 1]) },
-      { key: 'mulR', group: 'Operations', name: 'multiply right', nameHTML: 'multiply right', stmt: '', recipe: { k: 'multiply', side: 'right', t: { k: 'knob', term: null } },
-        demo: opDemo(W(da, db, dt), W(dc, dt), 'structure', [2, 3], [1, 2]) },
+      // one recipe, multiply, with the side toggle in the lens (review 2026-10: mirror pairs are one recipe)
+      { key: 'mul', group: 'Operations', name: 'multiply left right', nameHTML: 'multiply', stmt: '', recipe: { k: 'multiply', side: 'left', t: { k: 'knob', term: null } },
+        demo: opDemo(W(dt, da, db), W(dt, dc), 'structure', [0, 1], [0, 1]),
+        demoFor: (right) => (right ? opDemo(W(da, db, dt), W(dc, dt), 'structure', [2, 3], [1, 2]) : opDemo(W(dt, da, db), W(dt, dc), 'structure', [0, 1], [0, 1]))() },
       { key: 'invert', group: 'Operations', name: 'invert both sides inverse', nameHTML: 'invert both sides', stmt: '', recipe: { k: 'invert' },
         demo: opDemo(I(W(da, db)), I(dc), 'inverse', 'all', 'all') },
       { key: 'swap', group: 'Operations', name: 'swap sides symmetry', nameHTML: 'swap sides', stmt: '', recipe: { k: 'swap' },
@@ -298,7 +314,41 @@ export function libraryFor(s: S, kind: MachineKind): LibEntry[] {
   }
   // one row per recipe: the same law reachable two ways (hom.pow as an import and as a map law) is listed once (#1)
   const seen = new Set<string>();
-  return out.filter((x) => (seen.has(x.key) ? false : (seen.add(x.key), true)));
+  // a level of sets and maps (Pinter ch. 6) offers only what makes sense there: no products, inverses or e, so no
+  // group laws, no multiply / invert / product, and no group theorem or lemma; its own givens stay (W5 #11)
+  const sets = setsOnly(s);
+  // a theorem or saved lemma is offered only where its structure can be instantiated: a homomorphism lemma needs a
+  // homomorphism in scope (a level map or a Hom Tower), an action lemma an action, a subgroup lemma a subgroup (N16)
+  const kinds = new Set(safe(() => mapsInScope(s.ctx, s.canvas as never), []).map((mp) => mp.kind ?? 'map'));
+  const subsOk = safe(() => subgroupsInScope(s.ctx, s.canvas as never), []).length > 0 || s.level.subgroups !== undefined || (s.level.campaign === 'book' && s.level.chapter >= 12);
+  const instantiable = (f: Fact | null): boolean => !f || (f.k !== 'law' && f.k !== 'cond') || (f.binds ?? []).every((b) => (b.k === 'hom' ? kinds.has('hom') : b.k === 'act' ? kinds.has('action') : b.k === 'sub' ? subsOk : true));
+  return out.filter((x) => (seen.has(x.key) ? false : (seen.add(x.key), true)))
+    .filter((x) => !sets || !(GROUP_ONLY.has(x.key) || (x.ref && x.ref.k !== 'given' && usesGroup(safe(() => libCard(s, x.ref!), null)))))
+    .filter((x) => !(x.group === 'Saved' || x.group === 'Theorems') || x.ref?.k !== 'schema' || instantiable(safe(() => libCard(s, x.ref!), null)));
+}
+
+/** Recipes that multiply, invert or insert e: none of them means anything on a set. */
+const GROUP_ONLY = new Set(['cancel', 'pop', 'insertE', 'pair', 'mul', 'mulL', 'mulR', 'invert', 'product']);
+/** A statement that uses the group structure (a product, an inverse, a power or e). */
+const usesGroup = (f: Fact | null): boolean => !f || /"k":"(mul|inv|pow|e)"/.test(JSON.stringify(f));
+/** A level whose sorts are all sets (Pinter ch. 6, P6.x): it has no group at all. */
+export const setsOnly = (s: Pick<S, 'ctx'>): boolean => setsOnlyLevel(s.ctx.level);
+
+/**
+ * The picker's rows for a search, in display order: with no query, every row in GROUP_ORDER; with one, the rows that
+ * mention it, an exact name first, then names that start with it, then the rest — built-ins before saved lemmas, so
+ * "product of powers" finds the power law before "powers of a product of powers" (W8–14 N16).
+ */
+export function searchLibrary(all: readonly LibEntry[], query: string): LibEntry[] {
+  const q = query.trim().toLowerCase();
+  const plain = (html: string) => html.replace(/<[^>]+>/g, '').replace(/&[a-z]+;/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+  const byGroup = (a: LibEntry, b: LibEntry) => GROUP_ORDER.indexOf(a.group) - GROUP_ORDER.indexOf(b.group);
+  if (!q) return [...all].sort(byGroup);
+  const shown = all.filter((e) => `${e.name} ${e.group} ${e.note ?? ''}`.toLowerCase().includes(q) || plain(e.stmt).includes(q));
+  const score = (e: LibEntry) => { const nm = plain(e.nameHTML); return (nm === q ? 0 : nm.startsWith(q) ? 2 : 4) + (e.group === 'Saved' ? 1 : 0); };
+  const best = new Map<Group, number>();
+  for (const e of shown) best.set(e.group, Math.min(best.get(e.group) ?? 99, score(e)));
+  return shown.sort((a, b) => (best.get(a.group)! - best.get(b.group)!) || byGroup(a, b) || score(a) - score(b));
 }
 
 export const GROUP_ORDER: Group[] = ['Operations', 'Group laws', 'Subgroup', 'Maps', 'Given here', 'Theorems', 'Saved', 'Imported', 'Made here'];
@@ -310,7 +360,7 @@ export function recipeKey(r: AnyRecipe | null | undefined): string {
   if (o.ref) return o.ref.k === 'given' ? `given:${o.ref.givenId}` : o.ref.k === 'schema' ? `schema:${o.ref.id.startsWith('power.literal:') ? 'power.literal' : o.ref.id}${o.ref.mirror ? ':op' : ''}${/^(hom|act)\./.test(o.ref.id) && o.ref.structs ? `@${Object.values(o.ref.structs).join(',')}` : ''}` : o.ref.k === 'lagrange' ? (o.ref.sort ? `lagrange:${o.ref.sort}` : 'lagrange') : `axiom:${o.ref.id}`;
   if (o.k === 'apply') return `apply:${(r as { fn: string }).fn}`;
   if (o.k === 'insertPair') return o.inv ? 'pairInv' : 'pair';
-  if (o.k === 'multiply') return o.side === 'left' ? 'mulL' : 'mulR';
+  if (o.k === 'multiply') return o.side === 'left' ? 'mulL' : 'mulR'; // pins and presets tell the sides apart; the picker row is 'mul' (merge.ts entryKeyOf)
   return o.k;
 }
 

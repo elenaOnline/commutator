@@ -131,7 +131,12 @@ export const tH = (t: Term, L: Record<string, string>, mode: Mode = 'stmt') => t
 /** Plain unicode, e.g. "(ab)⁻¹" (for tooltips and justification text). */
 export const tU = (t: Term, L: Record<string, string>, mode: Mode = 'proof') => typeset(t, L, mode, UNI_PEN);
 /** A given's display name in HTML: h₄ → h<sub>4</sub> (Latin Modern lacks the subscript glyphs). */
-export const nameHTML = (name: string) => esc(name).replace(/[₀₁₂₃₄₅₆₇₈₉]+/g, (m) => `<sub class="m-sub">${[...m].map((c) => String(c.charCodeAt(0) - 0x2080)).join('')}</sub>`);
+const SUB_LETTER: Record<string, string> = { 'ₐ': 'a', 'ₑ': 'e', 'ₕ': 'h', 'ᵢ': 'i', 'ⱼ': 'j', 'ₖ': 'k', 'ₗ': 'l', 'ₘ': 'm', 'ₙ': 'n', 'ₒ': 'o', 'ₚ': 'p', 'ᵣ': 'r', 'ₛ': 's', 'ₜ': 't', 'ᵤ': 'u', 'ᵥ': 'v', 'ₓ': 'x' };
+/** A display name as HTML: digit subscripts, letter subscripts (Hₐ) and K_c / K_{ab} become real subscripts, never a raw underscore. */
+export const nameHTML = (name: string) => esc(name)
+  .replace(/[₀₁₂₃₄₅₆₇₈₉]+/g, (m) => `<sub class="m-sub">${[...m].map((c) => String(c.charCodeAt(0) - 0x2080)).join('')}</sub>`)
+  .replace(/[ₐₑₕᵢⱼₖₗₘₙₒₚᵣₛₜᵤᵥₓ]+/g, (m) => `<sub class="m-sub">${[...m].map((c) => SUB_LETTER[c] ?? c).join('')}</sub>`)
+  .replace(/_\{?([A-Za-z0-9]+)\}?/g, (_m, t: string) => `<sub class="m-sub">${t}</sub>`);
 /** A given's display name in TeX math: h₄ → h_{4}. */
 export const texName = (name: string) => name.replace(/[₀₁₂₃₄₅₆₇₈₉]+/g, (m) => `_{${[...m].map((c) => String(c.charCodeAt(0) - 0x2080)).join('')}}`).replace(/′/g, "'").replace(/\|/g, '|');
 export const termTex = (t: Term, L: Record<string, string>, mode: Mode = 'proof') => typeset(t, L, mode, TEX_PEN);
@@ -174,7 +179,7 @@ export function texText(s: string): string {
 
 // ───────── rich justification text (prose with embedded math) ─────────
 const SUPS: Record<string, string> = { '⁰': '0', '¹': '1', '²': '2', '³': '3', '⁴': '4', '⁵': '5', '⁶': '6', '⁷': '7', '⁸': '8', '⁹': '9', '⁻': '-' };
-const MATHY = /[⁻¹²³⁴⁵⁶⁷⁸⁹⁰₀₁₂₃₄₅₆₇₈₉′=≠·∀⇒∈⊥|]/;
+const MATHY = /[⁻¹²³⁴⁵⁶⁷⁸⁹⁰₀₁₂₃₄₅₆₇₈₉′=≠·∀⇒∈⊥|^]/;
 const NOT_MATH = new Set(['be', 'ace', 'cab', 'bee', 'abbe', 'babe']);
 const STOP_AFTER_A = /^(by|at|=|:=|to|on|with|and|for|of|from|x|u|v|w)$/i;
 
@@ -234,12 +239,30 @@ export function richSegments(s: string, level: LevelManifest): { math: boolean; 
   return out.filter((x) => x.text !== '');
 }
 
+/** The exponent after a '^': a bracketed group (6i), a signed number, or one letter. `end` is the index after it. */
+function takeExponent(chars: string[], i: number): { text: string; end: number } | null {
+  if (chars[i] === '(') {
+    let depth = 0;
+    for (let j = i; j < chars.length; j++) {
+      if (chars[j] === '(') depth++;
+      else if (chars[j] === ')' && --depth === 0) return { text: chars.slice(i + 1, j).join(''), end: j + 1 };
+    }
+    return null;
+  }
+  const m = /^(?:-?\d+|-?[A-Za-z])/.exec(chars.slice(i).join(''));
+  return m ? { text: m[0], end: i + [...m[0]].length } : null;
+}
 function mathUnicodeToHTML(m: string): string {
   let out = '';
   const chars = [...m];
   for (let i = 0; i < chars.length; i++) {
     const c = chars[i]!;
-    if (c in SUPS) {
+    if (c === '^') {
+      // source-style exponents a^i, x^(6i), x^-5 (a jam prints the term as typed): a real superscript
+      const ex = takeExponent(chars, i + 1);
+      if (ex) { out += `<sup class="m-sup">${mathUnicodeToHTML(ex.text.replace(/-/g, '−'))}</sup>`; i = ex.end - 1; continue; }
+      out += '^';
+    } else if (c in SUPS) {
       let run = '';
       while (i < chars.length && chars[i]! in SUPS) { run += SUPS[chars[i]!]; i++; }
       i--; out += `<sup class="m-sup">${run.replace('-', '−')}</sup>`;
@@ -255,7 +278,10 @@ function mathUnicodeToTex(m: string): string {
   const chars = [...m.replace(/:=/g, '≔')];
   for (let i = 0; i < chars.length; i++) {
     const c = chars[i]!;
-    if (c in SUPS) {
+    if (c === '^') {
+      const ex = takeExponent(chars, i + 1);
+      if (ex) { out += `^{${mathUnicodeToTex(ex.text)}}`; i = ex.end - 1; continue; }
+    } else if (c in SUPS) {
       let run = '';
       while (i < chars.length && chars[i]! in SUPS) { run += SUPS[chars[i]!]; i++; }
       i--; out += `^{${run}}`;

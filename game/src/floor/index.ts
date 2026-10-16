@@ -30,8 +30,10 @@ import {
   dockMathSVG, socketLabelSVG, socketTarget, towerBulb, type Ctx,
 } from './scene';
 import { packetGrid, packetSVG, prevAt, type Axis } from './items';
-import { JAM, OK, VIOLET, defsSVG, esc, groundRect, polyD as polyLine } from './svg';
+import { richHTML } from '../shell/util';
+import { JAM, OK, VIOLET, capsHTML, defsSVG, upperWords, esc, groundRect, polyD as polyLine } from './svg';
 import { fitCamera, gridOf, tileOf, toScreen, toWorld, zoomAbout, type View } from './project';
+import { dragRoomRect, duplicateBelt, fitRoom, type Box } from './roomdrag';
 
 export * from './project';
 
@@ -321,7 +323,8 @@ class Floor {
     this.renderBadges();
     this.nameBoxes = null;
     this.headW.clear();
-    this.L.rooms!.querySelectorAll<SVGGElement>('.fl-rhead-out').forEach((el) => { const id = el.closest<HTMLElement>('[data-r]')?.dataset.r; if (id) { try { this.headW.set(id, el.getBBox().width); } catch { /* not laid out */ } } });
+    this.headSpot.clear();
+    this.L.rooms!.querySelectorAll<SVGGElement>('.fl-rhead-in').forEach((el) => { const id = el.closest<HTMLElement>('[data-r]')?.dataset.r; if (id) { try { this.headW.set(id, el.getBBox().width); } catch { /* not laid out */ } } });
     if (!this.fitted) this.fit();
     else this.applyCamera();
   }
@@ -588,6 +591,7 @@ class Floor {
   private resize() {
     const r = this.host.getBoundingClientRect();
     this.view = { w: Math.max(1, r.width), h: Math.max(1, r.height) };
+    if (!this.fitted) this.fit(); // opened while hidden: frame it as soon as it has a size
     this.applyCamera();
   }
   private cam() { return this.pendingCam ?? this.s.ui.camera; }
@@ -605,46 +609,91 @@ class Floor {
     this.flipHeadings(c, kf);
     if (Math.abs(c.zoom - this.boxZoom) / Math.max(0.01, this.boxZoom) > 0.04) { this.boxZoom = c.zoom; this.nameBoxes = null; if (this.s?.run) this.capPackets(); }
   }
-  /** A room heading sits outside its north-west wall; when that would clip the floor's edge (or slide under the
-   *  order chip), it moves inside the room under the top corner. */
+  /**
+   * Room headings sit INSIDE their room, under its top edge (final playtest W1–7 #4, W8–14 N19): the highest spot
+   * whose box lies wholly inside the room's diamond and clear of machines and belts, scaled down (to 55 %) when the
+   * room is too small for it at full size. The spot is chosen once per floor render; it moves only when the camera
+   * would put it off-screen or under a HUD panel (the order chip, the run panel, the hotbar).
+   */
+  private headSpot = new Map<string, { x: number; y: number; sc: number; key: string }>();
   private flipHeadings(c: { x: number; y: number; zoom: number }, kf: number) {
     if (!this.s?.canvas || !this.geo) return;
-    const z = c.zoom, v = this.view;
-    const onScreen = (x0: number, y0: number, x1: number, y1: number) => {
+    const v = this.view;
+    const safe = this.safeArea();
+    const visible = (x0: number, y0: number, x1: number, y1: number) => {
       const a = toScreen(c, v, [x0, y0]), b = toScreen(c, v, [x1, y1]);
-      return a[0] >= 12 && b[0] <= v.w - 12 && a[1] >= 96 && b[1] <= v.h - 96;
+      if (a[0] < 6 || b[0] > v.w - 6 || a[1] < 6 || b[1] > v.h - 6) return false;
+      return !safe.panels.some((q) => a[0] < q.right && b[0] > q.left && a[1] < q.bottom && b[1] > q.top);
     };
     const boxes = [...this.geo.ms.values()].map((g) => ({ x0: P(g.x0, g.y1)[0] - 4, x1: P(g.x1, g.y0)[0] + 4, y0: P(g.x0, g.y0, 0.5)[1] - 4, y1: P(g.x1, g.y1)[1] + 18 }));
+    const beltPts: [number, number][] = [];
+    for (const b of this.geo.bs.values()) for (let i = 0; i < b.line.length; i++) {
+      const p = b.line[i]!, q = b.line[i + 1];
+      beltPts.push(P(p[0], p[1]) as [number, number]);
+      if (q) beltPts.push(P((p[0] + q[0]) / 2, (p[1] + q[1]) / 2) as [number, number]);
+    }
+    const camKey = `${kf.toFixed(3)}`;
     for (const r of this.s.canvas.rooms) {
       const el = this.L.rooms?.querySelector(`[data-r="${CSS.escape(r.id)}"]`); if (!el) continue;
-      const w = (this.headW.get(r.id) ?? 260) * kf, h = 40 * kf;
-      const a = P(r.rect.x, r.rect.y + r.rect.h * 0.5);
-      const ox = a[0] - 16, oy = a[1] - 30;
-      if (onScreen(ox - w, oy - h / 2 - 6, ox, oy + h / 2) || z <= 0) { el.classList.remove('is-flip'); continue; }
-      // search the room's interior for a clear, visible spot, nearest the top corner first
-      const pts: [number, number][] = [];
-      for (let gy = r.rect.y + 0.9; gy <= r.rect.y + r.rect.h - 0.9; gy += 0.5) for (let gx = r.rect.x + 0.9; gx <= r.rect.x + r.rect.w - 0.9; gx += 0.5) pts.push(P(gx, gy) as [number, number]);
-      const top = P(r.rect.x + 1, r.rect.y + 1);
-      pts.sort((p1, p2) => Math.hypot(p1[0] - top[0], p1[1] - top[1]) - Math.hypot(p2[0] - top[0], p2[1] - top[1]));
-      const clear = (x: number, y: number) => !boxes.some((b) => x - w / 2 < b.x1 && x + w / 2 > b.x0 && y - h / 2 < b.y1 && y + h / 2 > b.y0);
-      let at = pts.find(([x, y]) => onScreen(x - w / 2, y - h / 2, x + w / 2, y + h / 2) && clear(x, y));
-      if (!at) {
-        // nothing clear inside: keep the outside heading but slide it on-screen
-        const minX = (12 - v.w / 2) / z + c.x + w, minY = (96 - v.h / 2) / z + c.y + h / 2;
-        at = [Math.max(ox, minX) - w / 2, Math.max(oy, minY)];
+      const inG = el.querySelector('.fl-rhead-in'); if (!inG) continue;
+      const W = (this.headW.get(r.id) ?? 220) * kf, H = 38 * kf;
+      const R = r.rect;
+      const inside = (x: number, y: number) => { const g = gridOf([x, y]); return g[0] >= R.x + 0.15 && g[0] <= R.x + R.w - 0.15 && g[1] >= R.y + 0.15 && g[1] <= R.y + R.h - 0.15; };
+      const hits = (x: number, y: number, w: number) => boxes.filter((b) => x - w / 2 < b.x1 && x + w / 2 > b.x0 && y - H / 2 < b.y1 && y + H / 2 > b.y0).length * 3 +
+        beltPts.filter((p) => Math.abs(p[0] - x) < w / 2 + 6 && Math.abs(p[1] - y) < H / 2 + 6).length;
+      const prev = this.headSpot.get(r.id);
+      const ok = (sp: { x: number; y: number; sc: number }) => visible(sp.x - W * sp.sc / 2, sp.y - H / 2, sp.x + W * sp.sc / 2, sp.y + H / 2);
+      let spot = prev && prev.key === camKey ? prev : null;
+      if (!spot || !ok(spot)) {
+        const top = P(R.x, R.y), bot = P(R.x + R.w, R.y + R.h), left = P(R.x, R.y + R.h)[0], right = P(R.x + R.w, R.y)[0];
+        // how much of the box hangs outside the room (0 = wholly inside): sampled along its four edges
+        const out = (x: number, y: number, w: number) => {
+          let n = 0;
+          for (let i = 0; i <= 8; i++) { const xx = x - w / 2 + (w * i) / 8; if (!inside(xx, y - H / 2)) n++; if (!inside(xx, y + H / 2)) n++; }
+          return n;
+        };
+        type Cand = { x: number; y: number; sc: number; score: number };
+        const pick: { best: Cand | null } = { best: null };
+        for (const sc of [1, 0.85, 0.7, 0.55]) {
+          const w = W * sc;
+          for (let y = top[1] + H / 2 + 4; y <= Math.max(top[1] + H / 2 + 4, bot[1] - H / 2 - 4); y += 6) for (let x = left; x <= right; x += 10) {
+            if (!inside(x, y)) continue;
+            // clear of machines and belts first, then inside the room, on screen, near the top edge, centred under the top
+            // corner, and as large as it can be
+            const score = hits(x, y, w) * 1000 + out(x, y, w) * 60 + (visible(x - w / 2, y - H / 2, x + w / 2, y + H / 2) ? 0 : 500) + (y - top[1]) + Math.abs(x - top[0]) * 0.2 + (1 - sc) * 80;
+            if (!pick.best || score < pick.best.score) pick.best = { x, y, sc, score };
+          }
+          if (pick.best && pick.best.score < 300) break;
+        }
+        const best = pick.best;
+        spot = best ? { x: best.x, y: best.y, sc: best.sc, key: camKey } : { x: top[0], y: top[1] + H * 0.55 / 2 + 6, sc: 0.55, key: camKey };
+        this.headSpot.set(r.id, spot);
       }
-      const inG = el.querySelector('.fl-rhead-in');
-      inG?.setAttribute('transform', `translate(${f1(at[0])},${f1(at[1])})`);
-      el.classList.add('is-flip');
+      inG.setAttribute('transform', `translate(${f1(spot.x)},${f1(spot.y)}) scale(${spot.sc})`);
     }
   }
 
   private setCam(c: { x: number; y: number; zoom: number }) { this.pendingCam = c; this.applyCamera(); }
+  /**
+   * Frame the floor (final playtest W1–7 #18): everything — machines, rooms and the labels as drawn (a long DELIVER
+   * line, a given's formula) — inside the band the HUD leaves free: below the order chip and the run panel, above
+   * the hotbar. A floor opened while hidden (the map was up) is framed when it first gets a size, never mid-build.
+   */
   fit() {
-    if (!this.geo || this.view.w < 10) return;
+    if (!this.geo || this.view.w < 10 || this.view.h < 10) return;
     this.fitted = true;
     this.pendingCam = null;
-    this.store.setCamera(fitCamera(this.geo.bounds, this.view));
+    const b = { ...this.geo.bounds };
+    for (const layer of [this.L.labels, this.L.rooms]) {
+      try {
+        const r = (layer as unknown as SVGGraphicsElement).getBBox();
+        if (r.width > 0) { b.x0 = Math.min(b.x0, r.x - 12); b.y0 = Math.min(b.y0, r.y - 8); b.x1 = Math.max(b.x1, r.x + r.width + 12); b.y1 = Math.max(b.y1, r.y + r.height + 8); }
+      } catch { /* not laid out */ }
+    }
+    const sa = this.safeArea();
+    const tops = sa.panels.filter((q) => q.top < this.view.h / 2).map((q) => q.bottom + 16);
+    const bots = sa.panels.filter((q) => q.top >= this.view.h / 2).map((q) => this.view.h - q.top + 16);
+    this.store.setCamera(fitCamera(b, this.view, { top: Math.max(90, ...tops), bottom: Math.max(110, ...bots), side: 48 }));
     this.applyCamera();
   }
 
@@ -842,7 +891,7 @@ class Floor {
     for (const pg of geo.ports) {
       const sp = P(pg.out[0], pg.out[1]);
       const label = pg.port.role === 'rule' ? 'rule' : pg.port.role === 'param' ? pg.port.label : pg.kind;
-      o += `<g class="fl-sz fl-sz-p" style="transform-origin:${f1(sp[0])}px ${f1(sp[1] + 12)}px"><text class="fl-altport" x="${f1(sp[0])}" y="${f1(sp[1] + 16)}" text-anchor="middle" font-family="${FONT.ui}" font-size="8.4" font-weight="600" letter-spacing=".08em" fill="${INK.navy2}">${esc(label.toUpperCase())}</text></g>`;
+      o += `<g class="fl-sz fl-sz-p" style="transform-origin:${f1(sp[0])}px ${f1(sp[1] + 12)}px"><text class="fl-altport" x="${f1(sp[0])}" y="${f1(sp[1] + 16)}" text-anchor="middle" font-family="${FONT.ui}" font-size="8.4" font-weight="600" letter-spacing=".08em" fill="${INK.navy2}">${esc(upperWords(label))}</text></g>`;
     }
     // target bracket summary
     for (const g of geo.ms.values()) {
@@ -894,7 +943,7 @@ class Floor {
     const tool = this.s.ui.tool;
     if (tool.k !== 'place') return null;
     const armed = (tool as { config?: Machine['config'] }).config;
-    const config = armed && armed.kind === tool.kind ? armed : this.pipette?.kind === tool.kind ? this.pipette.config : defaultConfig(tool.kind, this.s.ctx, { schema: tool.schema, mirror: tool.mirror });
+    const config = armed && armed.kind === tool.kind ? armed : this.pipette?.kind === tool.kind ? this.pipette.config : defaultConfig(tool.kind, this.s.ctx, { schema: tool.schema, mirror: tool.mirror, canvas: this.s.canvas });
     const probe: Machine = { id: '__ghost', kind: tool.kind, at: { x: 0, y: 0 }, rot: this.s.ui.rot, config };
     const fp = footprint(probe, this.s.ctx);
     const w = Math.max(...fp.map((t) => t.x)) + 1, h = Math.max(...fp.map((t) => t.y)) + 1;
@@ -924,8 +973,10 @@ class Floor {
     const tile = this.pointerTile();
     const key = `place|${tile.x},${tile.y}|${this.s.ui.rot}|${JSON.stringify(this.s.ui.tool)}`;
     if (key === this.ghostKey) return;
-    // a refusal belongs to the spot it was said about: on a new spot the ghost speaks again (where it will land)
-    if (this.ghostKey && this.s.ui.toast?.kind === 'refused') this.store.setUI({ toast: null });
+    // a refusal belongs to the spot it was said about: on a new spot the ghost speaks again (where it will land) —
+    // but only once it has been up long enough to read (final playtest W1–7 #17: a refusal beside a dock flashed for
+    // one frame as the hand moved on, and read as a silent refusal)
+    if (this.ghostKey && this.s.ui.toast?.kind === 'refused' && performance.now() - this.toastAt > 1600) this.store.setUI({ toast: null });
     this.ghostKey = key;
     const m = this.ghostMachine(tile); if (!m || !this.geo) return;
     if (this.justPlaced) {
@@ -936,7 +987,7 @@ class Floor {
     const s = spec(m.kind);
     const tiles = footprint(m, this.s.ctx);
     const xs = tiles.map((t) => t.x), ys = tiles.map((t) => t.y);
-    const look = lookOf(m, this.s.ctx);
+    const look = lookOf(m, { ...this.s.ctx, labels: Object.fromEntries([...(this.geo?.vars ?? new Map())].map(([id, v]) => [id, v.label])) });
     const g: MGeo = { m, spec: s, fam: look.fam, look, tiles, x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs) + 1, y1: Math.max(...ys) + 1, ports: portsOf(m, this.s.ctx) };
     // geometric overlap is a fact we can see; the verdict (if any) is the editor's
     const overlap = tiles.some((t) => this.geo!.occ.has(tkey(t)) || this.geo!.beltOcc.has(tkey(t)));
@@ -1270,57 +1321,50 @@ class Floor {
   }
 
   /**
-   * The room a drag paints. The dragged SCREEN rectangle is what the player means ("drag a rectangle"), so the
-   * room is the tile rectangle covering its four corners: a diagonal, horizontal or vertical drag all work.
-   * Then it cooperates with the floor: it grows to take in a machine it would cut through, and stops short of
-   * a dock or given (which never sit in a room). `note` says what it did and why.
+   * The room a drag paints (roomdrag.ts): sized to the drag — its diamond fills the dragged screen rectangle rather
+   * than circumscribing it — and centred on it. Then it cooperates with the floor without overgrowing: it stops
+   * short of a dock, a given or another room it would cut, and takes in a machine only when most of it is inside.
+   * The drag is clamped above the hotbar, so the room (and its gate) stays on screen. `note` says what it did.
    */
   private roomDrag(g: Extract<Gesture, { k: 'room' }>): { rect: Rect; note: string } {
-    const tileAt = (x: number, y: number) => tileOf(gridOf(toWorld(this.cam(), this.view, x, y)));
-    const cs = [tileAt(g.sx, g.sy), tileAt(g.cx, g.cy), tileAt(g.cx, g.sy), tileAt(g.sx, g.cy)];
-    let x0 = Math.min(...cs.map((t) => t.x)), x1 = Math.max(...cs.map((t) => t.x)) + 1;
-    let y0 = Math.min(...cs.map((t) => t.y)), y1 = Math.max(...cs.map((t) => t.y)) + 1;
+    const area = this.safeArea();
+    const cl = (x: number, y: number): [number, number] => [Math.min(Math.max(x, area.left), area.right), Math.min(Math.max(y, area.top), area.bottom)];
+    const gAt = (x: number, y: number) => gridOf(toWorld(this.cam(), this.view, ...cl(x, y))) as [number, number];
     const st = g.start;
+    let rect: Rect;
     let note = '';
-    // a click (no drag) paints a room sized for its desks and a working factory: 8 × 7 for one assumption, +1 each more
     if (Math.hypot(g.cx - g.sx, g.cy - g.sy) < 8) {
+      // a click (no drag) paints a room sized for its desks and a working factory: 8 × 7 for one assumption, +1 each more
       const k = Math.max(1, this.roomSpec()?.assumes?.length ?? 1);
       const w = 7 + k, h = 6 + k;
-      x0 = st.x - Math.floor(w / 2); x1 = x0 + w; y0 = st.y - Math.floor(h / 2); y1 = y0 + h;
+      rect = { x: st.x - Math.floor(w / 2), y: st.y - Math.floor(h / 2), w, h };
       note = 'Click for this room, or drag to size it.';
-    }
-    const boxes = this.s.canvas.machines.filter((m) => m.kind !== 'desk' && m.kind !== 'gate').map((m) => {
+    } else rect = dragRoomRect(gAt(g.sx, g.sy), gAt(g.cx, g.cy));
+    const boxes: Box[] = this.s.canvas.machines.filter((m) => m.kind !== 'desk' && m.kind !== 'gate').map((m) => {
       const fp = footprint(m, this.s.ctx);
-      return { m, bx0: Math.min(...fp.map((t) => t.x)), bx1: Math.max(...fp.map((t) => t.x)) + 1, by0: Math.min(...fp.map((t) => t.y)), by1: Math.max(...fp.map((t) => t.y)) + 1 };
+      const fixed = m.config.kind === 'socket' || m.config.kind === 'given' || m.kind === 'socket' || m.kind === 'given';
+      return { x0: Math.min(...fp.map((t) => t.x)), x1: Math.max(...fp.map((t) => t.x)) + 1, y0: Math.min(...fp.map((t) => t.y)), y1: Math.max(...fp.map((t) => t.y)) + 1,
+        kind: fixed ? 'fixed' as const : 'machine' as const, what: m.config.kind === 'given' || m.kind === 'given' ? 'given' : 'dock' };
     });
-    const fixed = (m: Machine) => m.config.kind === 'socket' || m.config.kind === 'given' || m.kind === 'socket' || m.kind === 'given';
-    for (let pass = 0; pass < 8; pass++) {
-      let changed = false;
-      for (const b of boxes) {
-        const ix = Math.min(x1, b.bx1) - Math.max(x0, b.bx0), iy = Math.min(y1, b.by1) - Math.max(y0, b.by0);
-        if (ix <= 0 || iy <= 0) continue; // no overlap
-        const whole = b.bx0 >= x0 && b.bx1 <= x1 && b.by0 >= y0 && b.by1 <= y1;
-        if (fixed(b.m)) {
-          // stop short of it, on whichever side keeps the most room (the drag's first tile always stays inside)
-          const opts: [number, number, number, number][] = [];
-          if (st.x < b.bx0) opts.push([x0, b.bx0, y0, y1]);
-          if (st.x >= b.bx1) opts.push([b.bx1, x1, y0, y1]);
-          if (st.y < b.by0) opts.push([x0, x1, y0, b.by0]);
-          if (st.y >= b.by1) opts.push([x0, x1, b.by1, y1]);
-          const best = opts.sort((a, c) => (c[1] - c[0]) * (c[3] - c[2]) - (a[1] - a[0]) * (a[3] - a[2]))[0];
-          if (!best) continue;
-          [x0, x1, y0, y1] = best;
-          note = `Stops at the ${b.m.config.kind === 'given' || b.m.kind === 'given' ? 'given' : 'dock'}: those stay outside every room.`;
-          changed = true;
-        } else if (!whole) {
-          // a machine half inside: take all of it in
-          x0 = Math.min(x0, b.bx0); x1 = Math.max(x1, b.bx1); y0 = Math.min(y0, b.by0); y1 = Math.max(y1, b.by1);
-          changed = true;
-        }
-      }
-      if (!changed) break;
+    for (const r of this.s.canvas.rooms) boxes.push({ x0: r.rect.x, x1: r.rect.x + r.rect.w, y0: r.rect.y, y1: r.rect.y + r.rect.h, kind: 'room' });
+    // a dock's DELIVER line and a given's formula stay readable: the room stops short of them as of the dock itself
+    for (const k of safe(() => F.labelCells(this.s.canvas, this.s.ctx), new Set<string>())) {
+      const [x, y] = k.split(',').map(Number) as [number, number];
+      boxes.push({ x0: x, x1: x + 1, y0: y, y1: y + 1, kind: 'fixed', what: 'dock’s label' });
     }
-    return { rect: { x: x0, y: y0, w: Math.max(1, x1 - x0), h: Math.max(1, y1 - y0) }, note };
+    const anchor = { x: rect.x + Math.floor(rect.w / 2), y: rect.y + Math.floor(rect.h / 2) };
+    const fit = fitRoom(rect, anchor, boxes);
+    return { rect: fit.rect, note: fit.note || note };
+  }
+
+  /** The floor's clear area in its own CSS px (above the hotbar), and the HUD panels over the floor. */
+  private safeArea(): { left: number; top: number; right: number; bottom: number; panels: DOMRect[] } {
+    const host = this.root.getBoundingClientRect();
+    const rel = (q: string) => { const r = document.querySelector(q)?.getBoundingClientRect(); return r && r.width > 0 ? new DOMRect(r.left - host.left, r.top - host.top, r.width, r.height) : null; };
+    const bar = rel('.h3-hotbar');
+    const panels = [rel('.h3-order'), rel('.h3-run'), bar].filter((r): r is DOMRect => !!r);
+    const bottom = bar && bar.top > this.view.h / 2 ? bar.top - 10 : this.view.h - 10;
+    return { left: 10, top: 10, right: this.view.w - 10, bottom, panels };
   }
 
   private renderRoomPreview() {
@@ -1438,7 +1482,7 @@ class Floor {
             return factHTML(target, this.labels);
           })()}</span></div>` : '') +
           (arriving ? `<div class="fl-tip-row"><span class="fl-tip-k">arriving</span><span class="math">${this.valueHTML(arriving)}</span></div>` : '') +
-          (so && !so.ok && so.reason ? `<div class="fl-tip-why is-jam">${esc(so.reason)}</div>` : '');
+          (so && !so.ok && so.reason ? `<div class="fl-tip-why is-jam">${richHTML(so.reason, this.s.level)}</div>` : '');
       }
       const st = comp?.machines[g.m.id]?.status;
       const live = liveStatusOf(g.m.id, run, comp);
@@ -1447,8 +1491,8 @@ class Floor {
       // say only what the player can act on: jams, and waits that aren't just an empty port (the port shows that)
       const quietWait = (r: string) => /^(not connected|waiting)/i.test(r);
       const reason = st?.k === 'jammed' ? st.reason : st?.k === 'starved' && !quietWait(st.reason) ? st.reason : live === 'blocked' ? 'Connect its output.' : '';
-      return `<div class="fl-tip-h">${esc(name)}${phrase ? ` <span class="fl-tip-st is-${live ?? 'ok'}">${phrase}</span>` : ''}</div>` +
-        (reason ? `<div class="fl-tip-why${st?.k === 'jammed' ? ' is-jam' : ''}">${esc(reason)}</div>` : '') +
+      return `<div class="fl-tip-h">${capsHTML(name)}${phrase ? ` <span class="fl-tip-st is-${live ?? 'ok'}">${phrase}</span>` : ''}</div>` +
+        (reason ? `<div class="fl-tip-why${st?.k === 'jammed' ? ' is-jam' : ''}">${richHTML(reason, this.s.level)}</div>` : '') +
         (out ? `<div class="fl-tip-row"><span class="fl-tip-k">makes</span><span class="math">${this.valueHTML(out)}</span></div>` : '') +
         (g.m.kind === 'gate' ? `<div class="fl-tip-foot">Drag to slide along the wall.</div>`
           : g.m.kind === 'desk' ? `<div class="fl-tip-foot">Drag to move inside the room.</div>`
@@ -1858,6 +1902,10 @@ class Floor {
       this.timed('open', e, () => ops.lay(g.from, path));
       return;
     }
+    // final playtest W1–7 #17: the belt is already there (placement auto-belted it, or a second drag): a silent
+    // no-op that lights the existing belt, never a refusal
+    const dup = duplicateBelt(this.s.canvas, g.from, to);
+    if (dup && !g.via.length) { this.elByB.get(dup.id)?.animate?.([{ opacity: 0.35 }, { opacity: 1 }], { duration: 420, easing: 'ease-out' }); return; }
     if (g.branchOf !== undefined) {
       const bid = g.branchOf, bi = g.branchI;
       this.timed('branch', e, () => (bi !== undefined ? this.store.branchAt(bid, bi, to) : this.store.branch(bid, to)));

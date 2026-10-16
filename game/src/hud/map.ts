@@ -5,9 +5,24 @@ import { makeSaveLink } from '../ui/savelink';
 import { hasseUses, type MapNode } from '../shell/map';
 import { openView, CAMPAIGN_NAMES, CHAPTERS, LEVELS, LEVEL_BY_ID, REGISTRY, bookWorlds, campaignOf, displayNo, esc, fH, h, ideaOf, isOpen, isSolved, labels, nextLevel, richHTML, schemaNames, tally, type Campaign, type S as State, type Store } from './util';
 import { campSave } from '../state/factoryStore';
+import { withSortCtx } from '../ui/sorts';
 
 /** A statement on the map never wraps inside itself: lines break only between statements (after a comma). */
 const nb = (html: string) => `<span class="mn-nb">${html}</span>`;
+/**
+ * A level's statement on its map node: the hypotheses its docks may use ⊢ the docks' statements. Typeset in that
+ * level's own sorts, so an action reads α(p) = p (never σ(α, p) = p), identities carry their group, and variables
+ * outside the first group say where they live (∀u, v ∈ K) (W6 #5, W5–7 #6).
+ */
+export function mapStatementHTML(lv: LevelManifest): string {
+  const ov = openView(lv);
+  const L = labels(ov.level);
+  const hyps = lv.givens.filter((g) => lv.sockets.some((sk) => sk.allowedGivens.includes(g.id)));
+  return withSortCtx(ov.level, () => {
+    const hypHTML = hyps.length ? `<span class="mn-if">${hyps.map((g) => nb(fH(g.fact, L))).join(', ')} <span class="m-rel">⊢</span></span> ` : '';
+    return ov.chips(hypHTML + ov.level.sockets.map((sk) => nb(fH(sk.target, L))).join(', '));
+  });
+}
 
 const IMPORT_ID = 'IMPORT:lagrange';
 
@@ -192,18 +207,12 @@ export function mountMap(el: HTMLElement, store: Store): (s: State) => void {
       } else {
         const lv = LEVEL_BY_ID[n.id]!;
         const st = nodeState(s, lv, next);
-        const ov = openView(lv);
-        const L = labels(ov.level);
-        const sock = lv.sockets[0]!;
-        const hyps = lv.givens.filter((g) => lv.sockets.some((sk) => sk.allowedGivens.includes(g.id)));
-        void sock;
-        const hypHTML = hyps.length ? `<span class="mn-if">${hyps.map((g) => nb(fH(g.fact, L))).join(', ')} <span class="m-rel">⊢</span></span> ` : '';
         node = h('button', { class: `mn ${st}${n.side ? ' side' : ''}${s.ui.levelId === lv.id ? ' current' : ''}`, 'data-id': lv.id, 'aria-disabled': st === 'locked' ? 'true' : undefined,
           'aria-label': `Level ${lv.index}, ${lv.title}, ${st}` },
           h('div', { class: 'mn-top' }, h('span', { class: 'mn-no' }, n.side ? `S${lv.index - LEVELS.filter((l) => !l.side).length}` : String(lv.index)), h('span', { class: 'mn-title' }, lv.title),
             st === 'next' ? h('span', { class: 'mn-next' }, 'next') : null,
             st === 'solved' && lv.unlocks.length ? h('span', { class: 'mn-chips' }, ...lv.unlocks.map((u) => h('span', { class: 'chip-machine' }, REGISTRY[u]?.name ?? u))) : null),
-          h('div', { class: 'mn-stmt math', html: ov.chips(hypHTML + ov.level.sockets.map((sk) => nb(fH(sk.target, L))).join(', ')) }),
+          h('div', { class: 'mn-stmt math', html: mapStatementHTML(lv) }),
           st === 'solved' ? h('span', { class: 'mn-seal', title: 'Proven', html: '<span class="tomb"></span>' }) : st === 'locked' ? h('span', { class: 'mn-q', title: 'Locked' }, '?') : null,
         );
         node.addEventListener('click', () => { if (st !== 'locked') store.openLevel(lv.id); });
@@ -315,16 +324,12 @@ export function mountMap(el: HTMLElement, store: Store): (s: State) => void {
   };
   const bookNode = (s: State, lv: LevelManifest, next: string | null): HTMLElement => {
     const st = nodeState(s, lv, next);
-    const ov = openView(lv);
-    const L = labels(ov.level);
-    const hyps = lv.givens.filter((g) => lv.sockets.some((sk) => sk.allowedGivens.includes(g.id)));
-    const hypHTML = hyps.length ? `<span class="mn-if">${hyps.map((g) => nb(fH(g.fact, L))).join(', ')} <span class="m-rel">⊢</span></span> ` : '';
     const node = h('button', { class: `mn bk-node ${st}${lv.side ? ' side' : ''}${s.ui.levelId === lv.id ? ' current' : ''}`, 'data-id': lv.id, 'aria-disabled': st === 'locked' ? 'true' : undefined,
       'aria-label': `${lv.side ? 'Side level' : 'Level'} ${displayNo(lv)}, ${lv.title}, ${st}` },
       h('div', { class: 'mn-top' }, h('span', { class: 'mn-no' }, displayNo(lv)), h('span', { class: 'mn-title' }, lv.title),
         st === 'next' ? h('span', { class: 'mn-next' }, 'next') : null),
       lv.method ? h('div', { class: 'bk-method', html: richHTML(lv.method, lv) }) : null,
-      h('div', { class: 'mn-stmt math', html: ov.chips(hypHTML + ov.level.sockets.map((sk) => nb(fH(sk.target, L))).join(', ')) }),
+      h('div', { class: 'mn-stmt math', html: mapStatementHTML(lv) }),
       st === 'solved' ? h('span', { class: 'mn-seal', title: 'Proven', html: '<span class="tomb"></span>' }) : st === 'locked' ? h('span', { class: 'mn-q', title: 'Locked' }, '?') : null,
     );
     node.addEventListener('click', () => { if (st !== 'locked') store.openLevel(lv.id); });

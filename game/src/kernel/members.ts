@@ -13,6 +13,8 @@ import { renameTerm } from './terms';
 
 // ───────────── walking statements ─────────────
 
+/** A card's positional binder id ('$2:f') prints as its name ('f'): never an internal id on screen. */
+const bn = (id: string) => id.replace(/^\$\d+:/, '');
 /** The terms of a statement inside a card (eq/neq: both sides; mem: its element). */
 export function patTerms(p: PatFact): Term[] { return p.k === 'mem' ? [p.t] : [p.l, p.r]; }
 /** Map the terms (and subgroup refs) of a statement. */
@@ -95,24 +97,24 @@ export function instStructs<C extends Card>(c: C, structs: Record<MetaId, string
   for (const b of binds) if (b.k === 'hom' || b.k === 'act') {
     const id = structs?.[b.id];
     const what = b.k === 'hom' ? 'homomorphism' : 'action';
-    if (!id) throw new KErr(`Choose which ${what} plays ${b.id}.`);
+    if (!id) throw new KErr(`Choose which ${what} plays ${bn(b.id)}.`);
     const m = env.maps.get(id);
     if (!m) throw new KErr(`${id} is not a map here.`);
-    if (mapKind(m) !== (b.k === 'hom' ? 'hom' : 'action')) throw new KErr(`${m.label} is not ${b.k === 'hom' ? 'a homomorphism' : 'an action'}. ${name} needs one for ${b.id}.`);
-    if (b.k === 'hom') { unify(b.dom, m.args[0]!, `the domain of ${b.id}`); unify(b.cod, m.res, `the codomain of ${b.id}`); }
-    else { unify(b.grp, m.args[0]!, `the group of ${b.id}`); unify(b.on, m.args[1]!, `the set ${b.id} acts on`); }
+    if (mapKind(m) !== (b.k === 'hom' ? 'hom' : 'action')) throw new KErr(`${m.label} is not ${b.k === 'hom' ? 'a homomorphism' : 'an action'}. ${name} needs one for ${bn(b.id)}.`);
+    if (b.k === 'hom') { unify(b.dom, m.args[0]!, `the domain of ${bn(b.id)}`); unify(b.cod, m.res, `the codomain of ${bn(b.id)}`); }
+    else { unify(b.grp, m.args[0]!, `the group of ${bn(b.id)}`); unify(b.on, m.args[1]!, `the set ${bn(b.id)} acts on`); }
     chosen[b.id] = id;
   }
   for (const b of binds) if (b.k === 'sub') {
     const id = structs?.[b.id];
-    if (!id) throw new KErr(`Choose which subgroup plays ${b.id}.`);
+    if (!id) throw new KErr(`Choose which subgroup plays ${bn(b.id)}.`);
     const d = subDecl(level, id);
     if (!d) throw new KErr(`${id} is not a subgroup here.`);
-    if (b.normal && !d.normal) throw new KErr(`${name} needs a normal subgroup for ${b.id}. ${d.label} is not declared normal.`);
-    if (b.sort !== undefined) unify(b.sort, d.sort ?? 'G', `the group of ${b.id}`);
+    if (b.normal && !d.normal) throw new KErr(`${name} needs a normal subgroup for ${bn(b.id)}. ${d.label} is not declared normal.`);
+    if (b.sort !== undefined) unify(b.sort, d.sort ?? 'G', `the group of ${bn(b.id)}`);
     chosen[b.id] = id;
   }
-  for (const b of binds) if ((b.k === 'grp' || b.k === 'set') && sortOfBinder[b.id] === undefined) throw new KErr(`Choose which ${b.k === 'grp' ? 'group' : 'set'} plays ${b.id}.`);
+  for (const b of binds) if ((b.k === 'grp' || b.k === 'set') && sortOfBinder[b.id] === undefined) throw new KErr(`Choose which ${b.k === 'grp' ? 'group' : 'set'} plays ${bn(b.id)}.`);
   const isB = (s: string) => Object.hasOwn(sortOfBinder, s);
   const t1 = (t: Term) => renameTerm(t, (m) => m, (r) => r, undefined, (f) => chosen[f] ?? f, (srt) => (isB(srt) ? sortOfBinder[srt]! : srt));
   const s1 = (r: SubRef): SubRef => (r.k === 'submeta' && chosen[r.id] ? { k: 'sub', id: chosen[r.id]! } : r);

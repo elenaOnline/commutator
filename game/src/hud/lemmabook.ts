@@ -2,6 +2,7 @@
 // proof on load. Clicking one arms a Rewriter (a law) or a Theorem (a conditional) with it as the recipe.
 import type { LibRef } from '../factory/types';
 import { armPreset, presetKey } from './presets';
+import { isFinale, openLineage, standardTheoremName } from './lineage';
 import { LEVEL_BY_ID, camp, displayNo, fH, h, type S, type Store } from './util';
 
 export function mountLemmaBook(layer: HTMLElement, store: Store, opts: { top: () => number }) {
@@ -15,7 +16,8 @@ export function mountLemmaBook(layer: HTMLElement, store: Store, opts: { top: ()
     if (!open) return;
     el.style.top = `${opts.top()}px`;
     const lemmas = camp(s).lemmas;
-    const key = JSON.stringify([lemmas.map((l) => [l.id, l.verified, l.reason]), confirmId, s.level.id]);
+    const finale = isFinale(s.level.id) && !!s.compiled?.solvable; // the finale's lineage stays reachable from here
+    const key = JSON.stringify([lemmas.map((l) => [l.id, l.verified, l.reason]), confirmId, s.level.id, finale]);
     if (key === lastKey) return;
     lastKey = key;
     el.innerHTML = '';
@@ -23,6 +25,11 @@ export function mountLemmaBook(layer: HTMLElement, store: Store, opts: { top: ()
     close.addEventListener('click', () => store.toggleLemmaBook(false));
     el.append(h('header', { class: 'h3-drawer-head' }, h('span', { class: 'h3-label' }, 'Lemma Book'), h('span', { class: 'h3-dim' }, 'your theorems'), h('span', { class: 'h3-flex' }), close));
     const list = h('div', { class: 'h3-book-list' });
+    if (finale) {
+      const b = h('button', { class: 'lw-key small' }, 'See its lineage');
+      b.addEventListener('click', () => openLineage({ k: 'floor', levelId: s.level.id, canvas: store.get().canvas }, { from: 'book' }));
+      list.append(h('div', { class: 'h3-lemma' }, h('div', { class: 'h3-lemma-top' }, h('b', {}, standardTheoremName(s.level.id) ?? s.level.title)), h('div', { class: 'h3-dim' }, 'proved on this floor'), h('div', { class: 'h3-lemma-act' }, b)));
+    }
     if (!lemmas.length) {
       list.append(h('p', { class: 'h3-note' }, 'Empty. Prove a law with a Tower and ∀, then save it.'));
     }
@@ -37,6 +44,8 @@ export function mountLemmaBook(layer: HTMLElement, store: Store, opts: { top: ()
         const recipe = isCond ? { k: 'library' as const, ref } : { k: 'law' as const, ref };
         armPreset(store, { key: presetKey(kind, recipe), kind, recipe, label: l.name, earned: true });
       });
+      const lin = ok ? h('button', { class: 'h3-tag', title: 'The lemmas and theorems its proof rests on' }, 'lineage') : null;
+      lin?.addEventListener('click', () => openLineage({ k: 'lemma', id: l.id }));
       const rm = h('button', { class: `h3-tag${confirmId === l.id ? ' danger' : ''}`, title: 'Remove from the Lemma Book' }, confirmId === l.id ? 'remove — sure?' : 'remove');
       rm.addEventListener('click', () => {
         if (confirmId !== l.id) { confirmId = l.id; lastKey = ''; render(store.get()); return; }
@@ -47,7 +56,7 @@ export function mountLemmaBook(layer: HTMLElement, store: Store, opts: { top: ()
         h('div', { class: 'h3-lemma-stmt math', html: fH(l.card, {}) }),
         h('div', { class: 'h3-dim' }, `from ${lv ? `${displayNo(lv)} · ${lv.title}` : l.levelId}`),
         !ok && l.reason ? h('p', { class: 'h3-reason jammed' }, l.reason) : null,
-        h('div', { class: 'h3-lemma-act' }, use, rm)));
+        h('div', { class: 'h3-lemma-act' }, use, lin, rm)));
     }
     el.append(list);
   };

@@ -15,3 +15,12 @@ export function letterSlot(label: string): number {
   const cp = base.codePointAt(0) ?? 0;
   return cp % 6;
 }
+
+/**
+ * A letter for a recipe's own variable (insert pair's x) that nothing on the floor already uses: a Tower x or a level
+ * letter x would otherwise read as the same x (final W1–7 #19). A subscripted use (x₁) takes the letter too.
+ */
+export function freshLetter(used: Iterable<string>, prefs: readonly string[] = ['x', 'y', 'z', 'u', 'v', 'w']): string {
+  const taken = new Set([...used].map((l) => l.replace(/[₀-₉0-9′']+$/, '')));
+  return prefs.find((l) => !taken.has(l)) ?? prefs[0]!;
+}

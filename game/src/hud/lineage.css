@@ -1,0 +1,51 @@
+/* The lineage panel (lineage.ts): a still panel over the floor. Columns by world, roots left, the theorem right. */
+.lw3 .h3-lineage { position: absolute; inset: 0; z-index: 55; display: grid; place-items: center; background: rgba(255, 255, 255, .86); opacity: 0; transition: opacity .18s ease-out; }
+.lw3 .h3-lineage[hidden] { display: none; }
+.lw3 .h3-lineage.on { opacity: 1; }
+.lw3 .h3-lineage.still, .reduced-motion .h3-lineage { transition: none; }
+@media (prefers-reduced-motion: reduce) { .lw3 .h3-lineage { transition: none; } }
+
+.lin-panel { display: flex; flex-direction: column; box-sizing: border-box; width: min(1400px, calc(100vw - 32px)); max-height: calc(100vh - 32px);
+  background: #fff; border: 1px solid var(--hair); border-radius: 14px; box-shadow: 0 10px 40px rgba(27, 35, 64, .12); padding: 18px 24px 14px; color: var(--navy); }
+.lin-panel:focus { outline: none; }
+.lin-head { flex: none; }
+.lin-title { margin: 0; font-size: 20px; font-weight: 600; line-height: 1.25; }
+.lin-sum { margin: 4px 0 12px; font-size: 14px; line-height: 1.45; color: var(--text-dim); }
+
+.lin-scroll { flex: 1 1 auto; min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.lin-field { position: relative; display: flex; align-items: stretch; gap: var(--lin-gap, 28px); width: max-content; margin: 0 auto; padding: 4px 4px 22px; }
+.lin-edges { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; z-index: 0; }
+.lin-edges path[data-from] { fill: none; stroke: var(--navy); stroke-opacity: .4; stroke-width: 1.5; }
+.lin-edges marker path { fill: var(--navy); fill-opacity: .55; }
+.lin-field.focused .lin-edges path[data-from] { stroke-opacity: .1; }
+.lin-field.focused .lin-edges path[data-from].lit { stroke-opacity: .9; }
+
+.lin-world { position: relative; z-index: 1; display: flex; flex-direction: column; gap: 10px; }
+.lin-whead { width: 0; min-width: 100%; box-sizing: border-box; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; padding-bottom: 4px; border-bottom: 1px solid var(--hair); font-size: 12px; line-height: 1.3; color: var(--text-dim); }
+.lin-wname { font-weight: 600; color: var(--navy); }
+.lin-wcols { flex: 1; display: flex; align-items: center; gap: var(--lin-gap, 28px); }
+.lin-col { display: flex; flex-direction: column; justify-content: center; gap: 14px; width: var(--lin-colw, 180px); }
+.lin-col.target { width: var(--lin-tw, 260px); }
+
+.lin-node { position: relative; display: flex; flex-direction: column; gap: 3px; box-sizing: border-box; width: 100%; text-align: left; font: inherit; color: var(--navy);
+  background: #fff; border: 1px solid #DADDE5; border-left: 5px solid var(--gold); border-radius: 10px; padding: 7px 10px 8px; cursor: pointer; }
+.lin-node.k-theorem { border-left-color: var(--navy); }
+.lin-node.k-import { border-left-color: #BFC3CF; }
+.lin-node.k-target { background: var(--navy); color: #fff; border-color: var(--navy); border-left-color: var(--gold); box-shadow: 0 3px 0 #0B1022; padding: 10px 14px 11px; }
+.lin-node:focus-visible { outline: 2px solid var(--fam-structure); outline-offset: 2px; }
+.lin-field.focused .lin-node:not(.lit) { opacity: .38; }
+.lin-name { font-size: 14px; font-weight: 600; line-height: 1.25; }
+.k-target .lin-name { font-size: 16px; }
+.lin-stmt { font-size: 15px; line-height: 1.32; }
+.k-target .lin-stmt { font-size: 16px; }
+.lin-binders { display: block; font-size: 12.5px; color: var(--text-dim); }
+.lin-body { display: block; }
+.lin-body + .lin-body { margin-top: 2px; }
+.lin-nb { white-space: nowrap; }
+.lin-where { font-size: 11.5px; line-height: 1.3; color: var(--text-dim); }
+.k-target .lin-binders, .k-target .lin-where { color: rgba(255, 255, 255, .78); }
+.k-target .m-esort, .k-target .m-subg { color: inherit; }
+
+.lin-foot { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--hair); }
+.lin-counts { margin: 0; font-size: 13px; line-height: 1.4; color: var(--text-dim); }
+.lin-actions { flex: none; display: flex; gap: 10px; }

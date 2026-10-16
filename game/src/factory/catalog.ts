@@ -25,7 +25,7 @@ export const SPECS: Record<MachineKind, MachineSpec> = {
     blurb: 'rewrite at a bracket by a recipe: cancel, pop e, insert e or a pair, a library law, or a routed fact' }),
   operator: spec({ kind: 'operator', name: 'Operator', family: 'structure', glyph: '✣', hotkey: '3', placeable: true,
     blurb: 'act on the whole equation: L = R ⟹ tL = tR, Lt = Rt, L⁻¹ = R⁻¹, or R = L' }),
-  joiner: spec({ kind: 'joiner', name: 'Joiner', family: 'equation', glyph: '⋈', hotkey: '4', placeable: true,
+  joiner: spec({ kind: 'joiner', name: 'Joiner', family: 'equation', glyph: '=', hotkey: '4', placeable: true,
     blurb: 'combine two facts: X = M, Y = M ⟹ X = Y · A = B, C = D ⟹ AC = BD · P, ¬P ⟹ ⊥' }),
   theorem: spec({ kind: 'theorem', name: 'Theorem', family: 'lemma', glyph: '⟹', hotkey: '5', placeable: true,
     blurb: 'premises at σ ⟹ the conclusion at σ, by a library theorem or a routed card' }),
@@ -110,13 +110,17 @@ export function libPremises(ctx: KernelCtx, ref: LibRef | null | undefined): num
 }
 
 /** Short display name of a library reference: the standard name of a side ('right cancellation'), 'h', 'Lagrange (imported)', 'x⁻¹x = e'. */
-export function libName(ctx: KernelCtx, ref: LibRef | null | undefined): string {
+export function libName(ctx: KernelCtx, ref: LibRef | null | undefined, canvas?: Canvas): string {
   if (!ref) return 'no recipe';
   switch (ref.k) {
     case 'schema': {
       const base = schemaMachineName(ctx, ref.id, ref.mirror);
       // Book phase B: the subgroup(s) chosen for its parameters, e.g. 'closed under products (H)'
-      const st = ref.structs ? Object.values(ref.structs).map((id) => subsIn(ctx.level).find((x) => x.id === id)?.label ?? (ctx.level.maps ?? []).find((x) => x.id === id)?.label ?? varLabel(id)) : [];
+      // A Tower's id is never a name ('x3'): the label comes from the level or from the Towers on `canvas`; with
+      // neither (a blame message), the instance is left unsaid rather than printed as an id.
+      const subs = subsIn(ctx.level), maps = canvas ? [...(ctx.level.maps ?? []), ...mapsInScope(ctx, canvas)] : ctx.level.maps ?? [];
+      const scope = canvas ? subgroupsInScope(ctx, canvas) : subs;
+      const st = ref.structs ? Object.values(ref.structs).flatMap((id) => { const l = scope.find((x) => x.id === id)?.label ?? maps.find((x) => x.id === id)?.label; return l ? [l] : []; }) : [];
       return st.length ? `${base} (${st.join(', ')})` : base;
     }
     case 'given': return ctx.level.givens.find((g) => g.id === ref.givenId)?.name ?? ref.givenId;
@@ -264,6 +268,8 @@ export interface DefaultOpts {
   recipe?: unknown;
   /** Preset library ref for a Card Dock / Theorem. */
   ref?: LibRef;
+  /** The floor: a new element Tower starts in its Hom Tower's domain when the level's G is a placeholder (W8–14 N6). */
+  canvas?: Canvas;
 }
 
 /**
@@ -285,7 +291,16 @@ export function defaultConfig(kind: MachineKind, ctx: KernelCtx, opts?: DefaultO
       if (opts?.hom) return { kind, varId: 'f1', label: 'f₁', sort: 'G', hom: { ...opts.hom } };
       if (opts?.carrier && opts.sort !== 'Z') return { kind, varId: 'x', label: 'x', sort: 'G', carrier: opts.carrier };
       if (opts?.sub) return { kind, varId: opts.sub === 'normal' ? 'N' : 'H', label: opts.sub === 'normal' ? 'N' : 'H', sort: 'G', sub: opts.sub };
-      return opts?.sort === 'Z' ? { kind, varId: 'n', label: 'n', sort: 'Z' } : { kind, varId: 'x', label: 'x', sort: 'G' };
+      if (opts?.sort === 'Z') return { kind, varId: 'n', label: 'n', sort: 'Z' };
+      { // an element Tower starts where the docks' variables live (P6.1: A, P9.1: K), never in a G the level lacks (W5–7 #6)
+        const ss = new Set(ctx.level.sockets.flatMap((sk) => Object.values((sk.target as { metaSorts?: Record<string, unknown> }).metaSorts ?? {}).filter((r): r is string => typeof r === 'string' && r !== 'Z')));
+        let dock = ss.size === 1 && (ctx.level.sorts ?? []).some((x) => x.id === [...ss][0]) ? [...ss][0]! : undefined;
+        // "∀G, K, f : G → K …" proved with G₁, K₁, f₁: an element Tower starts in f₁'s domain G₁, not the level's G (N6)
+        const placeholder = !(ctx.level.sorts ?? []).some((x) => x.kind === 'group') && !ctx.level.atoms.some((a) => a.sort !== 'Z') && !ctx.level.givens.length;
+        const hom = placeholder ? opts?.canvas?.machines.map((m) => m.config).find((c): c is Extract<MachineConfig, { kind: 'tower' }> => c.kind === 'tower' && !!c.hom)?.hom : undefined;
+        if (!dock && hom) dock = hom.dom;
+        return { kind, varId: 'x', label: 'x', sort: 'G', ...(dock && dock !== 'G' ? { carrier: dock } : {}) };
+      }
     case 'rewriter': return {
       kind, recipe: (opts?.recipe as never) ?? null, dir: 'fwd', target: { k: 'first' }, gap: { k: 'first' }, values: {}, tidy: true,
     };

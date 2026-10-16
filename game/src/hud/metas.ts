@@ -50,3 +50,51 @@ export const theoremFree = (card: Card, values: Record<MetaId, Param>): MetaId[]
   const inPrem = new Set(card.k === 'cond' ? card.premises.flatMap((p) => (p.k === 'eq' || p.k === 'neq' ? [...K.metasOf(p.l), ...K.metasOf(p.r)] : p.k === 'mem' ? [...K.metasOf(p.t)] : [])) : []);
   return [...new Set([...card.metas.filter((x) => !inPrem.has(x)), ...Object.keys(values)])].sort();
 };
+
+// ───────── a card's own letters on this floor (final W8–14 N5) ─────────
+
+const INT_LETTERS = ['a', 'b', 'c', 'd', 'j', 'k', 'i', 'l'];
+const EL_LETTERS = ['x', 'y', 'z', 'u', 'v', 'w', 's', 't'];
+
+/**
+ * Display names for a card's metas (those in `only`, when given): a meta whose letter is already a letter on the floor (a ℤ Tower m beside the
+ * law's m, a Tower x beside the card's x) is shown with a fresh letter — integers a, b, c …, elements x, y, z … —
+ * so `m := 2, n := m+1` never mixes two different m's. Metas that do not clash keep their own letter. Display only:
+ * configs stay keyed by the meta's id.
+ */
+export const metaNames = (card: Fact | null | undefined, floorLetters: Iterable<string>, only?: readonly MetaId[]): Record<MetaId, string> => {
+  const metas: MetaId[] = card && (card.k === 'law' || card.k === 'cond') ? [...card.metas] : [];
+  const floor = new Set([...floorLetters].map((l) => l.replace(/[₀-₉0-9′']+$/, '')));
+  // only the metas the lens asks for (its knobs) are renamed: a matched x is never typed, so it keeps its letter
+  const clash = metas.filter((m) => floor.has(m) && (!only || only.includes(m)));
+  if (!clash.length) return {};
+  const zs = zMetas(card);
+  const taken = new Set([...floor, ...metas.filter((m) => !floor.has(m))]);
+  const out: Record<MetaId, string> = {};
+  for (const m of clash) {
+    const pick = (zs.has(m) ? INT_LETTERS : EL_LETTERS).find((l) => !taken.has(l));
+    if (!pick) continue;
+    taken.add(pick);
+    out[m] = pick;
+  }
+  return out;
+};
+
+/** The card with its metas shown under `names` (statements, direction pills, picker figures). Identity when empty. */
+export const renameMetas = <C extends Fact>(card: C, names: Record<MetaId, string>): C => {
+  if (!Object.keys(names).length) return card;
+  const go = (x: unknown): unknown => {
+    if (Array.isArray(x)) return x.map(go);
+    if (!x || typeof x !== 'object') return x;
+    const o = x as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(o)) {
+      if (k === 'metas' && Array.isArray(v)) out[k] = v.map((m) => (typeof m === 'string' ? names[m] ?? m : m));
+      else if (k === 'metaSorts' && v && typeof v === 'object') out[k] = Object.fromEntries(Object.entries(v).map(([m, s]) => [names[m] ?? m, s]));
+      else out[k] = go(v);
+    }
+    if ((o.k === 'meta' || o.k === 'zmeta') && typeof o.id === 'string' && names[o.id]) out.id = names[o.id];
+    return out;
+  };
+  return go(card) as C;
+};

@@ -14,7 +14,7 @@ import type { BGeo, Crossing, Geo, MGeo, PortGeo } from './geo';
 import { faceVec } from './adapt';
 import {
   JAM, VIOLET, band, box, esc, famInk, famText, glyphSVG, groundArrow, groundChevron, groundRect, kindGhost,
-  polyD, railOpacity, roundOpen,
+  polyD, railOpacity, roundOpen, upperWords,
 } from './svg';
 
 export const labelsOf = (lv: LevelManifest): Labels => ({ ...Object.fromEntries(lv.atoms.map((a) => [a.id, a.label])), ...Object.fromEntries((lv.subgroups ?? []).map((g) => [g.id, g.label])),
@@ -66,16 +66,14 @@ export function roomHeading(kind: Room['kind'], l: Room['l'] | null, r: Room['r'
 export function roomSVG(room: { id: string; kind: Room['kind']; rel?: Room['rel']; l: Room['l'] | null; r: Room['r'] | null; rect: Room['rect']; assumes?: DeskAssumption[] }, L: Labels, ghost = false, q?: Fact): string {
   const poly = roomPoly(room.rect).map(([x, y]) => P(x, y));
   const { tag, math } = roomHeading(room.kind, room.l, room.r, L, room.rel, q, room.assumes);
-  const a = P(room.rect.x, room.rect.y + room.rect.h * 0.5);
-  const ax = a[0] - 16, ay = a[1] - 30;
+  // Final playtest W1–7 #4: the heading sits INSIDE the room, under its top edge (outside, it landed on docks, belts
+  // and other rooms). Default spot: below the top corner; the floor moves it to a clear, visible spot and scales it
+  // down to fit a small room (index.ts placeHeadings).
+  const top = P(room.rect.x + 0.5, room.rect.y + 0.5);
   return `<g class="fl-room${ghost ? ' is-ghost' : ''}${room.kind === 'assume' ? ' is-assume' : ''}" data-r="${esc(room.id)}">` +
     `<polygon class="fl-room-fill" points="${pts(poly)}" fill="${VIOLET}" opacity="${ghost ? 0.12 : 0.085}"/>` +
     `<polygon class="fl-room-edge" points="${pts(poly)}" fill="none" stroke="${VIOLET}" stroke-width="${room.kind === 'assume' ? 2.2 : 1.4}"${ghost ? ' stroke-dasharray="5 4"' : room.kind === 'assume' ? ' stroke-dasharray="0.5 6.5" stroke-linecap="round"' : ''}/>` +
-    `<g class="fl-room-head fl-rhead-out" data-rhead="${esc(room.id)}"><g class="fl-sz fl-sz-f" style="transform-origin:${f1(ax)}px ${f1(ay + 10)}px"><text x="${f1(ax)}" y="${f1(ay - 4)}" text-anchor="end" font-family="${FONT.ui}" font-size="10.5" font-weight="600" letter-spacing=".12em" fill="${VIOLET}">${tag}</text>` +
-    `<text x="${f1(ax)}" y="${f1(ay + 15)}" text-anchor="end" font-family="${FONT.math}" font-size="17" fill="${VIOLET}">${math}</text></g></g>` +
-    // inside variant (used when the outside heading would clip the floor's edge): centred under the top corner
-    // inside variant, positioned by the floor (clear of machines, on-screen) when the outside one would clip
-    `<g class="fl-room-head fl-rhead-in" data-rhead="${esc(room.id)}"><g class="fl-sz fl-sz-f" style="transform-origin:0px 0px"><text x="0" y="-8" text-anchor="middle" font-family="${FONT.ui}" font-size="10.5" font-weight="600" letter-spacing=".12em" fill="${VIOLET}">${tag}</text>` +
+    `<g class="fl-room-head fl-rhead-in" data-rhead="${esc(room.id)}" transform="translate(${f1(top[0])},${f1(top[1] + 22)})"><g class="fl-sz fl-sz-f" style="transform-origin:0px 0px"><text x="0" y="-8" text-anchor="middle" font-family="${FONT.ui}" font-size="10.5" font-weight="600" letter-spacing=".12em" fill="${VIOLET}">${tag}</text>` +
       `<text x="0" y="11" text-anchor="middle" font-family="${FONT.math}" font-size="17" fill="${VIOLET}">${math}</text></g></g></g>`;
 }
 
@@ -188,78 +186,6 @@ export function portSVG(pg: PortGeo, g: MGeo): string {
 
 // ───────────── machines ─────────────
 
-/** Words of a plate title, uppercase; a trailing ᵒᵖ becomes the word OP. */
-const plateWords = (name: string) => name.replace(/\s*ᵒᵖ\s*/g, ' OP ').trim().toUpperCase().split(/\s+/).filter(Boolean);
-
-/** Split words into k contiguous lines, as even in length as possible. */
-function splitLines(words: string[], k: number): string[] {
-  if (k <= 1 || words.length <= 1) return [words.join(' ')];
-  let best: string[] = [words.join(' ')], bd = Infinity;
-  const go = (from: number, left: number, acc: string[]) => {
-    if (left === 1) {
-      const ls = [...acc, words.slice(from).join(' ')];
-      const d = Math.max(...ls.map((l) => l.length));
-      if (d < bd) { bd = d; best = ls; }
-      return;
-    }
-    for (let cut = from + 1; cut <= words.length - left + 1; cut++) go(cut, left - 1, [...acc, words.slice(from, cut).join(' ')]);
-  };
-  go(0, Math.min(k, words.length), []);
-  return best;
-}
-
-/** Estimated width of an uppercase plate line in Space Grotesk 600 with .08em tracking. */
-const plateTextW = (ln: string, fs: number) => [...ln].reduce((w, ch) => w + (ch === ' ' ? 0.32 : ch === 'I' ? 0.36 : /[MW]/.test(ch) ? 0.92 : 0.7), 0) * fs + ln.length * 0.08 * fs;
-
-/** Horizontal chord (min x, max x) of a convex screen polygon at height y, or null. */
-function chordAt(poly: [number, number][], y: number): [number, number] | null {
-  let lo = Infinity, hi = -Infinity;
-  for (let i = 0; i < poly.length; i++) {
-    const a = poly[i]!, b = poly[(i + 1) % poly.length]!;
-    if ((a[1] - y) * (b[1] - y) > 0 || a[1] === b[1]) continue;
-    const x = a[0] + ((y - a[1]) / (b[1] - a[1])) * (b[0] - a[0]);
-    lo = Math.min(lo, x); hi = Math.max(hi, x);
-  }
-  return lo <= hi ? [lo, hi] : null;
-}
-
-/**
- * A plate title fitted to the top face: 1–3 balanced lines at the largest size (≤ 9.4px, ≥ 6px) whose every line
- * sits inside the face's horizontal chord at its height. A line stays centred when it can and otherwise slides along
- * the face's slant (so a long name follows the iso face instead of running off it). Fewer lines win a tie.
- */
-export function fitPlate(name: string, face: [number, number][], cx: number, cy: number, tag: boolean): { lines: string[]; xs: number[]; fs: number; y0: number } {
-  const words = plateWords(name);
-  const lift = tag ? -4 : 0; // an IMPORTED line goes under the title
-  // a line fits only if the face is wide enough at its cap height AND at its baseline (the top face is a
-  // parallelogram: a line that fits through its middle can still cross the rim above or below — #18)
-  const place = (yMid: number, w: number, fs = 7): number | null => {
-    const a = chordAt(face, yMid - fs * 0.5), b = chordAt(face, yMid + fs * 0.42), m = chordAt(face, yMid);
-    if (!a || !b || !m) return null;
-    const lo = Math.max(a[0], b[0], m[0]), hi = Math.min(a[1], b[1], m[1]);
-    if (hi - lo - 6 < w) return null;
-    return Math.min(Math.max(cx, lo + 3 + w / 2), hi - 3 - w / 2);
-  };
-  let best: { lines: string[]; xs: number[]; fs: number; y0: number } | null = null;
-  for (let k = 1; k <= Math.min(3, Math.max(1, words.length)); k++) {
-    const lines = splitLines(words, k);
-    for (let fs = 9.4; fs >= 5.8; fs -= 0.2) {
-      const lead = fs + 2;
-      const y0 = cy + 3.5 + lift - ((lines.length - 1) / 2) * lead;
-      const xs = lines.map((ln, i) => place(y0 + i * lead - fs * 0.36, plateTextW(ln, fs) + 3, fs));
-      const tagOk = !tag || place(y0 + lines.length * lead - 3.5, plateTextW('IMPORTED', 6.8) * 1.4) !== null;
-      if (xs.every((x) => x !== null) && tagOk) {
-        if (!best || fs > best.fs + 0.01) best = { lines, xs: xs as number[], fs, y0 };
-        break;
-      }
-    }
-  }
-  if (best) return best;
-  // nothing fits legibly: print no words at all — the plate keeps its maths glyph (NORMS: glyphs are maths, not
-  // pictograms or squeezed words); the name is in the lens and on hover
-  return { lines: [], xs: [], fs: 13, y0: cy + 4 + lift };
-}
-
 export interface Ctx { L: Labels; level: LevelManifest; comp: Compiled | null; schemaName: (id: string, mirror: boolean) => string }
 
 export function machineName(g: MGeo, cx: Ctx): string {
@@ -273,7 +199,7 @@ export function machineName(g: MGeo, cx: Ctx): string {
 
 /** A floor label: the role word(s) in uppercase UI type, then any maths name in its real case (italic maths). */
 export function labelSVG(look: Pick<Look, 'label' | 'name'>, size: number): string {
-  return esc(look.label.toUpperCase()) +
+  return esc(upperWords(look.label)) +
     (look.name ? `<tspan font-family="${FONT.math}" font-weight="400" letter-spacing="0" font-size="${f1(size * 1.3)}" dx="${f1(size * 0.4)}">${glyphSVG(look.name)}</tspan>` : '');
 }
 
@@ -307,18 +233,10 @@ export function machineSVG(g: MGeo, cx: Ctx, varLabels?: Map<string, string>): s
     o += `<ellipse cx="${f1(c[0])}" cy="${f1(c[1])}" rx="${f1(el.rx)}" ry="${f1(el.ry)}" fill="#fff" opacity=".4"/>`;
   }
   if (plate) {
-    // the title fits the top face (inset by the rounded rim): wrapped to 1–3 lines and shrunk only as needed
-    const m = 0.12;
-    const face = [[g.x0 + m, g.y0 + m], [g.x1 - m, g.y0 + m], [g.x1 - m, g.y1 - m], [g.x0 + m, g.y1 - m]].map(([x, y]) => P(x!, y!, h) as [number, number]);
-    const { lines, xs, fs, y0 } = fitPlate(L.title ?? '', face, c[0], c[1], !!L.tag);
-    const halo = `paint-order="stroke" stroke="${INK.navy}" stroke-width="3" stroke-linejoin="round"`;
-    // no words fit: the plate shows the Theorem's maths glyph; its name is in the lens and on hover (#18)
-    if (!lines.length) o += `<text x="${f1(c[0])}" y="${f1(c[1] + 6)}" text-anchor="middle" font-family="${FONT.math}" font-size="18" fill="#fff">⟹</text>`;
-    lines.forEach((ln, i) => {
-      o += `<text x="${f1(xs[i]!)}" y="${f1(y0 + i * (fs + 2))}" text-anchor="middle" font-family="${FONT.ui}" font-weight="600" font-size="${f1(fs)}" letter-spacing=".08em" fill="#fff" ${halo}>${esc(ln.replace(/ OP$/, ''))}${/ OP$/.test(ln) ? `<tspan font-size="7.5" baseline-shift="35%" fill="${INK.gold}"> OP</tspan>` : ''}</text>`;
-    });
-    // provenance printed on the plate itself (no external tag to collide with neighbours)
-    if (L.tag) o += `<text x="${f1(c[0])}" y="${f1(y0 + lines.length * (fs + 2) - 1)}" text-anchor="middle" font-family="${FONT.ui}" font-weight="600" font-size="6.8" letter-spacing=".14em" fill="${INK.gold}" ${halo}>${esc(L.tag)}</text>`;
+    // NORMS: a face carries maths, never words. The name is the caption under the tile (like CANCEL, MULTIPLY LEFT);
+    // the face shows what the machine does: ⟹ for a theorem, the rewrite arrow for a law.
+    if (L.glyph === '⥲') o += isoArrowSVG(c, L.on);
+    else o += `<text x="${f1(c[0])}" y="${f1(c[1] + 6)}" text-anchor="middle" font-family="${FONT.math}" font-size="18" fill="#fff">${glyphSVG(L.glyph || '⟹')}</text>`;
   } else if (L.glyph === '⥲') {
     o += isoArrowSVG(c, L.on);
   } else if (L.glyph === '∵') {
@@ -435,8 +353,20 @@ export function machineLabelSVG(g: MGeo, cx: Ctx): string {
     }
   }
   if (m.kind === 'tower') return '';
-  if (g.look.plate) return '';
   const a = P((g.x0 + g.x1) / 2, g.y1);
+  if (g.look.plate) {
+    // an earned / authored / imported theorem: its name is the caption (up to two lines), provenance on a third
+    const words = g.look.label.split(/\s+/).filter(Boolean);
+    let lines = [words.join(' ')];
+    if (lines[0]!.length > 17 && words.length > 1) {
+      let best = 1, bd = Infinity;
+      for (let i = 1; i < words.length; i++) { const d = Math.abs(words.slice(0, i).join(' ').length - words.slice(i).join(' ').length); if (d < bd) { bd = d; best = i; } }
+      lines = [words.slice(0, best).join(' '), words.slice(best).join(' ')];
+    }
+    if (g.look.tag) lines.push(g.look.tag);
+    const tspans = lines.map((ln, i) => `<tspan x="${f1(a[0] - 6)}" dy="${i ? 10 : 0}"${g.look.tag && i === lines.length - 1 ? ' font-size="6.8" letter-spacing=".14em"' : ''}>${esc(ln)}</tspan>`).join('');
+    return `<g class="fl-lab fl-sz fl-sz-n" style="transform-origin:${f1(a[0] - 6)}px ${f1(a[1] + 4)}px"><text x="${f1(a[0] - 6)}" y="${f1(a[1] + 12)}" text-anchor="middle" font-family="${FONT.ui}" font-size="8.6" font-weight="600" letter-spacing=".12em" fill="${famText(g.fam)}">${tspans}</text></g>`;
+  }
   return `<g class="fl-lab fl-sz fl-sz-n" style="transform-origin:${f1(a[0] - 6)}px ${f1(a[1] + 4)}px"><text x="${f1(a[0] - 6)}" y="${f1(a[1] + 12)}" text-anchor="middle" font-family="${FONT.ui}" font-size="8.6" font-weight="600" letter-spacing=".12em" fill="${g.look.neutral ? INK.navy2 : famText(g.fam)}">${labelSVG(g.look, 8.6)}</text></g>`;
 }
 

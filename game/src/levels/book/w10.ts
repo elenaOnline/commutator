@@ -82,7 +82,7 @@ export const LEVELS: LevelManifest[] = [
     // trans [h₁, h₂ : b = dpd⁻¹]: h₁ with b ⟶ dpd⁻¹ (h₂), then d⁻¹c⁻¹ ⟶ (cd)⁻¹ (inverse of a product): a = (cd)p(cd)⁻¹ (g = cd).
     id: 'P12.2', index: 51, campaign: 'book', world: 10, chapter: 12, title: 'Conjugacy',
     method: 'Equivalence relation', source: 'Pinter 12.D3',
-    insight: 'Each property needs a conjugator: a (or e) for reflexive, c⁻¹ for symmetric, and the product cd for transitive.',
+    insight: 'Each property needs a conjugator: e (or a) for reflexive, c for symmetric, and the product cd for transitive.',
     memo: 'a is conjugate to b when a = gbg⁻¹ for some g. Prove the three properties.',
     atoms: [
       { id: 'a', label: 'a', hue: 0 }, { id: 'b', label: 'b', hue: 1 }, { id: 'p', label: 'p', hue: 2 },
