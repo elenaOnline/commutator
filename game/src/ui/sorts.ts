@@ -206,3 +206,34 @@ export const SUBGROUP_DEFS = {
   sub: 'H ≤ G, a subgroup: contains e, closed under products and inverses.',
   normal: 'N ⊴ G, a normal subgroup: also closed under conjugation, gng⁻¹ ∈ N.',
 } as const;
+
+/**
+ * A fresh id for a group or Hom Tower: `grp1`, `hom2` …, never an element letter. A Tower that turns into a group or
+ * a homomorphism takes a new id, so its label can never be read for an element variable or a card's bound x (the ∀
+ * lens printed "for all G, K, f, f₁, y" when f₁ kept the id x — verify-fixround #1).
+ */
+export function freshStructId(kind: 'grp' | 'hom', taken: Iterable<string>): string {
+  const t = new Set(taken);
+  for (let i = 1; ; i++) if (!t.has(`${kind}${i}`)) return `${kind}${i}`;
+}
+
+/**
+ * An element Tower's name chips: the letters the docks bind in its carrier first (P16.1's a, b; P6.3's z ∈ C), then
+ * the usual letters (x, y, z, u in a group; u, v, w in a set). A dock variable over a card's own group (a sort
+ * parameter) counts for a group Tower; integer variables (in exponents) never do.
+ */
+export function towerLetters(level: Pick<LevelManifest, 'sockets'>, carrier: string | undefined, isSet: boolean): string[] {
+  const docks = level.sockets.flatMap((sk) => {
+    const t = sk.target as { metas?: string[]; metaSorts?: Record<string, unknown> };
+    const json = JSON.stringify(sk.target);
+    return (t.metas ?? []).filter((m) => {
+      if (json.includes(`"k":"zmeta","id":${JSON.stringify(m)}`)) return false;
+      const r = t.metaSorts?.[m];
+      if (r === 'Z') return false;
+      if (typeof r === 'string') return r === (carrier ?? DEFAULT_SORT);
+      return !isSet; // unsaid, or a card's sort parameter: an element of a group
+    });
+  });
+  return [...new Set([...docks, ...(isSet ? ['u', 'v', 'w'] : ['x', 'y', 'z', 'u'])])].slice(0, 4);
+}
+const DEFAULT_SORT = K.DEFAULT_GROUP;

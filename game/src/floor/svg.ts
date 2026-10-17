@@ -27,7 +27,7 @@ export const railOpacity = (f: Family) => (f === 'lemma' ? 0.34 : f === 'identit
  */
 export const upperWords = (s: string): string => s.replace(/[A-Za-z]{2,}/g, (w) => w.toUpperCase()).replace(/\ba(?= [A-Za-z]{2,})/g, 'A');
 /** A heading that CSS capitalises: its maths stays as written (the words are uppercased by the stylesheet). */
-export const capsHTML = (s: string): string => s.split(/([A-Za-z]{2,})/).map((t, i) => (i % 2 || !/\S/.test(t) ? t.replace(/&/g, '&amp;').replace(/</g, '&lt;') : `<span class="fl-nocaps">${t.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</span>`)).join('');
+export const capsHTML = (s: string): string => s.split(/([A-Za-z]{2,}|\ba(?= [A-Za-z]{2,}))/).map((t, i) => (i % 2 || !/\S/.test(t) ? t.replace(/&/g, '&amp;').replace(/</g, '&lt;') : `<span class="fl-nocaps">${t.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</span>`)).join('');
 /** Unicode subscript letters → the letter ('Hₐ' is H with a subscript a). */
 const SUB_LETTER: Record<string, string> = { 'ₐ': 'a', 'ₑ': 'e', 'ₕ': 'h', 'ᵢ': 'i', 'ⱼ': 'j', 'ₖ': 'k', 'ₗ': 'l', 'ₘ': 'm', 'ₙ': 'n', 'ₒ': 'o', 'ₚ': 'p', 'ᵣ': 'r', 'ₛ': 's', 'ₜ': 't', 'ᵤ': 'u', 'ᵥ': 'v', 'ₓ': 'x' };
 export function glyphSVG(g: string): string {

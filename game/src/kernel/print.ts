@@ -222,7 +222,7 @@ function bindText(b: StructBinder, tex: boolean): string {
     case 'grp': return q(`${b.id} ${tex ? '\\text{ a group}' : 'a group'}`);
     case 'set': return q(`${b.id} ${tex ? '\\text{ a set}' : 'a set'}`);
     case 'hom': return q(`${b.id} : ${sr(b.dom)} ${tex ? '\\to' : '→'} ${sr(b.cod)}`);
-    case 'act': return q(`${b.id} : ${sr(b.grp)} ${tex ? '\\times' : '×'} ${sr(b.on)} ${tex ? '\\to' : '→'} ${sr(b.on)}`);
+    case 'act': return ''; // NORMS › Sorts: the action's own symbol σ is never shown
   }
 }
 

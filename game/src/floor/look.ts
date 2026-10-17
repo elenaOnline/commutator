@@ -11,6 +11,8 @@ import { sortCtx } from '../ui/sorts';
 import { freshLetter } from '../ui/letters';
 import { shade } from '../board/geom';
 import { upperWords } from './svg';
+import { mapSchema } from '../kernel';
+const K_mapName = (id: string): string => mapSchema(id)?.name ?? id;
 import { schemaMachineName, schemaOf } from '../factory/catalog';
 import { MIRROR_NAMES, SIDE_PAIRS } from '../levels/levels';
 import type { KernelCtx } from '../kernel';
@@ -79,7 +81,7 @@ function libLook(lc: LookCtx, ref: LibRef, asTheorem: boolean): Look {
       if (ref.id === 'invR') return fam('inverse', 'xx⁻¹', 'xx⁻¹ = e');
       if (ref.id === 'unitL') return fam('identity', 'ex', 'ex = x');
       return fam('identity', 'xe', 'xe = x');
-    case 'given': { const n = givenName(lc, ref.givenId); return { ...fam('given', asTheorem ? `${n}⟹` : n, 'GIVEN'), name: n }; }
+    case 'given': { const n = givenName(lc, ref.givenId); return { ...fam('given', asTheorem ? `${n}⟹` : n, ''), name: n }; }
     case 'schema': {
       // Book phase B: the subgroup axioms are machines of their kind, like the group laws — a box in the subgroup
       // ink with the closure as its glyph. (Earned "contains e" keeps the gold plate; imported powers the hatch.)
@@ -90,7 +92,9 @@ function libLook(lc: LookCtx, ref: LibRef, asTheorem: boolean): Look {
         const fnId = ref.structs ? Object.values(ref.structs)[0] : undefined;
         const fl = (fnId ? lc.level.maps?.find((x) => x.id === fnId)?.label ?? lc.labels?.[fnId] : undefined) ?? 'f'; // a Hom Tower's id is never a name
         const glyph = ref.id.startsWith('hom.') ? MAP_GLYPH[ref.id]!.replace('f', fl) : MAP_GLYPH[ref.id]!;
-        return fam('structure', glyph, ref.id.startsWith('hom.') ? 'HOMOMORPHISM LAW' : 'ACTION LAW');
+        // the caption is the lens's name for the recipe ("homomorphism law (f₁)", "acting by a product"), never "action law"
+        const mname = upperWords(K_mapName(ref.id));
+        return ref.id.startsWith('hom.') && fnId && fl !== 'f' ? { ...fam('structure', glyph, mname), name: fl } : fam('structure', glyph, mname);
       }
       if (SUB_GLYPH[ref.id]) {
         const n = schemaName(lc, ref.id, ref.mirror);

@@ -757,9 +757,9 @@ button.h3-rel { border: 0; background: none; color: var(--navy); }
 .qed-save.saved .qed-plate { display: none; }
 .qed-save.saved { margin-top: 4px; }
 /* the proof in the ceremony: wide enough for its reasons, which wrap rather than clip */
-.lw3 .h3-ceremony .qed-paper { max-width: 680px; }
-.lw3 .h3-ceremony .qed-paper .pp-grid { grid-template-columns: 2.1em calc(var(--d, 0) * 1.7em) auto auto auto minmax(13em, 1fr); }
-.lw3 .h3-ceremony .qed-paper .pp-grid.pp-prose { grid-template-columns: 2.1em calc(var(--d, 0) * 1.7em) auto minmax(13em, 1fr); }
+.lw3 .h3-ceremony .qed-paper { max-width: 680px; font-size: 15.5px; }
+.lw3 .h3-ceremony .qed-paper .pp-grid { grid-template-columns: 2.1em calc(var(--d, 0) * 1.7em) auto auto auto minmax(11em, 1fr); }
+.lw3 .h3-ceremony .qed-paper .pp-grid.pp-prose { grid-template-columns: 2.1em calc(var(--d, 0) * 1.7em) auto minmax(11em, 1fr); }
 .lw3 .h3-ceremony .qed-paper .pp-why { min-width: 0; overflow-wrap: anywhere; }
 /* final W8–14 N24: a term slot clicked into is all selected (typing replaces it); its input is hidden, so show it */
 .h3-slotknob.selall .h3-slotbox { background: color-mix(in srgb, var(--navy) 12%, #fff); }

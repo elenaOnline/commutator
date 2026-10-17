@@ -26,7 +26,7 @@ import {
 import { lookOf, termAtoms } from './look';
 import { buildGeo, centre, portEdge, portEnd, tkey, type BGeo, type Geo, type MGeo, type PortGeo } from './geo';
 import {
-  beltBody, beltSVG, bridgeSVG, heightOf, labelsOf, openEndSVG, liveStatusOf, machineLabelSVG, machineName, machineSVG, pipSVG, portSVG, roomHandles, roomSVG,
+  beltBody, beltSVG, bridgeSVG, heightOf, labelsOf, openEndSVG, liveStatusOf, machineLabelSVG, machineName, machineSVG, pipSVG, portSVG, roomHandles, roomHeadSVG, roomSVG,
   dockMathSVG, socketLabelSVG, socketTarget, towerBulb, type Ctx,
 } from './scene';
 import { packetGrid, packetSVG, prevAt, type Axis } from './items';
@@ -77,7 +77,9 @@ type Gesture =
   | { k: 'move'; ids: string[]; start: Tile; delta: Tile; ok: boolean | null; reason?: string }
   | { k: 'belt'; why?: { reason: string; blockers: string[] }; from: Endpoint; branchOf?: string; branchI?: number; extendOf?: string; via: Tile[]; kind: ItemKind; fam: import('../kernel/types').Family; startG: G2; click: boolean; snap: Snap | null; path: Tile[] | null; real: boolean; noRoute: boolean; key: string }
   | { k: 'room'; start: Tile; cur: Tile; sx: number; sy: number; cx: number; cy: number }
-  | { k: 'resize'; id: string; h: string; rect0: Rect; rect: Rect };
+  | { k: 'resize'; id: string; h: string; rect0: Rect; rect: Rect }
+  /** an input dragged onto an output: the same belt, laid output → input (verify-fixround round 2, P4.10) */
+  | { k: 'rbelt'; to: Endpoint };
 
 type Target =
   | { k: 'port'; m: string; port: string }
@@ -183,6 +185,8 @@ class Floor {
         // a success supersedes any earlier refusal: never leave a refusal up after it
         const t = this.store.get().ui.toast as { kind?: string } | null;
         if (t?.kind === 'refused') (this.store as unknown as { clearToast?: () => void }).clearToast?.();
+        // a note belongs to the edit that made it ("Slid the Exit Gate…"): the next edit retires it (round 2)
+        else if (t?.kind === 'note') this.store.setUI({ toast: null });
         this.ghostKey = '';
       }
       if (e.type === 'refused') { this.hideTip(); this.renderGhostSoon(); }
@@ -216,6 +220,8 @@ class Floor {
     const prev = this.s;
     this.s = s;
     const edited = s.canvas !== prev.canvas || s.compiled !== prev.compiled || s.level !== prev.level;
+    // the ceremony (or any screen over the floor) ends a gesture in progress, ghost and all
+    if ((s.ui as { ceremony?: unknown }).ceremony && !(prev.ui as { ceremony?: unknown }).ceremony) { this.cancel(); if (this.g.k === 'belt') { this.g = { k: 'none' }; this.root.classList.remove('is-belting'); this.clearPreview(); } }
     if (s.ui.toast && s.ui.toast !== prev.ui.toast) {
       this.toastAt = performance.now(); this.hideTip();
       const bl = (s.ui.toast as { blockers?: string[] }).blockers;
@@ -307,6 +313,8 @@ class Floor {
       }
     }
     this.L.machines!.innerHTML = mach;
+    // room headings ride the label layer, above machines and belts: nothing placed in a room hides its heading
+    labs += s.canvas.rooms.map((r) => roomHeadSVG(r, this.labels, r.kind === 'assume' ? qOf(r.id) : undefined)).join('');
     this.L.labels!.innerHTML = labs;
     this.elByM.clear(); this.elByB.clear();
     this.L.machines!.querySelectorAll('[data-m]').forEach((e) => this.elByM.set((e as HTMLElement).dataset.m!, e));
@@ -324,7 +332,16 @@ class Floor {
     this.nameBoxes = null;
     this.headW.clear();
     this.headSpot.clear();
-    this.L.rooms!.querySelectorAll<SVGGElement>('.fl-rhead-in').forEach((el) => { const id = el.closest<HTMLElement>('[data-r]')?.dataset.r; if (id) { try { this.headW.set(id, el.getBBox().width); } catch { /* not laid out */ } } });
+    // size each heading's plate to its text (measured unscaled: the plate scales with the text)
+    this.L.labels!.querySelectorAll<SVGGElement>('.fl-rhead-in').forEach((el) => {
+      const id = el.dataset.rhead; if (!id) return;
+      let w = 0;
+      el.querySelectorAll<SVGTextElement>('text').forEach((t) => { try { w = Math.max(w, t.getComputedTextLength()); } catch { /* not laid out */ } });
+      if (!w) w = 200;
+      const plate = el.querySelector('.fl-rhead-plate');
+      plate?.setAttribute('x', f1(-w / 2 - 10)); plate?.setAttribute('width', f1(w + 20));
+      this.headW.set(id, w + 20);
+    });
     if (!this.fitted) this.fit();
     else this.applyCamera();
   }
@@ -610,66 +627,74 @@ class Floor {
     if (Math.abs(c.zoom - this.boxZoom) / Math.max(0.01, this.boxZoom) > 0.04) { this.boxZoom = c.zoom; this.nameBoxes = null; if (this.s?.run) this.capPackets(); }
   }
   /**
-   * Room headings sit INSIDE their room, under its top edge (final playtest W1–7 #4, W8–14 N19): the highest spot
-   * whose box lies wholly inside the room's diamond and clear of machines and belts, scaled down (to 55 %) when the
-   * room is too small for it at full size. The spot is chosen once per floor render; it moves only when the camera
-   * would put it off-screen or under a HUD panel (the order chip, the run panel, the hotbar).
+   * Room headings (verify-fixround): a plate on the room's top edge, above machines and belts (label layer), at full
+   * size. Its spot: centred on the top corner and resting on it; when that would cover a machine, slide along the two
+   * top edges; when the order chip, the run panel, the hotbar or the window edge would cut it, slide on until it is
+   * whole. Chosen once per floor render; re-chosen only when the camera would cut it.
    */
-  private headSpot = new Map<string, { x: number; y: number; sc: number; key: string }>();
+  private headSpot = new Map<string, { x: number; y: number; key: string }>();
   private flipHeadings(c: { x: number; y: number; zoom: number }, kf: number) {
     if (!this.s?.canvas || !this.geo) return;
     const v = this.view;
-    const safe = this.safeArea();
+    const area = this.safeArea();
     const visible = (x0: number, y0: number, x1: number, y1: number) => {
       const a = toScreen(c, v, [x0, y0]), b = toScreen(c, v, [x1, y1]);
       if (a[0] < 6 || b[0] > v.w - 6 || a[1] < 6 || b[1] > v.h - 6) return false;
-      return !safe.panels.some((q) => a[0] < q.right && b[0] > q.left && a[1] < q.bottom && b[1] > q.top);
+      return !area.panels.some((q) => a[0] < q.right && b[0] > q.left && a[1] < q.bottom && b[1] > q.top);
     };
-    const boxes = [...this.geo.ms.values()].map((g) => ({ x0: P(g.x0, g.y1)[0] - 4, x1: P(g.x1, g.y0)[0] + 4, y0: P(g.x0, g.y0, 0.5)[1] - 4, y1: P(g.x1, g.y1)[1] + 18 }));
+    const boxes = [...this.geo.ms.values()].map((g) => ({ x0: P(g.x0, g.y1)[0] - 4, x1: P(g.x1, g.y0)[0] + 4, y0: P(g.x0, g.y0, 0.6)[1] - 4, y1: P(g.x1, g.y1)[1] + 14, room: (g.m.config as { room?: string }).room }));
+    // docks' DELIVER lines and givens' formulas weigh as machines
+    this.L.labels?.querySelectorAll<SVGGraphicsElement>('.fl-socklab, .fl-lab').forEach((el) => {
+      try { const r = el.getBBox(); if (r.width) boxes.push({ x0: r.x - 4, x1: r.x + r.width + 4, y0: r.y - 4, y1: r.y + r.height + 4, room: undefined }); } catch { /* not laid out */ }
+    });
     const beltPts: [number, number][] = [];
-    for (const b of this.geo.bs.values()) for (let i = 0; i < b.line.length; i++) {
-      const p = b.line[i]!, q = b.line[i + 1];
-      beltPts.push(P(p[0], p[1]) as [number, number]);
-      if (q) beltPts.push(P((p[0] + q[0]) / 2, (p[1] + q[1]) / 2) as [number, number]);
-    }
-    const camKey = `${kf.toFixed(3)}`;
+    for (const b of this.geo.bs.values()) for (const p of b.line) beltPts.push(P(p[0], p[1]) as [number, number]);
+    const camKey = kf.toFixed(3);
+    const placed: { x0: number; x1: number; y0: number; y1: number }[] = [];
     for (const r of this.s.canvas.rooms) {
-      const el = this.L.rooms?.querySelector(`[data-r="${CSS.escape(r.id)}"]`); if (!el) continue;
-      const inG = el.querySelector('.fl-rhead-in'); if (!inG) continue;
-      const W = (this.headW.get(r.id) ?? 220) * kf, H = 38 * kf;
-      const R = r.rect;
-      const inside = (x: number, y: number) => { const g = gridOf([x, y]); return g[0] >= R.x + 0.15 && g[0] <= R.x + R.w - 0.15 && g[1] >= R.y + 0.15 && g[1] <= R.y + R.h - 0.15; };
-      const hits = (x: number, y: number, w: number) => boxes.filter((b) => x - w / 2 < b.x1 && x + w / 2 > b.x0 && y - H / 2 < b.y1 && y + H / 2 > b.y0).length * 3 +
-        beltPts.filter((p) => Math.abs(p[0] - x) < w / 2 + 6 && Math.abs(p[1] - y) < H / 2 + 6).length;
+      const el = this.L.labels?.querySelector(`.fl-rhead-in[data-rhead="${CSS.escape(r.id)}"]`); if (!el) continue;
+      const hw = (this.headW.get(r.id) ?? 220) * kf / 2, hh = 21 * kf;
+      const box = (x: number, y: number) => ({ x0: x - hw, x1: x + hw, y0: y - hh, y1: y + hh });
+      // its own desks and gate are never covered (round 2: the plate sat on the room's Assumption Desk); others cost
+      const hit = (b: { x0: number; x1: number; y0: number; y1: number }) => [...boxes, ...placed].filter((q) => b.x0 < q.x1 && b.x1 > q.x0 && b.y0 < q.y1 && b.y1 > q.y0)
+        .reduce((n, q) => n + ((q as { room?: string }).room === r.id ? 100 : 1), 0);
+      const ok = (x: number, y: number) => { const b = box(x, y); return visible(b.x0, b.y0, b.x1, b.y1); };
       const prev = this.headSpot.get(r.id);
-      const ok = (sp: { x: number; y: number; sc: number }) => visible(sp.x - W * sp.sc / 2, sp.y - H / 2, sp.x + W * sp.sc / 2, sp.y + H / 2);
-      let spot = prev && prev.key === camKey ? prev : null;
-      if (!spot || !ok(spot)) {
-        const top = P(R.x, R.y), bot = P(R.x + R.w, R.y + R.h), left = P(R.x, R.y + R.h)[0], right = P(R.x + R.w, R.y)[0];
-        // how much of the box hangs outside the room (0 = wholly inside): sampled along its four edges
-        const out = (x: number, y: number, w: number) => {
-          let n = 0;
-          for (let i = 0; i <= 8; i++) { const xx = x - w / 2 + (w * i) / 8; if (!inside(xx, y - H / 2)) n++; if (!inside(xx, y + H / 2)) n++; }
-          return n;
-        };
-        type Cand = { x: number; y: number; sc: number; score: number };
-        const pick: { best: Cand | null } = { best: null };
-        for (const sc of [1, 0.85, 0.7, 0.55]) {
-          const w = W * sc;
-          for (let y = top[1] + H / 2 + 4; y <= Math.max(top[1] + H / 2 + 4, bot[1] - H / 2 - 4); y += 6) for (let x = left; x <= right; x += 10) {
-            if (!inside(x, y)) continue;
-            // clear of machines and belts first, then inside the room, on screen, near the top edge, centred under the top
-            // corner, and as large as it can be
-            const score = hits(x, y, w) * 1000 + out(x, y, w) * 60 + (visible(x - w / 2, y - H / 2, x + w / 2, y + H / 2) ? 0 : 500) + (y - top[1]) + Math.abs(x - top[0]) * 0.2 + (1 - sc) * 80;
-            if (!pick.best || score < pick.best.score) pick.best = { x, y, sc, score };
-          }
-          if (pick.best && pick.best.score < 300) break;
+      let spot = prev && prev.key === camKey && ok(prev.x, prev.y) ? prev : null;
+      if (!spot) {
+        const R = r.rect;
+        // resting on the top corner, then along the NE and NW top edges (a quarter tile at a time): the plate stands in
+        // the band just above the edge
+        const cands: [number, number, number][] = []; // x, y, preference penalty
+        // foot on the wall line, or raised clear of the tallest machine standing on that edge
+        // (or, last, hanging just inside the top edge, where it may sit over a machine of the room but never its desk)
+        const foot = (gx: number, gy: number) => { const p = P(gx, gy); cands.push([p[0], p[1] - hh + 2 * kf, 0], [p[0], p[1] - hh - 34 * kf, 4], [p[0], p[1] + hh + 6 * kf, 12]); };
+        foot(R.x, R.y);
+        for (let t = 0.25; t <= Math.max(R.w, R.h); t += 0.25) {
+          if (t <= R.w) foot(R.x + t, R.y);
+          if (t <= R.h) foot(R.x, R.y + t);
         }
-        const best = pick.best;
-        spot = best ? { x: best.x, y: best.y, sc: best.sc, key: camKey } : { x: top[0], y: top[1] + H * 0.55 / 2 + 6, sc: 0.55, key: camKey };
+        // a small room under the HUD, or with its desk filling the top corner: the band below its bottom edges
+        const hang = (gx: number, gy: number) => { const p = P(gx, gy); cands.push([p[0], p[1] + hh + 4 * kf, 20]); };
+        hang(R.x + R.w, R.y + R.h);
+        for (let t = 0.25; t <= Math.max(R.w, R.h); t += 0.25) {
+          if (t <= R.h) hang(R.x + R.w, R.y + R.h - t);
+          if (t <= R.w) hang(R.x + R.w - t, R.y + R.h);
+        }
+        let best: { x: number; y: number; score: number } | null = null;
+        cands.forEach(([x, y, pen], i) => {
+          const b = box(x, y);
+          const belts = beltPts.filter((p) => p[0] > b.x0 && p[0] < b.x1 && p[1] > b.y0 && p[1] < b.y1).length;
+          // never under the HUD, never on its own desk or gate, then clear of machines and belts, then near the top corner
+          const score = hit(b) * 1000 + belts * 40 + (visible(b.x0, b.y0, b.x1, b.y1) ? 0 : 1e6) + i / 8 + pen;
+          if (!best || score < best.score) best = { x, y, score };
+        });
+        const b0 = best as { x: number; y: number } | null;
+        spot = { x: b0?.x ?? cands[0]![0], y: b0?.y ?? cands[0]![1], key: camKey };
         this.headSpot.set(r.id, spot);
       }
-      inG.setAttribute('transform', `translate(${f1(spot.x)},${f1(spot.y)}) scale(${spot.sc})`);
+      placed.push(box(spot.x, spot.y));
+      el.setAttribute('transform', `translate(${f1(spot.x)},${f1(spot.y)})`);
     }
   }
 
@@ -1133,6 +1158,33 @@ class Floor {
     return pg?.kind ?? 'eq';
   }
 
+  /** An output port (not of machine `skip`) whose hit point lies within reach of a CSS-px point. */
+  private outPortNear(x: number, y: number, skip: string, reach = 26): PortGeo | null {
+    if (!this.geo) return null;
+    const cam = this.cam();
+    let best: PortGeo | null = null, bd = reach;
+    for (const pg of this.geo.ports) {
+      if (pg.port.dir !== 'out' || pg.m === skip) continue;
+      const pts = [P(pg.edge[0], pg.edge[1]), P(pg.out[0], pg.out[1])].map((q) => toScreen(cam, this.view, q));
+      const d = Math.min(...pts.map((q) => Math.hypot(q[0] - x, q[1] - y)));
+      if (d < bd) { bd = d; best = pg; }
+    }
+    return best;
+  }
+  /** An input port of another machine within reach of a CSS-px point (its edge or doorstep point). */
+  private inPortNear(x: number, y: number, skip: string, reach = 22): PortGeo | null {
+    if (!this.geo) return null;
+    const cam = this.cam();
+    let best: PortGeo | null = null, bd = reach;
+    for (const pg of this.geo.ports) {
+      if (pg.port.dir !== 'in' || pg.m === skip) continue;
+      const pts = [P(pg.edge[0], pg.edge[1]), P(pg.out[0], pg.out[1])].map((q) => toScreen(cam, this.view, q));
+      const d = Math.min(...pts.map((q) => Math.hypot(q[0] - x, q[1] - y)));
+      if (d < bd) { bd = d; best = pg; }
+    }
+    return best;
+  }
+
   private findSnap(kind: ItemKind, from: Endpoint): Snap | null {
     const geo = this.geo; if (!geo) return null;
     const cam = this.cam();
@@ -1198,6 +1250,14 @@ class Floor {
       const end = portTileOut(snap.pg.port);
       if (g.extendOf !== undefined) {
         path = this.chain(start, g.via, end);
+      } else if (g.branchOf === undefined && !g.via.length && this.s.canvas.machines.find((m) => m.id === snap.m)?.kind === 'socket') {
+        // a dock's four inlets are one target: preview what the editor commits (it picks the inlet with the shortest
+        // route), never the long way round to the inlet under the pointer (verify-fixround: P4.9, P10.2 ∀ → dock)
+        const e = safe(() => F.connect(this.s.canvas, g.from, { m: snap.m, port: snap.port }, this.s.ctx), null);
+        const nb = e?.ok ? e.canvas.belts.find((b) => !this.s.canvas.belts.some((x) => x.id === b.id) && b.from.m === g.from.m && b.to?.m === snap.m) : undefined;
+        if (nb) { path = nb.path; real = false; }
+        else if (e && !e.ok) { path = null; why = { reason: e.reason, blockers: e.blockers ?? [] }; }
+        else path = this.chain(start, g.via, end);
       } else if (g.branchOf === undefined) {
         const r = tryRouteOrWhy(this.s.canvas, g.from, { m: snap.m, port: snap.port }, this.s.ctx, g.via);
         if (r === undefined) path = this.chain(start, g.via, end);
@@ -1490,7 +1550,7 @@ class Floor {
       const phrase = live === 'working' ? 'Working' : live === 'blocked' ? 'Output full' : live === 'jammed' ? 'Jammed' : live === 'starved' ? 'Waiting' : st?.k === 'ok' ? 'Ready' : '';
       // say only what the player can act on: jams, and waits that aren't just an empty port (the port shows that)
       const quietWait = (r: string) => /^(not connected|waiting)/i.test(r);
-      const reason = st?.k === 'jammed' ? st.reason : st?.k === 'starved' && !quietWait(st.reason) ? st.reason : live === 'blocked' ? 'Connect its output.' : '';
+      const reason = st?.k === 'jammed' ? st.reason : st?.k === 'starved' && !quietWait(st.reason) ? st.reason : live === 'blocked' && !this.s.canvas.belts.some((b) => b.from.m === g.m.id) ? 'Connect its output.' : ''; // only an output with no belt at all
       return `<div class="fl-tip-h">${capsHTML(name)}${phrase ? ` <span class="fl-tip-st is-${live ?? 'ok'}">${phrase}</span>` : ''}</div>` +
         (reason ? `<div class="fl-tip-why${st?.k === 'jammed' ? ' is-jam' : ''}">${richHTML(reason, this.s.level)}</div>` : '') +
         (out ? `<div class="fl-tip-row"><span class="fl-tip-k">makes</span><span class="math">${this.valueHTML(out)}</span></div>` : '') +
@@ -1596,7 +1656,15 @@ class Floor {
     on('pointerdown', (e) => this.down(e));
     on('pointermove', (e) => this.move(e));
     on('pointerup', (e) => this.up(e));
-    on('pointercancel', () => { this.g = { k: 'none' }; this.clearPreview(); });
+    on('pointercancel', () => { this.g = { k: 'none' }; this.root.classList.remove('is-belting', 'is-moving', 'is-panning'); this.clearPreview(); });
+    // round 2 (P4.1): a drag whose release never reaches the floor (the ceremony opened over it mid-drag) must not leave
+    // its ghost belt trailing the pointer: losing the pointer ends the gesture (a click-click belt waits on purpose)
+    on('lostpointercapture', () => {
+      const g0 = this.g;
+      if (g0.k === 'none' || g0.k === 'press' || (g0.k === 'belt' && g0.click)) return;
+      // deferred: a normal release ends the gesture itself first (this.g changes); only an orphaned one is cancelled
+      setTimeout(() => { if (this.g !== g0) return; if (!this.cancel()) this.g = { k: 'none' }; this.root.classList.remove('is-panning', 'is-belting', 'is-moving'); }, 0);
+    });
     on('pointerleave', () => { this.pointer.inside = false; if (this.g.k === 'none') { this.setHoverFrom({ k: 'floor' }); this.updateGhost(); } this.updateTip(); });
     on('pointerenter', () => { this.pointer.inside = true; });
     on('contextmenu', (e) => { e.preventDefault(); });
@@ -1734,6 +1802,16 @@ class Floor {
         return;
       }
       case 'belt': { this.setHoverFrom(this.targetOf(e)); this.updateBeltGesture(); this.updateGhost(); return; }
+      case 'rbelt': {
+        const pg = this.geo?.ports.find((q) => q.m === g.to.m && q.port.id === g.to.port);
+        if (pg) {
+          const a = P(pg.edge[0], pg.edge[1]), b = toWorld(this.cam(), this.view, p.x, p.y);
+          const near = this.outPortNear(p.x, p.y, g.to.m);
+          const c = near ? P(near.edge[0], near.edge[1]) : b;
+          this.L.ghost!.innerHTML = `<line x1="${f1(a[0])}" y1="${f1(a[1])}" x2="${f1(c[0])}" y2="${f1(c[1])}" stroke="${INK.navy}" stroke-width="2.4" stroke-dasharray="5 4" stroke-linecap="round" opacity=".55"/>`;
+        }
+        return;
+      }
       case 'room': {
         const t = this.pointerTile();
         const was = this.roomDrag(g).rect;
@@ -1775,7 +1853,11 @@ class Floor {
     if (t.k === 'port') {
       const pg = this.geo?.ports.find((p) => p.m === t.m && p.port.id === t.port);
       if (pg?.port.dir === 'out') { this.startBelt({ m: t.m, port: t.port }, undefined, false); this.updateBeltGesture(); this.updateGhost(); return; }
-      // dragging an input port: treat as machine
+      // an input whose doorstep another machine's output shares: the press meant that output
+      const over = pg ? this.outPortNear(g.x, g.y, pg.m) : null;
+      if (over) { this.startBelt({ m: over.m, port: over.port.id }, undefined, false); this.updateBeltGesture(); this.updateGhost(); return; }
+      // dragging an input: a belt drawn the other way round, laid output → input on release
+      if (pg) { this.g = { k: 'rbelt', to: { m: t.m, port: t.port } }; this.root.classList.add('is-belting'); return; }
     }
     if (t.k === 'belt') {
       const bg = this.geo?.bs.get(t.id);
@@ -1843,6 +1925,16 @@ class Floor {
         this.g = { k: 'none' };
         this.clearPreview();
         if (g.delta.x || g.delta.y) this.timed('move', e, () => this.store.move(g.ids, g.delta));
+        return;
+      }
+      case 'rbelt': {
+        this.g = { k: 'none' }; this.root.classList.remove('is-belting'); this.clearPreview();
+        const near = this.outPortNear(p.x, p.y, g.to.m);
+        if (!near) { this.say('A belt runs from an output to an input: drop this input on an output.'); return; }
+        const from = { m: near.m, port: near.port.id };
+        const dup = duplicateBelt(this.s.canvas, from, g.to);
+        if (dup) { this.elByB.get(dup.id)?.animate?.([{ opacity: 0.35 }, { opacity: 1 }], { duration: 420, easing: 'ease-out' }); return; }
+        this.timed('connect', e, () => this.store.connect(from, g.to));
         return;
       }
       case 'belt': {
@@ -1958,6 +2050,16 @@ class Floor {
     if (t.k === 'port') {
       const tp = t;
       const pg = this.geo?.ports.find((x) => x.m === tp.m && x.port.id === tp.port);
+      // an output beside another machine's input (a drag between them never leaves the press radius): the click is
+      // the whole belt — never a click-click belt whose ghost then trails the pointer round the floor (round 2, P4.1)
+      const near = pg?.port.dir === 'out' ? this.inPortNear(this.pointer.x, this.pointer.y, tp.m) : null;
+      if (pg && near) {
+        const from = { m: tp.m, port: tp.port }, to = { m: near.m, port: near.port.id };
+        const dup = duplicateBelt(this.s.canvas, from, to);
+        if (dup) this.elByB.get(dup.id)?.animate?.([{ opacity: 0.35 }, { opacity: 1 }], { duration: 420, easing: 'ease-out' });
+        else this.timed('connect', e, () => this.store.connect(from, to));
+        return;
+      }
       if (pg?.port.dir === 'out') { this.startBelt({ m: tp.m, port: tp.port }, undefined, true); this.updateBeltGesture(); this.updateGhost(); return; }
       t = { k: 'machine', id: tp.m };
     }
@@ -2002,7 +2104,7 @@ class Floor {
 
   /** Cancel the current gesture; with tool = true (right-click) also disarm a placing tool. */
   private cancel(tool = false) {
-    if (this.g.k === 'belt' || this.g.k === 'room' || this.g.k === 'move' || this.g.k === 'resize') {
+    if (this.g.k === 'belt' || this.g.k === 'rbelt' || this.g.k === 'room' || this.g.k === 'move' || this.g.k === 'resize') {
       this.g = { k: 'none' }; this.root.classList.remove('is-belting', 'is-moving'); this.clearPreview(); this.renderHandles(); return true;
     }
     if (tool && this.s.ui.tool.k !== 'select') { this.store.setTool({ k: 'select' }); this.clearPreview(); return true; }

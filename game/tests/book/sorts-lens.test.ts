@@ -185,3 +185,30 @@ it('N6: on a "∀G, K, f" level a new element Tower starts in the Hom Tower\'s d
   expect((F.defaultConfig('tower', ctx, { canvas } as never) as { carrier?: string }).carrier).toBe('G1');
   expect((F.defaultConfig('tower', ctx) as { carrier?: string }).carrier).toBeUndefined();
 });
+
+describe('verify-fixround: Tower ids and name chips', () => {
+  it('#1: group and Hom Towers take fresh ids, so an element x is never read as f₁', async () => {
+    const { freshStructId } = await import('../../src/ui/sorts');
+    const { labelsAll } = await import('../../src/hud/util');
+    expect(freshStructId('hom', ['x', 'y'])).toBe('hom1');
+    expect(freshStructId('grp', ['grp1', 'hom1'])).toBe('grp2');
+    const tower = (id: string, config: object) => ({ id, kind: 'tower', at: { x: 0, y: 0 }, rot: 0, config: { kind: 'tower', sort: 'G', ...config } });
+    const level = LEVEL_BY_ID['P14.1']!;
+    const machines = [tower('a', { varId: 'grp1', label: 'G₁', group: true }), tower('b', { varId: 'grp2', label: 'K₁', group: true }),
+      tower('c', { varId: freshStructId('hom', ['x', 'grp1', 'grp2']), label: 'f₁', hom: { dom: 'grp1', cod: 'grp2' } }),
+      tower('d', { varId: 'x', label: 'x', carrier: 'grp1' }), tower('e', { varId: 'y', label: 'y', carrier: 'grp1' })];
+    const s = { level, ctx: ctxFor(level, [], []), canvas: { machines, belts: [], rooms: [] }, compiled: null } as unknown as S;
+    const L = labelsAll(s);
+    expect([L.x, L.y, L.grp1, L.grp2, L.hom1]).toEqual(['x', 'y', 'G₁', 'K₁', 'f₁']);
+  });
+  it('#2: an element Tower offers the docks\' own letters first', async () => {
+    const { towerLetters } = await import('../../src/ui/sorts');
+    expect(towerLetters(LEVEL_BY_ID['P16.1']!, 'grp1', false)).toEqual(['a', 'b', 'x', 'y']); // a, b over the card's own group
+    const p162 = LEVEL_BY_ID['P16.2']!.sockets[0]!.target as { metas: string[] };
+    expect(p162.metas).toEqual(['a', 'b']);
+    expect(towerLetters(LEVEL_BY_ID['P16.2']!, 'G', false)).toEqual(['a', 'b', 'x', 'y']);
+    expect(towerLetters(LEVEL_BY_ID['P6.3']!, 'C', true)[0]).toBe('z');
+    expect(towerLetters(LEVEL_BY_ID['P6.1']!, 'A', true)).toEqual(['x', 'y', 'u', 'v']);
+    expect(towerLetters(LEVEL_BY_ID['P4.4']!, undefined, false)[0]).toBe('x');
+  });
+});

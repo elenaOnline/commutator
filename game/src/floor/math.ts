@@ -2,7 +2,7 @@
 // order chip (shell/util.ts typeset): runs of ≥ 2 compress to powers (a², (ab)⁵), so the dock, the inlet
 // and the chip always print one statement the same way. HTML (tooltips) uses shell/util fH directly.
 import type { Fact, PatFact, Poly, Term } from '../kernel/types';
-import { fH, tH } from '../shell/util';
+import { fH, tH } from '../hud/util'; // the HUD's typesetter: actions read (αβ)(p), identities carry their group (e_K)
 import { cardAliases, eAliases, eTag, isActionApp, metaCarriers } from '../ui/sorts';
 
 export type Labels = Record<string, string>;

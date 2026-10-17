@@ -196,15 +196,24 @@ const APPROACH = 30;
  * tile beyond it. The band (half a screen-length plus a tile and a half) admits a Z — one zig, two turns — never the
  * wide L; turn costs then keep the fewest turns inside the band.
  */
-const CORRIDOR = 4;
+const CORRIDOR = 8;
 /** Router weights, exported so a test can compare against the plain shortest route (0 = off). */
-export const ROUTE_TUNING = { corridor: CORRIDOR, label: 30 };
+export const ROUTE_TUNING = { corridor: CORRIDOR, label: 30, band: 0.55 };
 /** Screen coordinates of a grid point in tile-width units (board/geom P(gx, gy) divided by TW/2 = 42 px). */
 const scr = (x: number, y: number): [number, number] => [x - y, (x + y) / 2];
+/**
+ * The band's half-width. An L's corner strays half the screen length from a vertical line but only a quarter from a
+ * horizontal one, and either way a Z halves it: so the band is wide for a vertical run (a Z fits, never an L) and
+ * narrow for a horizontal one (verify-fixround P10.2: ∀ → dock as a deep V under both docks).
+ */
+function bandOf(dx: number, dy: number, L2: number): number {
+  const len = Math.sqrt(L2);
+  return 1 + len * (ROUTE_TUNING.band - 0.45 + 0.45 * (len ? Math.abs(dy) / len : 1));
+}
 function corridorCost(a: Tile, z: Tile): (t: Tile) => number {
   const [ax, ay] = scr(a.x + 0.5, a.y + 0.5), [zx, zy] = scr(z.x + 0.5, z.y + 0.5);
   const dx = zx - ax, dy = zy - ay, L2 = dx * dx + dy * dy;
-  const band = 1.5 + 0.55 * Math.sqrt(L2);
+  const band = bandOf(dx, dy, L2);
   return (t) => {
     const [px, py] = scr(t.x + 0.5, t.y + 0.5);
     const u = L2 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / L2)) : 0;
@@ -217,7 +226,7 @@ export function corridorExcess(a: Tile, z: Tile, t: Tile): number {
   const [ax, ay] = scr(a.x + 0.5, a.y + 0.5), [zx, zy] = scr(z.x + 0.5, z.y + 0.5), [px, py] = scr(t.x + 0.5, t.y + 0.5);
   const dx = zx - ax, dy = zy - ay, L2 = dx * dx + dy * dy;
   const u = L2 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / L2)) : 0;
-  return Math.max(0, Math.hypot(px - ax - u * dx, py - ay - u * dy) - (1.5 + 0.55 * Math.sqrt(L2)));
+  return Math.max(0, Math.hypot(px - ax - u * dx, py - ay - u * dy) - bandOf(dx, dy, L2));
 }
 
 /**
@@ -906,7 +915,26 @@ function routeWhy(B: BeltCtx, belts: Belt[], from: Endpoint, to: Endpoint, via: 
   if (across) return { path: across };
 
   // No route. Find the fewest things in the way: belts are cheaper to blame than machines.
-  const relaxed = search({ belt: 400, machine: 4000, doors: true }, new Set());
+  /** What walls a port's doorstep (and its side cells): other machines, other belts' ends and turns, the room wall. */
+  const boxedIn = (p: Port): { port: string; names: string[]; ids: string[] } | null => {
+    const end = p === toP ? toM : fromM;
+    const door = frontOf(p);
+    const names: string[] = [], ids: string[] = [];
+    const add = (n: string, id: string) => { if (!names.includes(n)) { names.push(n); ids.push(id); } };
+    const cells = [door, ...FACES.map((f) => addTile(door, FACE_DELTA[f]))];
+    for (const t of cells) {
+      const k = tileKey(t);
+      if (tileEq(t, p.tile)) continue;
+      const o = occ.get(k);
+      if (o !== undefined) { if (o !== end.id) { const m = c.machines.find((x) => x.id === o)!; add(who(m, ctx), o); } continue; }
+      if (sc.ok && !sc.allow(t)) { const r = roomOfMachine(c, end, ctx); add('the room wall', r?.id ?? end.id); continue; }
+      const os = layer.others(t, net).filter((x) => x.mode === 'X');
+      if (os.length) { const b = live.find((x) => x.id === os[0]!.belts[0])!; add(beltName(c, b, ctx), b.id); continue; }
+    }
+    return names.length ? { port: portName(end, p, ctx), names, ids } : null;
+  };
+  // round 2 (P4.10): blame belts when moving belts alone would open a route — machines only when nothing else would
+  const relaxed = search({ belt: 400, machine: null, doors: true }, new Set()) ?? search({ belt: 400, machine: 4000, doors: true }, new Set());
   if (relaxed) {
     const beltIds: string[] = [];
     const machineIds: string[] = [];
@@ -934,7 +962,14 @@ function routeWhy(B: BeltCtx, belts: Belt[], from: Endpoint, to: Endpoint, via: 
         return i === 0 || !n.startsWith('the ') ? n : `${ORD[Math.min(i - 1, ORD.length - 1)]} ${n.slice(4)}`;
       };
       const fromName = say(fromM), toName = say(toM);
-      const walls = [...new Set(machineIds)].slice(0, 3).map((id) => say(c.machines.find((x) => x.id === id)!));
+      // the two ends are named as the ends, never as their own wall ("another routed Rewriter" was the target itself)
+      const wallIds = [...new Set(machineIds)].filter((id) => id !== fromM.id && id !== toM.id);
+      if (!wallIds.length) {
+        // only the ends themselves stand in the way: a doorstep is boxed in — say by what (round 2, P4.10)
+        const box = boxedIn(toP) ?? boxedIn(fromP);
+        if (box) return why(`no route: ${box.port} is boxed in by ${box.names.length > 1 ? `${box.names.slice(0, -1).join(', ')} and ${box.names.at(-1)}` : box.names[0]} — move one of them a tile.`, box.ids);
+      }
+      const walls = (wallIds.length ? wallIds : [...new Set(machineIds)]).slice(0, 3).map((id) => say(c.machines.find((x) => x.id === id)!));
       const list = walls.length > 2 ? `${walls.slice(0, -1).join(', ')} and ${walls.at(-1)}` : walls.join(' and ');
       return why(`no route: ${list} wall${walls.length > 1 ? '' : 's'} ${fromName} off from ${toName} — leave a gap or move one.`, [...machineIds, ...beltIds]);
     }
@@ -949,11 +984,12 @@ function routeWhy(B: BeltCtx, belts: Belt[], from: Endpoint, to: Endpoint, via: 
   if (soft) return attempt(true); // negotiation weighs the side approaches too
   const first = attempt(false);
   if (isWhy(first)) return attempt(true);
-  // a doorstep reached only the long way round (half again the Manhattan distance): try the ports’ sides too
+  // a doorstep reached the long way round (a hairpin round the machine): try the ports’ sides too
   const man = Math.abs(frontOf(fromP).x - frontOf(toP).x) + Math.abs(frontOf(fromP).y - frontOf(toP).y) + 1;
-  if (!via.length && !leaveAt && first.path.length > 1.5 * man + 4) {
+  const manPorts = Math.abs(fromP.tile.x - toP.tile.x) + Math.abs(fromP.tile.y - toP.tile.y);
+  if (!via.length && !leaveAt && (first.path.length > man + 2 || first.path.length > manPorts + 1)) {
     const second = attempt(true);
-    if (!isWhy(second) && second.path.length < first.path.length) return second;
+    if (!isWhy(second) && second.path.length <= first.path.length - 2) return second;
   }
   return first;
 }
@@ -1525,7 +1561,68 @@ export function connect(c: Canvas, from: Endpoint, to: Endpoint, ctx: KernelCtx,
 }
 
 /** Shared by connect / branchAt: replace the old feed, route (with one round of rip-up), retry broken belts. */
-function addBelt(c: Canvas, from: Endpoint, to: Endpoint, ctx: KernelCtx, o: { path?: Tile[]; leaveAt?: Tile }): Edit {
+/**
+ * Verify-fixround (P4.9): a room's Exit Gate sits mid-wall, and a player's last machine often ends ON that wall, its
+ * output facing out — the only route then runs round the whole room, and seals the room's other belts. The gate is
+ * the room's own fitting and slides along its wall: when the belt into it would be long (or impossible), try the
+ * wall cells near the source and take the spot with the shortest belts, provided the gate's own belts still route.
+ */
+function slideGate(c: Canvas, from: Endpoint, to: Endpoint, ctx: KernelCtx): Canvas | null {
+  const gate = c.machines.find((m) => m.id === to.m);
+  if (!gate || gate.config.kind !== 'gate') return null;
+  const gr = gate.config.room;
+  const room = c.rooms.find((r) => r.id === gr);
+  const fromM = c.machines.find((m) => m.id === from.m);
+  const fromP = fromM && portsOf(fromM, ctx).find((p) => p.id === from.port);
+  if (!room || !fromM || !fromP) return null;
+  const others = c.belts.filter((b) => !feeds(b, to));
+  const lenOf = (cv: Canvas): number | null => {
+    const r = routeWhy(beltCtx(cv, ctx), cv.belts.filter((b) => !feeds(b, to)), from, to);
+    if (isWhy(r)) return null;
+    const own = cv.belts.filter((b) => b.from.m === gate.id || (b.to?.m === gate.id && !feeds(b, to)));
+    if (own.some((b) => b.broken)) return null;
+    return r.path.length + own.reduce((n, b) => n + b.path.length, 0);
+  };
+  const base = lenOf({ ...c, belts: others });
+  const fp = frontOf(fromP);
+  const man = Math.abs(fp.x - frontOf(portsOf(gate, ctx)[0]!).x) + Math.abs(fp.y - frontOf(portsOf(gate, ctx)[0]!).y) + 1;
+  if (base !== null && base <= 1.5 * man + 4 + c.belts.filter((b) => b.from.m === gate.id).reduce((n, b) => n + b.path.length, 0)) return null;
+  const R = room.rect;
+  const rots = (t: Tile): Rot[] => [t.x === R.x + R.w - 1 ? 0 : -1, t.y === R.y + R.h - 1 ? 1 : -1, t.y === R.y ? 3 : -1, t.x === R.x ? 2 : -1].filter((r) => r >= 0) as Rot[];
+  let best: { cv: Canvas; len: number; score: number } | null = null;
+  const out0 = addTile(gate.at, FACE_DELTA[FACES[gate.rot]!]);
+  for (let x = R.x; x < R.x + R.w; x++) for (let y = R.y; y < R.y + R.h; y++) {
+    const t = { x, y };
+    if (!onRing(t, R) || Math.max(Math.abs(x - fromP.tile.x), Math.abs(y - fromP.tile.y)) > 3) continue;
+    for (const rot of rots(t)) {
+      if (tileEq(t, gate.at) && rot === gate.rot) continue;
+      const g2: Machine = { ...gate, at: t, rot };
+      if (fitReason(c, [g2], ctx, new Set([gate.id]))) continue;
+      const out = addTile(t, FACE_DELTA[FACES[rot]!]);
+      if (occupancy(c.machines, ctx, new Set([gate.id])).has(tileKey(out))) continue;
+      if (c.rooms.some((r) => r.id !== room.id && inRect(out, r.rect) && !rectInside(R, r.rect))) continue;
+      const moved = { ...c, machines: c.machines.map((m) => (m.id === gate.id ? g2 : m)), belts: others };
+      const s = settle(moved, ctx, attached(moved, new Set([gate.id])));
+      const len = lenOf(s.canvas);
+      if (len === null || s.broken.length) continue;
+      // ties: the spot whose output stays nearest where it was (the belts downstream barely move)
+      const score = len * 10 + Math.abs(out.x - out0.x) + Math.abs(out.y - out0.y);
+      if (!best || score < best.score) best = { cv: s.canvas, len, score };
+    }
+  }
+  if (!best || (base !== null && best.len >= base - 3)) return null;
+  // keep the original feed (if any) for addBelt to replace as usual
+  return { ...best.cv, belts: [...best.cv.belts, ...c.belts.filter((b) => feeds(b, to))] };
+}
+
+function addBelt(c: Canvas, from: Endpoint, to: Endpoint, ctx: KernelCtx, o: { path?: Tile[]; leaveAt?: Tile; slid?: boolean }): Edit {
+  if (o.path === undefined && !o.slid && !o.leaveAt) {
+    const slid = slideGate(c, from, to, ctx);
+    if (slid) {
+      const r = addBelt(slid, from, to, ctx, { ...o, slid: true });
+      return r.ok ? { ...r, note: ['Slid the Exit Gate along its wall to meet the belt.', r.note].filter(Boolean).join(' ') } : r;
+    }
+  }
   // W10–14 #7: a dock's four inlets are interchangeable — take the free one with the shortest route, so a machine
   // beside the dock never belts round it to the far inlet
   if (o.path === undefined) {
@@ -1552,6 +1649,7 @@ function addBelt(c: Canvas, from: Endpoint, to: Endpoint, ctx: KernelCtx, o: { p
   const feeding = c.belts.filter((b) => feeds(b, to));
   const replaced = feeding.filter((b) => !b.broken && !sameEnd(b.from, from));
   if (feeding.some((b) => !b.broken && sameEnd(b.from, from))) return no('That belt is already there.', feeding.map((b) => b.id));
+
   const base: Canvas = { ...c, belts: c.belts.filter((b) => !feeding.includes(b)) };
   const B = beltCtx(base, ctx);
   const ends = resolveEnds(base, from, to, ctx);

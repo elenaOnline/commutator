@@ -1,0 +1,1429 @@
+{
+ "P4.1": {
+  "level": "P4.1",
+  "rooms": [],
+  "steps": [
+   {
+    "place": {
+     "kind": "spool",
+     "at": {
+      "x": 4,
+      "y": 6
+     },
+     "rot": 0,
+     "config": {
+      "kind": "spool",
+      "t": {
+       "k": "knob",
+       "term": {
+        "k": "atom",
+        "id": "c"
+       }
+      }
+     }
+    },
+    "as": "spool1"
+   },
+   {
+    "place": {
+     "kind": "rewriter",
+     "at": {
+      "x": 7,
+      "y": 6
+     },
+     "rot": 0,
+     "config": {
+      "kind": "rewriter",
+      "recipe": {
+       "k": "law",
+       "ref": {
+        "k": "given",
+        "givenId": "h2"
+       }
+      },
+      "dir": "rev",
+      "target": {
+       "k": "first"
+      },
+      "gap": {
+       "k": "pin",
+       "side": "r",
+       "neighbours": {
+        "left": [
+         {
+          "k": "atom",
+          "id": "c"
+         }
+        ],
+        "right": [],
+        "leftEdge": false,
+        "rightEdge": true
+       },
+       "ancestors": [],
+       "last": {
+        "side": "r",
+        "path": [],
+        "gap": 1
+       }
+      },
+      "values": {},
+      "tidy": true
+     }
+    },
+    "as": "rewriter1"
+   },
+   {
+    "wire": [
+     "spool1",
+     "rewriter1",
+     "q"
+    ]
+   },
+   {
+    "place": {
+     "kind": "rewriter",
+     "at": {
+      "x": 10,
+      "y": 6
+     },
+     "rot": 0,
+     "config": {
+      "kind": "rewriter",
+      "recipe": {
+       "k": "law",
+       "ref": {
+        "k": "given",
+        "givenId": "h1"
+       }
+      },
+      "dir": "fwd",
+      "target": {
+       "k": "first"
+      },
+      "gap": {
+       "k": "first"
+      },
+      "values": {},
+      "tidy": true
+     }
+    },
+    "as": "rewriter2"
+   },
+   {
+    "wire": [
+     "rewriter1",
+     "rewriter2",
+     "q"
+    ]
+   },
+   {
+    "wire": [
+     "rewriter2",
+     "socket:t",
+     "q"
+    ]
+   },
+   {
+    "place": {
+     "kind": "spool",
+     "at": {
+      "x": 4,
+      "y": 1
+     },
+     "rot": 0,
+     "config": {
+      "kind": "spool",
+      "t": {
+       "k": "knob",
+       "term": {
+        "k": "mul",
+        "fs": [
+         {
+          "k": "atom",
+          "id": "e1"
+         },
+         {
+          "k": "e"
+         }
+        ]
+       }
+      }
+     }
+    },
+    "as": "spool2"
+   },
+   {
+    "place": {
+     "kind": "rewriter",
+     "at": {
+      "x": 7,
+      "y": 0
+     },
+     "rot": 0,
+     "config": {
+      "kind": "rewriter",
+      "recipe": {
+       "k": "law",
+       "ref": {
+        "k": "given",
+        "givenId": "H"
+       }
+      },
+      "dir": "fwd",
+      "target": {
+       "k": "first"
+      },
+      "gap": {
+       "k": "first"
+      },
+      "values": {},
+      "tidy": true
+     }
+    },
+    "as": "rewriter3"
+   },
+   {
+    "place": {
+     "kind": "rewriter",
+     "at": {
+      "x": 7,
+      "y": 3
+     },
+     "rot": 0,
+     "config": {
+      "kind": "rewriter",
+      "recipe": {
+       "k": "pop"
+      },
+      "dir": "fwd",
+      "target": {
+       "k": "first"
+      },
+      "gap": {
+       "k": "first"
+      },
+      "values": {},
+      "tidy": true
+     }
+    },
+    "as": "rewriter4"
+   },
+   {
+    "wire": [
+     "spool2",
+     "rewriter3",
+     "q"
+    ]
+   },
+   {
+    "wire": [
+     "spool2",
+     "rewriter4",
+     "q"
+    ]
+   },
+   {
+    "place": {
+     "kind": "joiner",
+     "at": {
+      "x": 10,
+      "y": 1
+     },
+     "rot": 0,
+     "config": {
+      "kind": "joiner",
+      "recipe": {
+       "k": "chain"
+      }
+     }
+    },
+    "as": "joiner1"
+   },
+   {
+    "wire": [
+     "rewriter3",
+     "joiner1",
+     "a"
+    ]
+   },
+   {
+    "wire": [
+     "rewriter4",
+     "joiner1",
+     "b"
+    ]
+   },
+   {
+    "wire": [
+     "joiner1",
+     "socket:s",
+     "q"
+    ]
+   }
+  ]
+ },
+ "P4.9": {
+  "level": "P4.9",
+  "rooms": [
+   {
+    "kind": "assume",
+    "l": {
+     "k": "mul",
+     "fs": [
+      {
+       "k": "atom",
+       "id": "x"
+      },
+      {
+       "k": "atom",
+       "id": "y"
+      }
+     ]
+    },
+    "r": {
+     "k": "mul",
+     "fs": [
+      {
+       "k": "atom",
+       "id": "y"
+      },
+      {
+       "k": "atom",
+       "id": "x"
+      }
+     ]
+    },
+    "rect": {
+     "x": 0,
+     "y": -1,
+     "w": 9,
+     "h": 4
+    },
+    "rel": "eq"
+   },
+   {
+    "kind": "assume",
+    "l": {
+     "k": "mul",
+     "fs": [
+      {
+       "k": "atom",
+       "id": "x"
+      },
+      {
+       "k": "atom",
+       "id": "y"
+      },
+      {
+       "k": "inv",
+       "arg": {
+        "k": "atom",
+        "id": "x"
+       }
+      },
+      {
+       "k": "inv",
+       "arg": {
+        "k": "atom",
+        "id": "y"
+       }
+      }
+     ]
+    },
+    "r": {
+     "k": "e"
+    },
+    "rect": {
+     "x": 7,
+     "y": -9,
+     "w": 9,
+     "h": 4
+    },
+    "rel": "eq"
+   }
+  ],
+  "steps": [
+   {
+    "place": {
+     "kind": "tower",
+     "at": {
+      "x": 11,
+      "y": 11
+     },
+     "rot": 0,
+     "config": {
+      "kind": "tower",
+      "varId": "x",
+      "label": "x",
+      "sort": "G"
+     }
+    },
+    "as": "tower1"
+   },
+   {
+    "place": {
+     "kind": "tower",
+     "at": {
+      "x": 12,
+      "y": 11
+     },
+     "rot": 0,
+     "config": {
+      "kind": "tower",
+      "varId": "y",
+      "label": "y",
+      "sort": "G"
+     }
+    },
+    "as": "tower2"
+   },
+   {
+    "room": 0
+   },
+   {
+    "room": 1
+   },
+   {
+    "place": {
+     "kind": "spool",
+     "at": {
+      "x": 1,
+      "y": 1
+     },
+     "rot": 0,
+     "config": {
+      "kind": "spool",
+      "t": {
+       "k": "knob",
+       "term": {
+        "k": "mul",
+        "fs": [
+         {
+          "k": "atom",
+          "id": "x"
+         },
+         {
+          "k": "atom",
+          "id": "y"
+         },
+         {
+          "k": "inv",
+          "arg": {
+           "k": "atom",
+           "id": "x"
+          }
+         },
+         {
+          "k": "inv",
+          "arg": {
+           "k": "atom",
+           "id": "y"
+          }
+         }
+        ]
+       }
+      }
+     }
+    },
+    "as": "spool1"
+   },
+   {
+    "place": {
+     "kind": "rewriter",
+     "at": {
+      "x": 3,
+      "y": 1
+     },
+     "rot": 0,
+     "config": {
+      "kind": "rewriter",
+      "recipe": {
+       "k": "routed"
+      },
+      "dir": "fwd",
+      "target": {
+       "k": "first"
+      },
+      "gap": {
+       "k": "first"
+      },
+      "values": {},
+      "tidy": true
+     }
+    },
+    "as": "rewriter1"
+   },
+   {
+    "place": {
+     "kind": "rewriter",
+     "at": {
+      "x": 5,
+      "y": 1
+     },
+     "rot": 0,
+     "config": {
+      "kind": "rewriter",
+      "recipe": {
+       "k": "cancel"
+      },
+      "dir": "fwd",
+      "target": {
+       "k": "first"
+      },
+      "gap": {
+       "k": "first"
+      },
+      "values": {},
+      "tidy": true
+     }
+    },
+    "as": "rewriter2"
+   },
+   {
+    "place": {
+     "kind": "rewriter",
+     "at": {
+      "x": 7,
+      "y": 1
+     },
+     "rot": 0,
+     "config": {
+      "kind": "rewriter",
+      "recipe": {
+       "k": "cancel"
+      },
+      "dir": "fwd",
+      "target": {
+       "k": "first"
+      },
+      "gap": {
+       "k": "first"
+      },
+      "values": {},
+      "tidy": true
+     }
+    },
+    "as": "rewriter3"
+   },
+   {
+    "wire": [
+     "spool1",
+     "rewriter1",
+     "q"
+    ]
+   },
+   {
+    "wire": [
+     "desk:room1",
+     "rewriter1",
+     "rule"
+    ]
+   },
+   {
+    "wire": [
+     "rewriter1",
+     "rewriter2",
+     "q"
+    ]
+   },
+   {
+    "wire": [
+     "rewriter2",
+     "rewriter3",
+     "q"
+    ]
+   },
+   {
+    "wire": [
+     "rewriter3",
+     "gate:room1",
+     "q"
+    ]
+   },
+   {
+    "place": {
+     "kind": "forall",
+     "at": {
+      "x": 10,
+      "y": -2
+     },
+     "rot": 0,
+     "config": {
+      "kind": "forall"
+     }
+    },
+    "as": "forall1"
+   },
+   {
+    "wire": [
+     "gate:room1",
+     "forall1",
+     "q"
+    ]
+   },
+   {
+    "wire": [
+     "forall1",
+     "socket:s",
+     "q"
+    ]
+   }
+  ]
+ },
+ "P10.2": {
+  "level": "P10.2",
+  "rooms": [
+   {
+    "kind": "assume",
+    "l": {
+     "k": "pow",
+     "base": {
+      "k": "atom",
+      "id": "x"
+     },
+     "exp": [
+      {
+       "coefficient": "1",
+       "monomial": [
+        {
+         "ref": {
+          "k": "zvar",
+          "id": "z"
+         },
+         "degree": 1
+        }
+       ]
+      }
+     ]
+    },
+    "r": {
+     "k": "e"
+    },
+    "rect": {
+     "x": 4,
+     "y": -3,
+     "w": 5,
+     "h": 3
+    },
+    "rel": "eq"
+   },
+   {
+    "kind": "assume",
+    "l": {
+     "k": "pow",
+     "base": {
+      "k": "mul",
+      "fs": [
+       {
+        "k": "inv",
+        "arg": {
+         "k": "atom",
+         "id": "y"
+        }
+       },
+       {
+        "k": "atom",
+        "id": "x"
+       },
+       {
+        "k": "atom",
+        "id": "y"
+       }
+      ]
+     },
+     "exp": [
+      {
+       "coefficient": "1",
+       "monomial": [
+        {
+         "ref": {
+          "k": "zvar",
+          "id": "z"
+         },
+         "degree": 1
+        }
+       ]
+      }
+     ]
+    },
+    "r": {
+     "k": "e"
+    },
+    "rect": {
+     "x": 9,
+     "y": -7,
+     "w": 5,
+     "h": 3
+    },
+    "rel": "eq"
+   }
+  ],
+  "steps": [
+   {
+    "place": {
+     "kind": "tower",
+     "at": {
+      "x": 11,
+      "y": 12
+     },
+     "rot": 0,
+     "config": {
+      "kind": "tower",
+      "varId": "x",
+      "label": "x",
+      "sort": "G"
+     }
+    },
+    "as": "tower1"
+   },
+   {
+    "place": {
+     "kind": "tower",
+     "at": {
+      "x": 12,
+      "y": 12
+     },
+     "rot": 0,
+     "config": {
+      "kind": "tower",
+      "varId": "y",
+      "label": "y",
+      "sort": "G"
+     }
+    },
+    "as": "tower2"
+   },
+   {
+    "place": {
+     "kind": "tower",
+     "at": {
+      "x": 14,
+      "y": 12
+     },
+     "rot": 0,
+     "config": {
+      "kind": "tower",
+      "varId": "z",
+      "label": "n",
+      "sort": "Z"
+     }
+    },
+    "as": "tower3"
+   },
+   {
+    "room": 0
+   },
+   {
+    "room": 1
+   },
+   {
+    "place": {
+     "kind": "forall",
+     "at": {
+      "x": 8,
+      "y": 1
+     },
+     "rot": 0,
+     "config": {
+      "kind": "forall"
+     }
+    },
+    "as": "forall1"
+   },
+   {
+    "place": {
+     "kind": "forall",
+     "at": {
+      "x": 17,
+      "y": -5
+     },
+     "rot": 0,
+     "config": {
+      "kind": "forall"
+     }
+    },
+    "as": "forall2"
+   },
+   {
+    "wire": [
+     "gate:room1",
+     "forall1",
+     "q"
+    ]
+   },
+   {
+    "wire": [
+     "forall1",
+     "socket:s",
+     "q"
+    ]
+   },
+   {
+    "wire": [
+     "gate:room2",
+     "forall2",
+     "q"
+    ]
+   },
+   {
+    "wire": [
+     "forall2",
+     "socket:t",
+     "q"
+    ]
+   }
+  ]
+ },
+ "P4.12": {
+  "level": "P4.12",
+  "rooms": [
+   {
+    "kind": "suppose",
+    "l": {
+     "k": "mul",
+     "fs": [
+      {
+       "k": "atom",
+       "id": "a"
+      },
+      {
+       "k": "atom",
+       "id": "b"
+      }
+     ]
+    },
+    "r": {
+     "k": "atom",
+     "id": "a"
+    },
+    "rect": {
+     "x": 0,
+     "y": -5,
+     "w": 7,
+     "h": 3
+    }
+   },
+   {
+    "kind": "suppose",
+    "l": {
+     "k": "mul",
+     "fs": [
+      {
+       "k": "atom",
+       "id": "a"
+      },
+      {
+       "k": "atom",
+       "id": "b"
+      }
+     ]
+    },
+    "r": {
+     "k": "atom",
+     "id": "b"
+    },
+    "rect": {
+     "x": 7,
+     "y": -10,
+     "w": 7,
+     "h": 3
+    }
+   },
+   {
+    "kind": "suppose",
+    "l": {
+     "k": "mul",
+     "fs": [
+      {
+       "k": "atom",
+       "id": "a"
+      },
+      {
+       "k": "atom",
+       "id": "b"
+      }
+     ]
+    },
+    "r": {
+     "k": "e"
+    },
+    "rect": {
+     "x": 1,
+     "y": 14,
+     "w": 7,
+     "h": 3
+    }
+   }
+  ],
+  "steps": [
+   {
+    "room": 0
+   },
+   {
+    "room": 1
+   },
+   {
+    "room": 2
+   },
+   {
+    "place": {
+     "kind": "joiner",
+     "at": {
+      "x": 3,
+      "y": -4
+     },
+     "rot": 0,
+     "config": {
+      "kind": "joiner",
+      "recipe": {
+       "k": "clash"
+      }
+     }
+    },
+    "as": "joiner1"
+   },
+   {
+    "place": {
+     "kind": "joiner",
+     "at": {
+      "x": 10,
+      "y": -9
+     },
+     "rot": 0,
+     "config": {
+      "kind": "joiner",
+      "recipe": {
+       "k": "clash"
+      }
+     }
+    },
+    "as": "joiner2"
+   },
+   {
+    "place": {
+     "kind": "joiner",
+     "at": {
+      "x": 4,
+      "y": 15
+     },
+     "rot": 0,
+     "config": {
+      "kind": "joiner",
+      "recipe": {
+       "k": "clash"
+      }
+     }
+    },
+    "as": "joiner3"
+   },
+   {
+    "wire": [
+     "given:nb",
+     "joiner1",
+     "b"
+    ]
+   },
+   {
+    "wire": [
+     "joiner1",
+     "gate:room1",
+     "q"
+    ]
+   },
+   {
+    "wire": [
+     "gate:room1",
+     "socket:s1",
+     "q"
+    ]
+   },
+   {
+    "wire": [
+     "given:na",
+     "joiner2",
+     "b"
+    ]
+   },
+   {
+    "wire": [
+     "joiner2",
+     "gate:room2",
+     "q"
+    ]
+   },
+   {
+    "wire": [
+     "gate:room2",
+     "socket:s2",
+     "q"
+    ]
+   },
+   {
+    "wire": [
+     "given:nab",
+     "joiner3",
+     "b"
+    ]
+   },
+   {
+    "wire": [
+     "joiner3",
+     "gate:room3",
+     "q"
+    ]
+   },
+   {
+    "wire": [
+     "gate:room3",
+     "socket:s3",
+     "q"
+    ]
+   }
+  ]
+ },
+ "P4.10": {
+  "level": "P4.10",
+  "rooms": [
+   {
+    "kind": "assume",
+    "l": {
+     "k": "mul",
+     "fs": [
+      {
+       "k": "atom",
+       "id": "x"
+      },
+      {
+       "k": "atom",
+       "id": "y"
+      }
+     ]
+    },
+    "r": {
+     "k": "e"
+    },
+    "rect": {
+     "x": 0,
+     "y": -2,
+     "w": 9,
+     "h": 4
+    },
+    "rel": "eq"
+   }
+  ],
+  "steps": [
+   {
+    "place": {
+     "kind": "tower",
+     "at": {
+      "x": 6,
+      "y": 15
+     },
+     "rot": 0,
+     "config": {
+      "kind": "tower",
+      "varId": "x",
+      "label": "x",
+      "sort": "G"
+     }
+    },
+    "as": "tower1"
+   },
+   {
+    "place": {
+     "kind": "tower",
+     "at": {
+      "x": 8,
+      "y": 14
+     },
+     "rot": 0,
+     "config": {
+      "kind": "tower",
+      "varId": "y",
+      "label": "y",
+      "sort": "G"
+     }
+    },
+    "as": "tower2"
+   },
+   {
+    "room": 0
+   },
+   {
+    "place": {
+     "kind": "theorem",
+     "at": {
+      "x": 2,
+      "y": 0
+     },
+     "rot": 0,
+     "config": {
+      "kind": "theorem",
+      "recipe": {
+       "k": "library",
+       "ref": {
+        "k": "schema",
+        "id": "witness"
+       }
+      },
+      "choice": 0,
+      "values": {}
+     }
+    },
+    "as": "theorem1"
+   },
+   {
+    "place": {
+     "kind": "spool",
+     "at": {
+      "x": 3,
+      "y": -2
+     },
+     "rot": 0,
+     "config": {
+      "kind": "spool",
+      "t": {
+       "k": "knob",
+       "term": {
+        "k": "mul",
+        "fs": [
+         {
+          "k": "atom",
+          "id": "y"
+         },
+         {
+          "k": "atom",
+          "id": "x"
+         }
+        ]
+       }
+      }
+     }
+    },
+    "as": "spool1"
+   },
+   {
+    "place": {
+     "kind": "rewriter",
+     "at": {
+      "x": 5,
+      "y": -1
+     },
+     "rot": 0,
+     "config": {
+      "kind": "rewriter",
+      "recipe": {
+       "k": "routed"
+      },
+      "dir": "fwd",
+      "target": {
+       "k": "first"
+      },
+      "gap": {
+       "k": "first"
+      },
+      "values": {},
+      "tidy": true
+     }
+    },
+    "as": "rewriter1"
+   },
+   {
+    "place": {
+     "kind": "rewriter",
+     "at": {
+      "x": 7,
+      "y": 0
+     },
+     "rot": 0,
+     "config": {
+      "kind": "rewriter",
+      "recipe": {
+       "k": "cancel"
+      },
+      "dir": "fwd",
+      "target": {
+       "k": "first"
+      },
+      "gap": {
+       "k": "first"
+      },
+      "values": {},
+      "tidy": true
+     }
+    },
+    "as": "rewriter2"
+   },
+   {
+    "wire": [
+     "desk:room1",
+     "theorem1",
+     "p0"
+    ]
+   },
+   {
+    "wire": [
+     "spool1",
+     "rewriter1",
+     "q"
+    ]
+   },
+   {
+    "wire": [
+     "theorem1",
+     "rewriter1",
+     "rule"
+    ]
+   },
+   {
+    "wire": [
+     "rewriter1",
+     "rewriter2",
+     "q"
+    ]
+   },
+   {
+    "wire": [
+     "rewriter2",
+     "gate:room1",
+     "q"
+    ]
+   },
+   {
+    "place": {
+     "kind": "forall",
+     "at": {
+      "x": 11,
+      "y": -3
+     },
+     "rot": 0,
+     "config": {
+      "kind": "forall"
+     }
+    },
+    "as": "forall1"
+   },
+   {
+    "wire": [
+     "gate:room1",
+     "forall1",
+     "q"
+    ]
+   },
+   {
+    "wire": [
+     "forall1",
+     "socket:s",
+     "q"
+    ]
+   }
+  ]
+ },
+ "P4.12b": {
+  "level": "P4.12",
+  "rooms": [
+   {
+    "kind": "suppose",
+    "l": {
+     "k": "mul",
+     "fs": [
+      {
+       "k": "atom",
+       "id": "a"
+      },
+      {
+       "k": "atom",
+       "id": "b"
+      }
+     ]
+    },
+    "r": {
+     "k": "atom",
+     "id": "a"
+    },
+    "rect": {
+     "x": -2,
+     "y": 11,
+     "w": 6,
+     "h": 3
+    }
+   },
+   {
+    "kind": "suppose",
+    "l": {
+     "k": "mul",
+     "fs": [
+      {
+       "k": "atom",
+       "id": "a"
+      },
+      {
+       "k": "atom",
+       "id": "b"
+      }
+     ]
+    },
+    "r": {
+     "k": "atom",
+     "id": "b"
+    },
+    "rect": {
+     "x": 7,
+     "y": 14,
+     "w": 7,
+     "h": 3
+    }
+   },
+   {
+    "kind": "suppose",
+    "l": {
+     "k": "mul",
+     "fs": [
+      {
+       "k": "atom",
+       "id": "a"
+      },
+      {
+       "k": "atom",
+       "id": "b"
+      }
+     ]
+    },
+    "r": {
+     "k": "e"
+    },
+    "rect": {
+     "x": 5,
+     "y": -10,
+     "w": 7,
+     "h": 3
+    }
+   }
+  ],
+  "steps": [
+   {
+    "room": 0
+   },
+   {
+    "room": 1
+   },
+   {
+    "room": 2
+   },
+   {
+    "place": {
+     "kind": "joiner",
+     "at": {
+      "x": 1,
+      "y": 12
+     },
+     "rot": 0,
+     "config": {
+      "kind": "joiner",
+      "recipe": {
+       "k": "clash"
+      }
+     }
+    },
+    "as": "joiner1"
+   },
+   {
+    "place": {
+     "kind": "joiner",
+     "at": {
+      "x": 10,
+      "y": 15
+     },
+     "rot": 0,
+     "config": {
+      "kind": "joiner",
+      "recipe": {
+       "k": "clash"
+      }
+     }
+    },
+    "as": "joiner2"
+   },
+   {
+    "place": {
+     "kind": "joiner",
+     "at": {
+      "x": 8,
+      "y": -9
+     },
+     "rot": 0,
+     "config": {
+      "kind": "joiner",
+      "recipe": {
+       "k": "clash"
+      }
+     }
+    },
+    "as": "joiner3"
+   },
+   {
+    "wire": [
+     "joiner1",
+     "gate:room1",
+     "q"
+    ]
+   },
+   {
+    "wire": [
+     "given:nb",
+     "joiner1",
+     "b"
+    ]
+   },
+   {
+    "wire": [
+     "gate:room1",
+     "socket:s3",
+     "q"
+    ]
+   },
+   {
+    "wire": [
+     "given:na",
+     "joiner2",
+     "b"
+    ]
+   },
+   {
+    "wire": [
+     "joiner2",
+     "gate:room2",
+     "q"
+    ]
+   },
+   {
+    "wire": [
+     "gate:room2",
+     "socket:s1",
+     "q"
+    ]
+   },
+   {
+    "wire": [
+     "given:nab",
+     "joiner3",
+     "b"
+    ]
+   },
+   {
+    "wire": [
+     "joiner3",
+     "gate:room3",
+     "q"
+    ]
+   },
+   {
+    "wire": [
+     "gate:room3",
+     "socket:s2",
+     "q"
+    ]
+   }
+  ]
+ }
+}

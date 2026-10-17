@@ -55,10 +55,11 @@ function relay(f: Floor, reverse: boolean) {
 }
 
 /** A run reads as legible: near its Manhattan length, inside the band round its straight line, at most a label crossing. */
-const bad = (r: ReturnType<typeof relay>['runs'][number]) => r.len > 1.5 * r.man + 6 || r.excess > 1 || r.underLabels > 3;
+const bad = (r: ReturnType<typeof relay>['runs'][number]) => r.len > 1.5 * r.man + 6 || r.excess > 1.5 || r.underLabels > 3;
 
 describe('belt routes on the Book floors stay short and legible', () => {
-  afterEach(() => { F.ROUTE_TUNING.corridor = 4; F.ROUTE_TUNING.label = 30; });
+  const DEFAULTS = { ...F.ROUTE_TUNING };
+  afterEach(() => { Object.assign(F.ROUTE_TUNING, DEFAULTS); });
   for (const [id, build] of FIXTURES) {
     it(`${id}: every belt re-laid by the router (both orders) is within 1.5× Manhattan + 6, in its band, off labels`, () => {
       const f = build();

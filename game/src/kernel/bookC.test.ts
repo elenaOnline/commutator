@@ -219,8 +219,8 @@ describe('mirrors with maps (pin 3)', () => {
 
 describe('printing (authors 2026-10-15)', () => {
   it('the action laws read without σ; the dock prints ⟹', () => {
-    expect(K.factText(K.MAP_SCHEMAS['act.mul']!.card, {})).toBe('∀G a group. ∀Ω a set. ∀σ : G × Ω → Ω. ∀g, h, p. (gh)(p) = g(h(p))');
-    expect(K.factText(K.MAP_SCHEMAS['act.e']!.card, {})).toBe('∀G a group. ∀Ω a set. ∀σ : G × Ω → Ω. ∀p. e(p) = p');
+    expect(K.factText(K.MAP_SCHEMAS['act.mul']!.card, {})).toBe('∀G a group. ∀Ω a set. ∀g, h, p. (gh)(p) = g(h(p))');
+    expect(K.factText(K.MAP_SCHEMAS['act.e']!.card, {})).toBe('∀G a group. ∀Ω a set. ∀p. e(p) = p');
     const sd: K.SocketDecl = { id: 's', target: { k: 'cond', metas: ['x'], premises: [{ k: 'eq', l: P(M('x'), M('x')), r: K.E }], concl: { k: 'eq', l: M('x'), r: M('w') } }, allowedGivens: [], holes: [{ id: 'w' }] };
     expect(K.dockText(sd, {})).toBe('∀x. xx = e ⟹ x = ?');
   });

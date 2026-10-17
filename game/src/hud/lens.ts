@@ -15,7 +15,7 @@ import {
   atomsAll, camp, deskFact, dockAnswers, givenPrefixHTML, groupAliases, quantH, subgroupsOf, withEAliases, openView, esc, fH, h, huesAll, itemHTML, labelsAll, machineName, machineRect, nameHTML, posName, richHTML, safe, spec, tH,
   towerLabelSet, towerVars, varIdsOf, varSortsOf, type S, type Store,
 } from './util';
-import { GROUP_ORDER, entryFor, isMemCard, searchLibrary, libCard, libraryFor, memFigure, recipeKey, type AnyRecipe, type LibEntry } from './library';
+import { GROUP_ORDER, entryFor, isMemCard, searchLibrary, libCard, libraryFor, memFigure, recipeKey, sideLabel, type AnyRecipe, type LibEntry } from './library';
 import { armPreset, isPinned, pin, presetKey, unpin, withRecipe } from './presets';
 import { openConceptFor } from './concept';
 import { braceEl, markVarBeads, stripEl } from './strip';
@@ -24,7 +24,7 @@ import { nameSlot, pairLetter, selectAllOnClick, termSlot } from './slot';
 import { roomAssumptionsEditor, roomDeleteButton } from './roomedit';
 import { lemmaNameFor } from './ceremony';
 import { mapsInScope } from '../factory/catalog';
-import { SUBGROUP_DEFS, defaultGroupIsPlaceholder, docksSort, homGroupChoices, setsOnlyLevel, sortCtx } from '../ui/sorts';
+import { SUBGROUP_DEFS, freshStructId, towerLetters, defaultGroupIsPlaceholder, docksSort, homGroupChoices, setsOnlyLevel, sortCtx } from '../ui/sorts';
 import { eulerBlobHTML } from '../ui/euler';
 
 const pathKey = (p: number[]) => p.join('.');
@@ -49,6 +49,12 @@ export function usesTower(mm: Machine, r: MachineResult | undefined, varId: stri
 }
 /** The recipe's card at the instance the compiler settled (binders → the chosen subgroup / homomorphism), as maths. */
 export function recipeInstanceHTML(s: S, m: Machine, ref: LibRef | undefined): string | null {
+  const c = recipeInstanceCard(s, m, ref);
+  return c ? safe(() => fH(c, labelsAll(s)), null) : null;
+}
+/** The same instance as a card, on either side of a mirror pair (`mirror` overrides the ref's own side). */
+export function recipeInstanceCard(s: S, m: Machine, ref: LibRef | undefined, mirror?: boolean): Card | null {
+  if (ref && mirror !== undefined && ref.k === 'schema') ref = { ...ref, mirror: mirror || undefined } as LibRef;
   const plays = s.compiled?.machines?.[m.id]?.structs ?? [];
   if (!ref || !plays.some((p) => p.chosen)) return null;
   const card = libCard(s, ref);
@@ -64,7 +70,7 @@ export function recipeInstanceHTML(s: S, m: Machine, ref: LibRef | undefined): s
     if (mp && bd?.k === 'hom') for (const [from, to] of [[sortId(bd.dom), mp.args[0]], [sortId(bd.cod), mp.res]] as const) if (from && to) json = json.split(`"s":${JSON.stringify(from)}`).join(`"s":${JSON.stringify(to)}`);
     if (mp && bd?.k === 'act') for (const [from, to] of [[sortId(bd.grp), mp.args[0]], [sortId(bd.on), mp.res]] as const) if (from && to) json = json.split(`"s":${JSON.stringify(from)}`).join(`"s":${JSON.stringify(to)}`);
   }
-  try { return fH(JSON.parse(json) as Card, labelsAll(s)); } catch { return null; }
+  try { return JSON.parse(json) as Card; } catch { return null; }
 }
 /** A rule's two directions, written as the rule itself (a1f938ba): `ab ⟶ e` / `e ⟶ ab`. */
 export function ruleDirLabels(rule: Fact | null | undefined, L: Record<string, string>): [string, string] {
@@ -535,7 +541,12 @@ export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () 
     if (sides) {
       const opts: [boolean, string, string][] = sides.k === 'orient'
         ? ((x) => [[true, `<i>${x}</i><sup class="m-sup">−1</sup><i>${x}</i>`, `${x}⁻¹${x}`], [false, `<i>${x}</i><i>${x}</i><sup class="m-sup">−1</sup>`, `${x}${x}⁻¹`]] as [boolean, string, string][])(pairLetter(labelsAll(s)))
-        : [[false, sides.plain.label, sides.plain.name], [true, sides.op.label, sides.op.name]];
+        : (() => {
+          // once the machine is set to a homomorphism / subgroup (π, N), the toggle shows the statements at that instance
+          const a = recipeInstanceCard(s, m, r.ref, false), b = recipeInstanceCard(s, m, r.ref, true);
+          const [pl, ol] = a && b ? sideLabel(a, b, labelsAll(s)) : [sides.plain.label, sides.op.label];
+          return [[false, pl, sides.plain.name], [true, ol, sides.op.name]] as [boolean, string, string][];
+        })();
       const g = h('span', { class: 'h3-segs h3-sidetoggle', role: 'group', 'aria-label': sides.k === 'orient' ? 'Orientation of the inserted pair' : 'Which side the law works on' });
       for (const [v, html, tip] of opts) {
         const b = h('button', { class: `h3-seg math${v === alt ? ' on' : ''}`, 'aria-pressed': String(v === alt), title: tip, 'data-side': v ? 'alt' : 'main', html });
@@ -619,13 +630,9 @@ export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () 
   };
 
   // a set Tower's name chips: the letters the docks bind in that set first (P6.3's z ∈ C), then u, v, w
-  const carrierLetters = (s: S, carrier: string): string[] => {
-    const docks = s.level.sockets.flatMap((sk) => {
-      const t = sk.target as { metaSorts?: Record<string, unknown> };
-      return Object.entries(t.metaSorts ?? {}).filter(([, r]) => r === carrier).map(([m]) => m);
-    });
-    return [...new Set([...docks, 'u', 'v', 'w'])].slice(0, 4);
-  };
+  // a group-element Tower likewise: the docks' a, b first in P16.1 / P16.2, then x, y, z (verify-fixround #2)
+  const carrierLetters = (s: S, carrier: string | undefined): string[] =>
+    towerLetters(s.level, carrier, sortCtx.cur.env?.sorts.get(carrier ?? 'G')?.kind === 'set');
   // ───────── Tower: its name is a slot drawn as the variable itself; sort; where it is used ─────────
   const SUB = '₀₁₂₃₄₅₆₇₈₉';
   const subOf = (n: number) => String(n).split('').map((d) => SUB[+d]).join('');
@@ -643,7 +650,7 @@ export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () 
     const hue = huesAll(s)[cfg.varId] ?? 2;
     const tk = cfg as { group?: boolean; hom?: unknown; carrier?: string };
     const ns = nameSlot({ label: cfg.label, varId: cfg.varId, sort: cfg.sort, sub: (cfg as { sub?: 'sub' | 'normal' }).sub, hue,
-      letters: tk.group ? ['G', 'K', 'Q'] : tk.hom ? ['f', 'g'] : tk.carrier ? carrierLetters(s, tk.carrier) : undefined, key: `${m.id}:name`, commit: (l) => { const v = unique(l); if (v !== cfg.label) setCfg({ label: v } as Partial<MachineConfig>); } });
+      letters: tk.group ? ['G', 'K', 'Q'] : tk.hom ? ['f', 'g'] : !(cfg as { sub?: string }).sub && cfg.sort !== 'Z' ? carrierLetters(s, tk.carrier) : undefined, key: `${m.id}:name`, commit: (l) => { const v = unique(l); if (v !== cfg.label) setCfg({ label: v } as Partial<MachineConfig>); } });
     // an element Tower says which group (or set) it lives in: ∈ K after picking K, never a stale ∈ G (W4–9)
     const carrierId = (cfg as { carrier?: string }).carrier;
     const carrierL = carrierId ? (labelsAll(s)[carrierId] ?? carrierId) : 'G';
@@ -695,10 +702,18 @@ export function mountLens(layer: HTMLElement, store: Store, opts: { dockTop: () 
       for (let i = 1; i < 10; i++) for (const b of bases) { const nm = b + subOf(i); if (!used.has(nm)) return nm; }
       return bases[0]! + subOf(9);
     };
-    const setStruct = (patch: Record<string, unknown>, label: string) => setCfg({ sub: undefined, group: undefined, hom: undefined, carrier: undefined, sort: 'G', label, ...patch } as Partial<MachineConfig>);
+    /** Every Tower id on this floor and in the level (a new group / Hom Tower id must be none of them). */
+    const takenIds = () => [...s.level.atoms.map((a) => a.id), ...(s.level.sorts ?? []).map((x) => x.id), ...(s.level.maps ?? []).map((x) => x.id),
+      ...store.get().canvas.machines.flatMap((mm) => { const c = mm.config as { kind: string; varId?: string }; return c.kind === 'tower' && c.varId ? [c.varId] : []; })];
+    // turning into a group or a homomorphism takes a fresh id (grp1, hom1), never the element's x (verify-fixround #1)
+    const setStruct = (patch: Record<string, unknown>, label: string) => {
+      const kind = patch.group ? 'grp' : patch.hom ? 'hom' : null;
+      const varId = kind && !cfg.varId.startsWith(kind) ? freshStructId(kind, takenIds()) : cfg.varId;
+      setCfg({ sub: undefined, group: undefined, hom: undefined, carrier: undefined, sort: 'G', label, ...patch, varId } as Partial<MachineConfig>);
+    };
     /** A group Tower placed next to this one (for a homomorphism that needs it); its id, or undefined. */
     const placeGroup = (label: string, n: number): string | undefined => {
-      const varId = `grp${Date.now().toString(36)}${n}`;
+      const varId = freshStructId('grp', takenIds()); void n;
       for (const [dx, dy] of [[2, 0], [0, 2], [-2, 0], [0, -2], [2, 2], [-2, 2], [3, 0], [0, 3]] as [number, number][]) {
         const before = new Set(store.get().canvas.machines.map((x) => x.id));
         const e = store.place('tower', { x: m.at.x + dx, y: m.at.y + dy }, { config: { kind: 'tower', varId, label, sort: 'G', group: true } as MachineConfig });

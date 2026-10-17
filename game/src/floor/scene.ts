@@ -65,16 +65,25 @@ export function roomHeading(kind: Room['kind'], l: Room['l'] | null, r: Room['r'
 
 export function roomSVG(room: { id: string; kind: Room['kind']; rel?: Room['rel']; l: Room['l'] | null; r: Room['r'] | null; rect: Room['rect']; assumes?: DeskAssumption[] }, L: Labels, ghost = false, q?: Fact): string {
   const poly = roomPoly(room.rect).map(([x, y]) => P(x, y));
-  const { tag, math } = roomHeading(room.kind, room.l, room.r, L, room.rel, q, room.assumes);
-  // Final playtest W1–7 #4: the heading sits INSIDE the room, under its top edge (outside, it landed on docks, belts
-  // and other rooms). Default spot: below the top corner; the floor moves it to a clear, visible spot and scales it
-  // down to fit a small room (index.ts placeHeadings).
-  const top = P(room.rect.x + 0.5, room.rect.y + 0.5);
   return `<g class="fl-room${ghost ? ' is-ghost' : ''}${room.kind === 'assume' ? ' is-assume' : ''}" data-r="${esc(room.id)}">` +
     `<polygon class="fl-room-fill" points="${pts(poly)}" fill="${VIOLET}" opacity="${ghost ? 0.12 : 0.085}"/>` +
     `<polygon class="fl-room-edge" points="${pts(poly)}" fill="none" stroke="${VIOLET}" stroke-width="${room.kind === 'assume' ? 2.2 : 1.4}"${ghost ? ' stroke-dasharray="5 4"' : room.kind === 'assume' ? ' stroke-dasharray="0.5 6.5" stroke-linecap="round"' : ''}/>` +
-    `<g class="fl-room-head fl-rhead-in" data-rhead="${esc(room.id)}" transform="translate(${f1(top[0])},${f1(top[1] + 22)})"><g class="fl-sz fl-sz-f" style="transform-origin:0px 0px"><text x="0" y="-8" text-anchor="middle" font-family="${FONT.ui}" font-size="10.5" font-weight="600" letter-spacing=".12em" fill="${VIOLET}">${tag}</text>` +
-      `<text x="0" y="11" text-anchor="middle" font-family="${FONT.math}" font-size="17" fill="${VIOLET}">${math}</text></g></g></g>`;
+    (ghost ? roomHeadSVG(room, L, q) : '') + `</g>`;
+}
+
+/**
+ * A room's heading (final playtest W1–7 #4, verify-fixround): a plate on the room's top edge, centred on its top
+ * corner, drawn in the floor's label layer — above machines and belts, so nothing placed in the room ever hides it —
+ * at full size (labels keep their minimum screen size). The floor slides it along the top edges when the order chip
+ * or the window edge would cut it (index.ts flipHeadings). The plate is sized to its text once laid out.
+ */
+export function roomHeadSVG(room: { id: string; kind: Room['kind']; rel?: Room['rel']; l: Room['l'] | null; r: Room['r'] | null; rect: Room['rect']; assumes?: DeskAssumption[] }, L: Labels, q?: Fact): string {
+  const { tag, math } = roomHeading(room.kind, room.l, room.r, L, room.rel, q, room.assumes);
+  const top = P(room.rect.x, room.rect.y);
+  return `<g class="fl-room-head fl-rhead-in" data-rhead="${esc(room.id)}" transform="translate(${f1(top[0])},${f1(top[1])})"><g class="fl-sz fl-sz-f" style="transform-origin:0px 0px">` +
+    `<rect class="fl-rhead-plate" x="-110" y="-22" width="220" height="42" rx="7" fill="#fff" fill-opacity=".94" stroke="${VIOLET}" stroke-width="1.1" stroke-opacity=".55"/>` +
+    `<text x="0" y="-8" text-anchor="middle" font-family="${FONT.ui}" font-size="10.5" font-weight="600" letter-spacing=".12em" fill="${VIOLET}">${tag}</text>` +
+    `<text x="0" y="12" text-anchor="middle" font-family="${FONT.math}" font-size="17" fill="${VIOLET}">${math}</text></g></g>`;
 }
 
 export function roomHandles(r: Room['rect'], id: string): string {
@@ -194,7 +203,9 @@ export function machineName(g: MGeo, cx: Ctx): string {
   if (m.config.kind === 'tower') return `Tower ${m.config.label}`;
   if (g.look.plate && g.look.title) return `${g.spec.name} · ${g.look.title}`;
   if (g.look.neutral) return `${g.spec.name} (no recipe yet)`;
-  return `${g.spec.name} · ${g.look.label.toLowerCase()}${g.look.name ? ` ${g.look.name}` : ''}`;
+  // a machine whose caption is its own name (the Spool) is just that name
+  const rest = [g.look.label.toLowerCase() === g.spec.name.toLowerCase() ? '' : g.look.label.toLowerCase(), g.look.name].filter(Boolean).join(' ');
+  return rest ? `${g.spec.name} · ${rest}` : g.spec.name;
 }
 
 /** A floor label: the role word(s) in uppercase UI type, then any maths name in its real case (italic maths). */

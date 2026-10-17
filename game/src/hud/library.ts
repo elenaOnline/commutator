@@ -128,10 +128,10 @@ export function libName(s: S, ref: LibRef): string {
 const usableSchemas = (s: S) => s.ctx.level.tools.schemas.filter((id) => !id.startsWith('power.')).map((id) => s.ctx.registry[id]).filter((x): x is NonNullable<typeof x> => !!x && x.origin !== 'import');
 
 /** The fact a card's side toggle names: its premises, or the conclusion when the premises read the same. */
-function sideLabel(card: Card, mirrored: Card): [string, string] {
+export function sideLabel(card: Card, mirrored: Card, L: Record<string, string> = {}): [string, string] {
   // the card's group parameters read G, K and its identities e_G, e_K, never S, T
   const al = cardAliases(card.binds, card.metas);
-  const fa = (f: Parameters<typeof fH>[0]) => withEAliases(al, () => fH(f, al));
+  const fa = (f: Parameters<typeof fH>[0]) => withEAliases(al, () => fH(f, { ...L, ...al }));
   const prem = (c: Card) => (c.k === 'cond' ? c.premises.map((p) => fa(p)).join(', ') : '');
   const concl = (c: Card) => (c.k === 'cond' ? fa(c.concl) : c.k === 'law' ? fa({ k: 'eq', l: c.l, r: c.r }) : '');
   const a = prem(card), b = prem(mirrored);

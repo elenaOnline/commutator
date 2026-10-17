@@ -120,7 +120,9 @@ export function libName(ctx: KernelCtx, ref: LibRef | null | undefined, canvas?:
       // neither (a blame message), the instance is left unsaid rather than printed as an id.
       const subs = subsIn(ctx.level), maps = canvas ? [...(ctx.level.maps ?? []), ...mapsInScope(ctx, canvas)] : ctx.level.maps ?? [];
       const scope = canvas ? subgroupsInScope(ctx, canvas) : subs;
-      const st = ref.structs ? Object.values(ref.structs).flatMap((id) => { const l = scope.find((x) => x.id === id)?.label ?? maps.find((x) => x.id === id)?.label; return l ? [l] : []; }) : [];
+      const st = ref.structs ? Object.values(ref.structs).flatMap((id) => { const mp = maps.find((x) => x.id === id);
+        if (mp?.kind === 'action') return []; // an action's own symbol (σ) is never shown: the law reads "acting by a product"
+        const l = scope.find((x) => x.id === id)?.label ?? mp?.label; return l ? [l] : []; }) : [];
       return st.length ? `${base} (${st.join(', ')})` : base;
     }
     case 'given': return ctx.level.givens.find((g) => g.id === ref.givenId)?.name ?? ref.givenId;

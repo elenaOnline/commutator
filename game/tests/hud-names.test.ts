@@ -1,26 +1,27 @@
 // One display name per thing (final playtest w1–7: #7 source names, #8 one name per theorem, #12 one multiply
 // recipe, #13 flavour labels, #15 the ∀ lens copy, #16 the ceremony's offers).
 import { describe, expect, it } from 'vitest';
-import * as K from '../kernel';
-import * as F from '../factory';
-import type { Card } from '../kernel/types';
-import { LEVEL_BY_ID } from '../levels/campaigns';
-import { REGISTRY } from '../levels/levels';
-import { ctxFor } from '../state/factoryStore';
-import { buildGeo } from '../floor/geo';
-import { lookOf } from '../floor/look';
-import { glyphSVG, upperWords } from '../floor/svg';
-import { machineLabelSVG, machineSVG } from '../floor/scene';
-import { nameHTML, richHTML } from '../shell/util';
-import { graphLabels } from './proof';
-import { Floor } from '../factory/compiler.testkit';
-import { endingText, holdsByIdentityAlone } from './ceremony';
-import { entryFor, libraryFor } from './library';
-import { entryKeyOf, familyName } from './merge';
-import { forallBinders, forallBlurb, recipeInstanceHTML, ruleDirLabels } from './lens';
-import { schemaInfo } from './proof';
-import { midEllipsis } from './hotbar';
-import type { S } from './util';
+import * as K from '../src/kernel';
+import * as F from '../src/factory';
+import type { Card } from '../src/kernel/types';
+import { LEVEL_BY_ID } from '../src/levels/campaigns';
+import { REGISTRY } from '../src/levels/levels';
+import { ctxFor } from '../src/state/factoryStore';
+import { buildGeo } from '../src/floor/geo';
+import { lookOf } from '../src/floor/look';
+import { capsHTML, glyphSVG, upperWords } from '../src/floor/svg';
+import { machineLabelSVG, machineName as machineNameOf, machineSVG } from '../src/floor/scene';
+import { nameHTML, richHTML } from '../src/shell/util';
+import { graphLabels } from '../src/hud/proof';
+import { Floor } from '../src/factory/compiler.testkit';
+import { endingText, holdsByIdentityAlone } from '../src/hud/ceremony';
+import { entryFor, libraryFor } from '../src/hud/library';
+import { entryKeyOf, familyName } from '../src/hud/merge';
+import { forallBinders, forallBlurb, recipeInstanceCard, recipeInstanceHTML, ruleDirLabels } from '../src/hud/lens';
+import { sideLabel } from '../src/hud/library';
+import { schemaInfo } from '../src/hud/proof';
+import { midEllipsis } from '../src/hud/hotbar';
+import type { S } from '../src/hud/util';
 
 const plain = (html: string) => html.replace(/<[^>]+>/g, '');
 const stateFor = (id: string, earned: string[], canvas?: F.Canvas, extra?: Partial<S>): S => {
@@ -112,12 +113,14 @@ describe('#13 floor labels are standard names; a face carries maths, not words',
     expect(lookOf(byId(rw), f.ctx).label).toBe('RULE INPUT');
     expect(lookOf(byId(th), f.ctx).label).toBe('CARD INPUT');
   });
-  it('a given used as a rule is captioned GIVEN, not LAW', () => {
+  it('a given used as a rule is captioned by its own name, not LAW', () => {
     const lv = LEVEL_BY_ID['P4.1']!;
     const g = lv.givens[0]!;
     const f = new Floor(lv, []);
     const rw = f.add({ kind: 'rewriter', recipe: { k: 'law', ref: { k: 'given', givenId: g.id } }, dir: 'fwd', target: { k: 'first' }, gap: { k: 'first' }, values: {}, tidy: true } as never);
-    expect(lookOf(f.c.machines.find((m) => m.id === rw)!, f.ctx).label).toBe('GIVEN');
+    const look = lookOf(f.c.machines.find((m) => m.id === rw)!, f.ctx);
+    expect(look.label).toBe('');
+    expect(look.name).toBe(g.name);
   });
   it('a theorem tile prints its name as a caption, not on its face', () => {
     const f = new Floor(LEVEL_BY_ID['P4.5']!, ['witness', 'cancel']);
@@ -186,5 +189,118 @@ describe('N3 / N8 / N11 / N12 / N23 (final playtest w8–14)', () => {
   it('N23: the finale counts the main orders, and says side orders apart', () => {
     expect(endingText('The Book', 56, 9)).toBe('The Book complete: 56 theorems, all checked. (9 side orders besides.)');
     expect(endingText(null, 12, 0)).toBe('Campaign complete: 12 theorems, all checked.');
+  });
+});
+
+describe('σ never appears on any world 6 surface string', () => {
+  const actionLevels = Object.values(LEVEL_BY_ID).filter((l): l is NonNullable<typeof l> => !!l && !!l.maps?.some((m) => m.kind === 'action'));
+  const L = (lv: (typeof actionLevels)[number]) => ({ ...K.levelLabels(lv) });
+  it('there are action levels to check', () => expect(actionLevels.length).toBeGreaterThanOrEqual(2));
+  it('statements: level givens and docks, the action cards, in every printer', async () => {
+    const { factHTML } = await import('../src/floor/math');
+    const { fH } = await import('../src/hud/util');
+    for (const lv of actionLevels) {
+      const facts = [...lv.givens.map((g) => g.fact), ...lv.sockets.map((s) => s.target)];
+      for (const f of facts) for (const out of [K.factText(f as never, L(lv)), plain(factHTML(f as never, L(lv))), plain(fH(f as never, L(lv)))]) expect(out, `${lv.id}: ${out}`).not.toContain('σ');
+    }
+    for (const id of ['act.mul', 'act.e']) {
+      const card = K.mapSchema(id)!.card;
+      for (const out of [K.factText(card, {}), plain(factHTML(card, {})), plain(fH(card, {}))]) expect(out, `${id}: ${out}`).not.toContain('σ');
+    }
+  });
+  it('recipe names, floor captions and compiler statuses', () => {
+    for (const lv of actionLevels) {
+      const ctx = ctxFor(lv, [], []);
+      const act = lv.maps!.find((m) => m.kind === 'action')!;
+      for (const id of ['act.mul', 'act.e']) {
+        const ref = { k: 'schema', id, structs: { σ: act.id } } as never;
+        expect(F.libName(ctx, ref), lv.id).not.toContain('σ');
+        const f = new Floor(lv, []);
+        const rw = f.add({ kind: 'rewriter', recipe: { k: 'law', ref }, dir: 'fwd', target: { k: 'first' }, gap: { k: 'first' }, values: {}, tidy: true } as never);
+        const look = lookOf(f.c.machines.find((m) => m.id === rw)!, f.ctx);
+        expect(`${look.label} ${look.name ?? ''} ${look.glyph}`, lv.id).not.toContain('σ');
+        // every status, port reason and socket reason the compiler prints for this floor
+        const comp = f.compile();
+        expect(JSON.stringify([comp.machines, comp.sockets, comp.beltErrors]), lv.id).not.toContain('σ');
+      }
+    }
+  });
+});
+
+describe('σ: the real P7.2 and P8.2 floors, every machine, belt, status and editor note', () => {
+  it('prints no σ anywhere', async () => {
+    const kit = await import('./book/kit-wC');
+    const { bookFloor, app, given, schema, lawRw, spool, cancel, I, P, eq } = kit;
+    const A = (id: string): K.Term => ({ k: 'atom', id });
+    const sig = (g: K.Term, pt: K.Term) => app('act', g, pt);
+    // P7.2: Spool σ(αβ, p) → action law → h_b → h_a; Spool σ(α⁻¹, p) → h_a backwards → action law backwards → cancel → σ(e, p) = p
+    const f72 = bookFloor(kit.lvC('P7.2'), ['cancel', 'witness', 'socks']);
+    {
+      const sp1 = f72.add(spool(sig(P(A('a'), A('b')), A('p')))), m1 = f72.add(lawRw(schema('act.mul'))), hb = f72.add(lawRw(given('hb'))), ha = f72.add(lawRw(given('ha')));
+      f72.wire(sp1, m1); f72.wire(m1, hb); f72.wire(hb, ha); f72.wire(ha, f72.socket('s1'));
+      const sp2 = f72.add(spool(sig(I(A('a')), A('p')))), back = f72.add(lawRw(given('ha'), { dir: 'rev' })), m2 = f72.add(lawRw(schema('act.mul'), { dir: 'rev' })), cn = f72.add(cancel()), e0 = f72.add(lawRw(schema('act.e')));
+      f72.wire(sp2, back); f72.wire(back, m2); f72.wire(m2, cn); f72.wire(cn, e0); f72.wire(e0, f72.socket('s2'));
+    }
+    // P8.2: Spool σ(παπ⁻¹, r) → action law twice → h₁ backwards → action law backwards → cancel → σ(e, p) = p → h₃ → h₂
+    const f82 = bookFloor(kit.lvC('P8.2'), ['cancel', 'witness', 'socks']);
+    {
+      const pi = A('pi'), a = A('a'), r = A('r');
+      const sp = f82.add(spool(sig(P(pi, a, I(pi)), r))), m1 = f82.add(lawRw(schema('act.mul'))), m2 = f82.add(lawRw(schema('act.mul'))), h1 = f82.add(lawRw(given('h1'), { dir: 'rev' }));
+      const arriving = eq(sig(P(pi, a, I(pi)), r), sig(pi, sig(a, sig(I(pi), sig(pi, A('p'))))));
+      const inner = F.pinFromAddr(arriving, { side: 'r', path: [1, 1] })!;
+      const m3 = f82.add(lawRw(schema('act.mul'), { dir: 'rev', target: inner })), cn = f82.add(cancel()), e1 = f82.add(lawRw(schema('act.e'))), h3 = f82.add(lawRw(given('h3'))), h2 = f82.add(lawRw(given('h2')));
+      f82.wire(sp, m1); f82.wire(m1, m2); f82.wire(m2, h1); f82.wire(h1, m3); f82.wire(m3, cn); f82.wire(cn, e1); f82.wire(e1, h3); f82.wire(h3, h2); f82.wire(h2, f82.socket());
+    }
+    for (const f of [f72, f82]) {
+      const seen: string[] = [];
+      const scan = (what: string, v: unknown, path = ''): void => {
+        // `structs` is chooser data (binder ids, option labels); the lens does not draw a chooser for an action
+        if (typeof v === 'string') { if (v.includes('σ') && !path.includes('.structs.')) seen.push(`${what}${path}: ${v.slice(0, 160)}`); return; }
+        if (v && typeof v === 'object') for (const [k, x] of Object.entries(v)) scan(what, x, `${path}.${k}`);
+      };
+      const comp = f.compile();
+      scan('compiled', [comp.machines, comp.sockets, comp.beltErrors]);
+      for (const m of f.c.machines) {
+        const look = lookOf(m, f.ctx);
+        scan(`look ${m.id}`, [look.label, look.name, look.glyph, look.title]);
+        const c = m.config as { recipe?: { k: string; ref?: never }; ref?: never };
+        if (c.recipe?.k === 'law') scan(`name ${m.id}`, F.libName(f.ctx, (c.recipe as unknown as { ref: never }).ref));
+      }
+      // editor notes and refusals: re-lay every belt on its own ports (replaces the feed), and remove each machine
+      for (const b of f.c.belts) { const e = F.connect(f.c, b.from, b.to!, f.ctx); scan('connect', e); }
+      for (const m of f.c.machines) if (!m.locked) scan('remove', F.remove(f.c, [m.id]));
+      expect(seen, seen.join('\n')).toEqual([]);
+    }
+  });
+});
+
+describe('round 2 copy', () => {
+  it('a hover header uppercases every word, never the maths', () => {
+    expect(capsHTML('acting by a product')).toBe('acting by a product'); // all words (the stylesheet capitalises them), none wrapped as maths
+    expect(capsHTML('fibre lemma at π')).toMatch(/fl-nocaps"> ?π/);
+    expect(capsHTML('fibre lemma at π')).not.toMatch(/fl-nocaps">[^<]*lemma/);
+    expect(upperWords('acting by a product')).toBe('ACTING BY A PRODUCT');
+  });
+  it('the Spool hover is just "Spool"', () => {
+    const f = new Floor(LEVEL_BY_ID['P4.1']!, []);
+    const sp = f.add({ kind: 'spool', t: { k: 'knob', term: null } } as never);
+    const g = buildGeo(f.c, null, f.ctx).ms.get(sp)!;
+    expect(machineNameOf(g, { L: {}, level: f.level, comp: null, schemaName: (id: string) => id })).toBe('Spool');
+  });
+  it("a mirror toggle shows the statements at the chosen homomorphism (π), not the card's f", () => {
+    const lv = LEVEL_BY_ID['P16.2']!;
+    const X = { k: 'meta', id: 'x' }, Y = { k: 'meta', id: 'y' };
+    const fx = (t: unknown) => ({ k: 'app', fn: 'f', args: [t] });
+    const card: Card = { k: 'cond', metas: ['x', 'y'], premises: [{ k: 'eq', l: fx(X), r: { k: 'e', s: 'T' } }], concl: { k: 'eq', l: fx({ k: 'mul', fs: [X, Y] }), r: fx({ k: 'mul', fs: [Y, X] }) },
+      binds: [{ k: 'grp', id: 'S' }, { k: 'grp', id: 'T' }, { k: 'hom', id: 'f', dom: { k: 'sortmeta', id: 'S' }, cod: { k: 'sortmeta', id: 'T' } }] } as never;
+    const base = ctxFor(lv, [], []);
+    const ctx = { ...base, registry: { ...base.registry, lem: { id: 'lem', name: 'lemma', textbook: 'lemma', card, origin: 'authored', mirrorable: true } } };
+    const m = { id: 'th', kind: 'theorem', at: { x: 0, y: 0 }, rot: 0, config: { kind: 'theorem' } };
+    const s = { level: lv, ctx, canvas: { machines: [m], belts: [], rooms: [] }, compiled: { machines: { th: { structs: [{ binder: 'f', normal: false, options: [], chosen: 'pi' }] } } } } as unknown as S;
+    const ref = { k: 'schema', id: 'lem' } as never;
+    const a = recipeInstanceCard(s, m as never, ref, false)!, b = recipeInstanceCard(s, m as never, ref, true)!;
+    const [pl, ol] = sideLabel(a, b, { pi: 'π', f: 'f' });
+    expect(plain(pl) + plain(ol)).toContain('π');
+    expect(plain(pl) + plain(ol)).not.toMatch(/\bf\(/);
   });
 });
