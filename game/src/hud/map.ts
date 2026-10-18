@@ -3,7 +3,7 @@
 import type { LevelManifest } from '../kernel/types';
 import { makeSaveLink } from '../ui/savelink';
 import { hasseUses, type MapNode } from '../shell/map';
-import { openView, CAMPAIGN_NAMES, CHAPTERS, LEVELS, LEVEL_BY_ID, REGISTRY, bookWorlds, campaignOf, displayNo, esc, fH, h, ideaOf, isOpen, isSolved, labels, nextLevel, richHTML, schemaNames, tally, type Campaign, type S as State, type Store } from './util';
+import { openView, CAMPAIGN_NAMES, CHAPTERS, LEVELS, LEVEL_BY_ID, REGISTRY, bookWorlds, campaignOf, displayNo, esc, fH, h, ideaOf, isOpen, isUnlockAll, isSolved, labels, nextLevel, richHTML, schemaNames, tally, type Campaign, type S as State, type Store } from './util';
 import { campSave } from '../state/factoryStore';
 import { withSortCtx } from '../ui/sorts';
 
@@ -160,7 +160,7 @@ export function mountMap(el: HTMLElement, store: Store): (s: State) => void {
     const c = mapCampaign(s);
     const cs = campSave(s.save, c);
     const next = nextOn(s)?.id ?? null;
-    const key = JSON.stringify([c, Object.keys(cs.levels).map((k) => [k, cs.levels[k]!.solvedAt, cs.levels[k]!.best]), s.ui.levelId, el.clientWidth, el.clientHeight]);
+    const key = JSON.stringify([c, Object.keys(cs.levels).map((k) => [k, cs.levels[k]!.solvedAt, cs.levels[k]!.best]), s.ui.levelId, isUnlockAll(), el.clientWidth, el.clientHeight]);
     back.style.display = Object.keys(campSave(s.save, 'main').levels).length || Object.keys(campSave(s.save, 'book').levels).length ? '' : 'none';
     if (key === lastKey) return;
     lastKey = key;

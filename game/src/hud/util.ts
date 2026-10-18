@@ -270,7 +270,7 @@ export function safe<T>(fn: () => T, fallback: T): T {
 
 // ───────── campaign progress (v5 save: one CampaignSave per campaign; rules in state/progress.ts) ─────────
 export const MAIN = LEVELS.filter((l) => !l.side);
-export { isSolved, isOpen, nextLevel, tally } from '../state/progress';
+export { isSolved, isOpen, isUnlockAll, nextLevel, tally } from '../state/progress';
 export { CAMPAIGN_LEVELS, CAMPAIGN_NAMES, campaignOf, displayNo, bookWorlds, type Campaign } from '../levels/campaigns';
 /** The current level's campaign part of the save: its earned theorems, Lemma Book, progress. */
 export const camp = (s: FState): CampaignSave => campSave(s.save, campaignOf(s.level));

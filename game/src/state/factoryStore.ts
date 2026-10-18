@@ -10,6 +10,7 @@ import * as F from '../factory';
 import type { Canvas, Compiled, Endpoint, MachineConfig, MachineKind, Rect, Room, Rot, RunState, Tile } from '../factory/types';
 import { REGISTRY } from '../levels/levels';
 import { ALL_LEVELS, CAMPAIGNS, CAMPAIGN_LEVELS, LEVEL_BY_ID, campaignOf, type Campaign } from '../levels/campaigns';
+import { isUnlockAll } from './progress';
 
 export type { Campaign };
 import { citedLemmas, positional, positionalRefs } from './lemmas';
@@ -188,8 +189,14 @@ export function ctxFor(level: LevelManifest, earned: string[], lemmas: SavedLemm
 /** ctxFor with the level's own campaign's earned theorems and Lemma Book. */
 export const ctxForSave = (level: LevelManifest, save: FSave): K.KernelCtx => {
   const cs = campSave(save, campaignOf(level));
-  return ctxFor(level, cs.earned, cs.lemmas);
+  return ctxFor(level, isUnlockAll() ? [...new Set([...cs.earned, ...unlocksBefore(level)])] : cs.earned, cs.lemmas);
 };
+/** With every level unlocked, a level still gets the theorems the levels before it would have earned. */
+function unlocksBefore(level: LevelManifest): string[] {
+  const all = CAMPAIGN_LEVELS[campaignOf(level)];
+  const i = all.findIndex((l) => l.id === level.id);
+  return all.slice(0, Math.max(0, i)).flatMap((l) => l.unlocks);
+}
 const firstLevel = (c: Campaign): LevelManifest | undefined => CAMPAIGN_LEVELS[c][0];
 
 export class FactoryStore {

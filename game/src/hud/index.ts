@@ -28,6 +28,7 @@ import { mountPaper } from './paper';
 import { pending, withRecipe } from './presets';
 import { rectToScreen } from '../floor/project';
 import { setSortCtx } from '../ui/sorts';
+import { isUnlockAll, setUnlockAll } from '../state/progress';
 import { parseExtra, slotFlags } from './slotparse';
 
 export interface AppOpts {
@@ -207,6 +208,16 @@ export function mountApp(root: HTMLElement, store: FactoryStore, opts: AppOpts =
     const s = store.get();
     const k = e.key;
     const mod = e.metaKey || e.ctrlKey;
+    // hidden play-testing switch: ⌥⇧U opens every level (and lends each the theorems the levels before it earn)
+    if (e.altKey && e.shiftKey && !mod && e.code === 'KeyU') {
+      e.preventDefault();
+      const on = !isUnlockAll();
+      setUnlockAll(on);
+      localStorage.setItem('commutator/unlock-all', on ? '1' : '0');
+      if (s.ui.screen === 'map') store.openMap(); else store.openLevel(s.ui.levelId);
+      store.setUI({ toast: { text: on ? 'Every level is open. ⌥⇧U closes them again.' : 'Levels open in order again.', kind: 'note', t: Date.now() } });
+      return;
+    }
     if (k.toLowerCase() === 'm' && !mod) { e.preventDefault(); if (s.ui.screen === 'map') store.openLevel(s.ui.levelId); else store.openMap(); return; }
     if (s.ui.screen === 'map') { if (k === 'Escape') store.openLevel(s.ui.levelId); return; }
     if (mod && k.toLowerCase() === 'z') { e.preventDefault(); if (e.shiftKey) store.redo(); else store.undo(); return; }

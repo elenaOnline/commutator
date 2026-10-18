@@ -21,7 +21,13 @@ export function levelsOf(save: SaveLike, c: Campaign): Record<string, Prog> {
 }
 export const isSolved = (save: SaveLike, id: string): boolean => !!levelsOf(save, campaignOf(id))[id]?.solvedAt;
 
+// A hidden play-testing switch (⌥⇧U in the game, or ?unlock=1): every level of both campaigns is open.
+let unlockAllLevels = false;
+export const setUnlockAll = (on: boolean): void => { unlockAllLevels = on; };
+export const isUnlockAll = (): boolean => unlockAllLevels;
+
 export function isOpen(save: SaveLike, lv: LevelManifest): boolean {
+  if (unlockAllLevels) return true;
   const c = campaignOf(lv);
   const all = CAMPAIGN_LEVELS[c];
   if (c === 'book') {
